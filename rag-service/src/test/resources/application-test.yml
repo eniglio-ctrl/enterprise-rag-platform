@@ -1,0 +1,9 @@
+spring:
+  ai:
+    ollama:
+      init:
+        pull-model-strategy: never
+    vectorstore:
+      pgvector:
+        # standalone in tests: no ingestion-service around to create the schema first
+        initialize-schema: true

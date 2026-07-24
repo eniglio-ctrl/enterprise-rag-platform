@@ -1,0 +1,70 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: rag-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${CHAT_MODEL:llama3.1}
+          temperature: 0.2
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:nomic-embed-text}
+      init:
+        pull-model-strategy: when_missing
+        chat:
+          include: true
+        embedding:
+          include: true
+
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+        # ingestion-service owns schema creation; rag-service only reads from it.
+        initialize-schema: false
+        schema-name: public
+        table-name: vector_store
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+rag:
+  top-k: 5
+  similarity-threshold: 0.5
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

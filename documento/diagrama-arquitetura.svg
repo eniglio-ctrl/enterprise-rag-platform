@@ -1,0 +1,78 @@
+<svg viewBox="0 0 1000 640" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1000" height="640" fill="#f7f9fc"/>
+
+  <text x="500" y="36" text-anchor="middle" font-size="22" font-weight="700" fill="#1a2233">enterprise-rag-platform — Arquitetura</text>
+
+  <!-- Browser -->
+  <rect x="400" y="62" width="200" height="50" rx="8" fill="#ffffff" stroke="#2f5fda" stroke-width="2"/>
+  <text x="500" y="92" text-anchor="middle" font-size="15" fill="#1a2233">Navegador (usuário)</text>
+
+  <!-- web-ui -->
+  <rect x="400" y="150" width="200" height="55" rx="8" fill="#eef2ff" stroke="#2f5fda" stroke-width="2"/>
+  <text x="500" y="174" text-anchor="middle" font-size="14" font-weight="600" fill="#1a2233">web-ui</text>
+  <text x="500" y="192" text-anchor="middle" font-size="12" fill="#5c6b7a">nginx :3000 (HTML/CSS/JS)</text>
+
+  <!-- ingestion-service -->
+  <rect x="140" y="270" width="230" height="65" rx="8" fill="#ffffff" stroke="#1a7f4b" stroke-width="2"/>
+  <text x="255" y="296" text-anchor="middle" font-size="14" font-weight="600" fill="#1a2233">ingestion-service</text>
+  <text x="255" y="314" text-anchor="middle" font-size="12" fill="#5c6b7a">:8081 · upload, chunk, embed</text>
+
+  <!-- rag-service -->
+  <rect x="630" y="270" width="230" height="65" rx="8" fill="#ffffff" stroke="#1a7f4b" stroke-width="2"/>
+  <text x="745" y="296" text-anchor="middle" font-size="14" font-weight="600" fill="#1a2233">rag-service</text>
+  <text x="745" y="314" text-anchor="middle" font-size="12" fill="#5c6b7a">:8082 · busca, geração, citações</text>
+
+  <!-- postgres/pgvector -->
+  <rect x="140" y="440" width="230" height="70" rx="8" fill="#fff7ed" stroke="#c2760b" stroke-width="2"/>
+  <text x="255" y="466" text-anchor="middle" font-size="14" font-weight="600" fill="#1a2233">PostgreSQL + pgvector</text>
+  <text x="255" y="484" text-anchor="middle" font-size="12" fill="#5c6b7a">:5432 · tabela vector_store</text>
+
+  <!-- ollama -->
+  <rect x="630" y="440" width="230" height="70" rx="8" fill="#fff7ed" stroke="#c2760b" stroke-width="2"/>
+  <text x="745" y="463" text-anchor="middle" font-size="14" font-weight="600" fill="#1a2233">Ollama</text>
+  <text x="745" y="481" text-anchor="middle" font-size="12" fill="#5c6b7a">:11434</text>
+  <text x="745" y="497" text-anchor="middle" font-size="12" fill="#5c6b7a">nomic-embed-text · llama3.1</text>
+
+  <!-- Browser -> web-ui -->
+  <line x1="500" y1="112" x2="500" y2="148" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- web-ui -> ingestion-service -->
+  <line x1="440" y1="205" x2="270" y2="268" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="320" y="230" font-size="11.5" fill="#5c6b7a">POST /api/v1/documents</text>
+
+  <!-- web-ui -> rag-service -->
+  <line x1="560" y1="205" x2="730" y2="268" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="650" y="230" font-size="11.5" fill="#5c6b7a">POST /api/v1/chat</text>
+
+  <!-- ingestion-service -> postgres -->
+  <line x1="255" y1="335" x2="255" y2="438" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="262" y="390" font-size="11.5" fill="#5c6b7a">grava chunks + embeddings</text>
+
+  <!-- rag-service -> postgres (busca por similaridade, somente leitura) -->
+  <line x1="630" y1="300" x2="372" y2="470" stroke="#4a5568" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+
+  <!-- ingestion-service -> ollama (gera embedding do chunk) -->
+  <line x1="370" y1="300" x2="628" y2="460" stroke="#4a5568" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow)"/>
+
+  <text x="500" y="530" text-anchor="middle" font-size="11.5" font-style="italic" fill="#5c6b7a">Linhas tracejadas: ingestion-service gera embedding do chunk no Ollama · rag-service busca por similaridade no pgvector (somente leitura)</text>
+
+  <!-- rag-service -> ollama -->
+  <line x1="745" y1="335" x2="745" y2="438" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="752" y="390" font-size="11.5" fill="#5c6b7a">embedding da pergunta + geração</text>
+
+  <!-- Legend -->
+  <rect x="40" y="565" width="14" height="14" fill="#ffffff" stroke="#1a7f4b" stroke-width="2"/>
+  <text x="62" y="576" font-size="12" fill="#5c6b7a">Serviços Spring Boot (Java 21)</text>
+
+  <rect x="40" y="590" width="14" height="14" fill="#fff7ed" stroke="#c2760b" stroke-width="2"/>
+  <text x="62" y="601" font-size="12" fill="#5c6b7a">Infraestrutura de dados / modelos</text>
+
+  <rect x="320" y="565" width="14" height="14" fill="#eef2ff" stroke="#2f5fda" stroke-width="2"/>
+  <text x="342" y="576" font-size="12" fill="#5c6b7a">Camada de apresentação</text>
+</svg>
