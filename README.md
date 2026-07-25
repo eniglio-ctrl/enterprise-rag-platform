@@ -1,5 +1,9 @@
 # enterprise-rag-platform
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
+[![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
+
 A Retrieval-Augmented Generation platform built like a real backend system, not a
 notebook: independent Spring Boot services, a shared Postgres/pgvector store, local-first
 inference through Ollama, structured logging, metrics, health checks, and documented
@@ -193,3 +197,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0004 — Citations from retrieval, not from the LLM](docs/adr/0004-citations-from-retrieval-not-llm.md)
 - [ADR 0005 — LLM-generated Mermaid diagrams instead of a fixed layout engine](docs/adr/0005-mermaid-for-generated-diagrams.md)
 - [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
+
+## License
+
+[MIT](LICENSE)
