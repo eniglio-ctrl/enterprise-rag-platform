@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.ingestion.integration;
 
+import com.eniglio.ragplatform.ingestion.IngestionServiceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.embedding.BatchingStrategy;
 import org.springframework.ai.embedding.Embedding;
@@ -37,7 +38,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * depend on a running Ollama server.
  */
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(classes = IngestionServiceApplication.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class DocumentIngestionIT {

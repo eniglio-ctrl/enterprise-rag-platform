@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Enterprise RAG Platform</title>
   <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 </head>
 <body>
   <header class="app-header">
@@ -30,16 +31,18 @@
       <ul id="upload-history" class="history"></ul>
     </section>
 
-    <section class="panel">
-      <h2>2. Ask a question</h2>
-      <p class="hint">Answers are grounded only in what has been uploaded, with citations back to the source chunk.</p>
+    <section class="panel panel-wide">
+      <h2>2. Ask</h2>
+      <p class="hint">Ask a question about what you uploaded, or ask for a diagram/drawing/flow of an
+        architecture or process described in it — the same box handles both, based on what you ask.
+        Running on a local model with no GPU, so a diagram can take a minute or two.</p>
 
-      <form id="chat-form">
-        <textarea id="question-input" placeholder="e.g. What are the two SAGA models?" rows="3" required></textarea>
-        <button type="submit" id="chat-button">Ask</button>
+      <form id="ask-form">
+        <textarea id="question-input" placeholder="e.g. What are the two SAGA models? or Draw the disaster recovery architecture described" rows="3" required></textarea>
+        <button type="submit" id="ask-button">Ask</button>
       </form>
 
-      <div id="chat-status" class="status" hidden></div>
+      <div id="ask-status" class="status" hidden></div>
 
       <div id="answer-card" class="answer-card" hidden>
         <h3>Answer</h3>
@@ -47,6 +50,11 @@
 
         <h4>Citations</h4>
         <ul id="citations-list" class="citations"></ul>
+      </div>
+
+      <div id="diagram-card" class="diagram-card" hidden>
+        <div id="diagram-output" class="diagram-output"></div>
+        <ul id="diagram-citations" class="citations"></ul>
       </div>
     </section>
   </main>

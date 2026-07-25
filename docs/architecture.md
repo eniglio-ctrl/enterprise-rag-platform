@@ -14,7 +14,7 @@ flowchart LR
     end
 
     U -- "POST /api/v1/documents" --> ING
-    U -- "POST /api/v1/chat" --> RAG
+    U -- "POST /api/v1/ask" --> RAG
     ING -- "embed chunks, INSERT" --> PG
     ING -- "embedding request" --> OLL
     RAG -- "similarity search" --> PG
@@ -50,6 +50,13 @@ sequenceDiagram
 
 ## Query flow
 
+`POST /api/v1/ask` is a single entry point: `rag-service` checks the question for
+diagram-intent keywords ("diagram", "draw", "flow", "architecture", ...) and routes to
+either a text answer or a Mermaid diagram — see
+[ADR 0006](adr/0006-unified-ask-endpoint-with-keyword-routing.md). The underlying
+single-purpose endpoints (`/api/v1/chat`, `/api/v1/diagrams`) still exist for callers
+that already know which one they want.
+
 ```mermaid
 sequenceDiagram
     participant U as Client
@@ -57,14 +64,20 @@ sequenceDiagram
     participant O as Ollama
     participant P as pgvector
 
-    U->>C: POST /api/v1/chat { question }
+    U->>C: POST /api/v1/ask { question }
     C->>O: embed(question)
     O-->>C: float[] vector
     C->>P: similaritySearch(vector, topK, threshold)
     P-->>C: List<Document> (top matches + score)
-    C->>O: chat(system + context, question)
-    O-->>C: generated answer
-    C-->>U: 200 { answer, citations[] }
+    alt question asks for a diagram
+        C->>O: generate Mermaid definition (system + context, question)
+        O-->>C: flowchart definition
+        C-->>U: 200 { type: "diagram", mermaid, citations[] }
+    else
+        C->>O: chat(system + context, question)
+        O-->>C: generated answer
+        C-->>U: 200 { type: "answer", answer, citations[] }
+    end
 ```
 
 Citations in the response are built directly from the documents the vector search

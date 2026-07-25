@@ -48,7 +48,7 @@
 
   <!-- web-ui -> rag-service -->
   <line x1="560" y1="205" x2="730" y2="268" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <text x="650" y="230" font-size="11.5" fill="#5c6b7a">POST /api/v1/chat</text>
+  <text x="650" y="230" font-size="11.5" fill="#5c6b7a">POST /api/v1/ask</text>
 
   <!-- ingestion-service -> postgres -->
   <line x1="255" y1="335" x2="255" y2="438" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arrow)"/>

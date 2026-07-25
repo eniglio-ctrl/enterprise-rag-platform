@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.rag.integration;
 
+import com.eniglio.ragplatform.rag.RagServiceApplication;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -42,7 +43,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * vector so the indexed chunk and the query always match.
  */
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(classes = RagServiceApplication.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class ChatQueryIT {

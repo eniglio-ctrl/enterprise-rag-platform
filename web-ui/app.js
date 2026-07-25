@@ -9,13 +9,20 @@ const uploadButton = document.getElementById("upload-button");
 const uploadStatus = document.getElementById("upload-status");
 const uploadHistory = document.getElementById("upload-history");
 
-const chatForm = document.getElementById("chat-form");
-const chatButton = document.getElementById("chat-button");
-const chatStatus = document.getElementById("chat-status");
+const askForm = document.getElementById("ask-form");
+const askButton = document.getElementById("ask-button");
+const askStatus = document.getElementById("ask-status");
 const questionInput = document.getElementById("question-input");
 const answerCard = document.getElementById("answer-card");
 const answerText = document.getElementById("answer-text");
 const citationsList = document.getElementById("citations-list");
+
+const diagramCard = document.getElementById("diagram-card");
+const diagramOutput = document.getElementById("diagram-output");
+const diagramCitations = document.getElementById("diagram-citations");
+let diagramCounter = 0;
+
+mermaid.initialize({ startOnLoad: false });
 
 document.getElementById("config-summary").textContent =
   `ingestion-service: ${INGESTION_BASE} · rag-service: ${RAG_BASE}`;
@@ -102,19 +109,20 @@ function addHistoryEntry({ source, chunkCount, pageCount }) {
   uploadHistory.prepend(item);
 }
 
-chatForm.addEventListener("submit", async (event) => {
+askForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const question = questionInput.value.trim();
   if (!question) {
     return;
   }
 
-  chatButton.disabled = true;
+  askButton.disabled = true;
   answerCard.hidden = true;
-  setStatus(chatStatus, "Retrieving context and generating an answer...");
+  diagramCard.hidden = true;
+  setStatus(askStatus, "Retrieving context and generating a response...");
 
   try {
-    const response = await fetch(`${RAG_BASE}/api/v1/chat`, {
+    const response = await fetch(`${RAG_BASE}/api/v1/ask`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ question }),
@@ -126,39 +134,68 @@ chatForm.addEventListener("submit", async (event) => {
       throw new Error(body.message ?? `Request failed with status ${response.status}`);
     }
 
-    setStatus(chatStatus, "");
-    renderAnswer(body);
+    if (body.type === "diagram") {
+      if (!body.mermaid || body.mermaid.includes("Dados insuficientes")) {
+        setStatus(askStatus, "No architecture, process or flow was found in the ingested content to diagram.", "error");
+        return;
+      }
+      setStatus(askStatus, "");
+      await renderDiagram(body);
+    } else {
+      setStatus(askStatus, "");
+      renderAnswer(body);
+    }
   } catch (error) {
-    setStatus(chatStatus, error.message ?? "Something went wrong.", "error");
+    setStatus(askStatus, error.message ?? "Something went wrong.", "error");
   } finally {
-    chatButton.disabled = false;
+    askButton.disabled = false;
   }
 });
 
 function renderAnswer({ answer, citations }) {
   answerText.textContent = answer;
-  citationsList.innerHTML = "";
+  renderCitations(citationsList, citations);
+  answerCard.hidden = false;
+}
+
+function renderCitations(listElement, citations) {
+  listElement.innerHTML = "";
 
   if (!citations || citations.length === 0) {
     const item = document.createElement("li");
     item.textContent = "No sources were retrieved for this question.";
-    citationsList.appendChild(item);
-  } else {
-    citations.forEach((citation) => {
-      const item = document.createElement("li");
-      const score = typeof citation.score === "number" ? citation.score.toFixed(3) : "n/a";
-      item.innerHTML = `
-        <div class="citation-head">
-          <span>${escapeHtml(citation.source)} &middot; chunk ${citation.chunkIndex}</span>
-          <span>score ${score}</span>
-        </div>
-        <div>${escapeHtml(citation.snippet)}</div>
-      `;
-      citationsList.appendChild(item);
-    });
+    listElement.appendChild(item);
+    return;
   }
 
-  answerCard.hidden = false;
+  citations.forEach((citation) => {
+    const item = document.createElement("li");
+    const score = typeof citation.score === "number" ? citation.score.toFixed(3) : "n/a";
+    item.innerHTML = `
+      <div class="citation-head">
+        <span>${escapeHtml(citation.source)} &middot; chunk ${citation.chunkIndex}</span>
+        <span>score ${score}</span>
+      </div>
+      <div>${escapeHtml(citation.snippet)}</div>
+    `;
+    listElement.appendChild(item);
+  });
+}
+
+async function renderDiagram({ mermaid: definition, citations }) {
+  diagramCounter += 1;
+
+  try {
+    const { svg } = await mermaid.render(`diagram-${diagramCounter}`, definition);
+    diagramOutput.innerHTML = svg;
+  } catch (error) {
+    diagramOutput.innerHTML = "";
+    setStatus(askStatus, "The generated diagram could not be rendered.", "error");
+    return;
+  }
+
+  renderCitations(diagramCitations, citations);
+  diagramCard.hidden = false;
 }
 
 function escapeHtml(value) {

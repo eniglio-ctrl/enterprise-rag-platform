@@ -68,4 +68,168 @@ class RagQueryServiceTest {
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
     }
+
+    @Test
+    void extractsMermaidDiagramFromRetrievedDocuments() {
+        Document document = Document.builder()
+                .text("O cliente envia dados para o Amazon S3, que aciona uma AWS Lambda para processar o arquivo.")
+                .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
+                .score(0.9)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3] --> C[AWS Lambda]";
+        String expectedMermaid = "flowchart LR\n    A[\"Cliente\"] --> B[\"Amazon S3\"] --> C[\"AWS Lambda\"]";
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("```mermaid\n" + rawMermaid + "\n```"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita");
+
+        assertThat(response.mermaid()).isEqualTo(expectedMermaid);
+        assertThat(response.citations()).hasSize(1);
+    }
+
+    @Test
+    void quotesUnquotedLabelsContainingPunctuationThatWouldBreakMermaid() {
+        Document document = Document.builder()
+                .text("O banco de dados replica entre duas zonas de disponibilidade.")
+                .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
+                .score(0.9)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        String rawMermaid = "flowchart LR\n    A[Banco de Dados] --> B[Multi-AZ (alta disponibilidade)]";
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(rawMermaid))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita");
+
+        assertThat(response.mermaid()).isEqualTo(
+                "flowchart LR\n    A[\"Banco de Dados\"] --> B[\"Multi-AZ (alta disponibilidade)\"]");
+    }
+
+    @Test
+    void fixesMalformedEdgeLabelsWithStrayAngleBracket() {
+        Document document = Document.builder()
+                .text("O ambiente de produção faz backup para o S3, que é restaurado na EC2.")
+                .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
+                .score(0.9)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        String rawMermaid = "flowchart LR\n    A[Producao] -->|Backup|> B[S3]";
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(rawMermaid))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe o fluxo descrito");
+
+        assertThat(response.mermaid()).isEqualTo(
+                "flowchart LR\n    A[\"Producao\"] -->|Backup| B[\"S3\"]");
+    }
+
+    @Test
+    void returnsEmptyDiagramWhenNothingIsRetrieved() {
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of());
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Pergunta sem contexto na base");
+
+        assertThat(response.mermaid()).contains("Dados insuficientes");
+        assertThat(response.citations()).isEmpty();
+    }
+
+    @Test
+    void askRoutesToDiagramWhenQuestionAsksForOne() {
+        Document document = Document.builder()
+                .text("O cliente envia dados para o Amazon S3, que aciona uma AWS Lambda.")
+                .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
+                .score(0.9)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(rawMermaid))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito");
+
+        assertThat(response.type()).isEqualTo("diagram");
+        assertThat(response.mermaid()).contains("Amazon S3");
+        assertThat(response.answer()).isNull();
+    }
+
+    @Test
+    void askRoutesToAnswerByDefault() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?");
+
+        assertThat(response.type()).isEqualTo("answer");
+        assertThat(response.answer()).contains("SAGA");
+        assertThat(response.mermaid()).isNull();
+    }
+
+    @Test
+    void askRoutesToDiagramForAccentedGraficoKeyword() {
+        Document document = Document.builder()
+                .text("O cliente envia dados para o Amazon S3, que aciona uma AWS Lambda.")
+                .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
+                .score(0.9)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+
+        String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(rawMermaid))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS");
+
+        assertThat(response.type()).isEqualTo("diagram");
+    }
 }

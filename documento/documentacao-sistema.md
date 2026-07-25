@@ -17,6 +17,9 @@ Na prática, o sistema permite:
 3. Fazer uma pergunta em linguagem natural sobre o conteúdo enviado e receber uma
    resposta gerada por LLM, **com citação exata da fonte** (arquivo, número do chunk e
    score de similaridade).
+4. Pedir um **diagrama de arquitetura** com base no que foi enviado (ex.: uma transcrição
+   de palestra descrevendo uma arquitetura AWS) e receber um diagrama Mermaid.js
+   desenhado a partir dos componentes e do fluxo mencionados no texto.
 
 ## 2. Diagrama de arquitetura
 
@@ -46,9 +49,17 @@ conteúdo já está pesquisável.
 - Geração de resposta com LLM local (Ollama), respondendo no mesmo idioma da pergunta.
 - Citação das fontes usadas na resposta — calculada a partir do que foi realmente
   recuperado na busca, não a partir do texto gerado pelo modelo (evita citação
-  "alucinada"; ver seção 7).
+  "alucinada"; ver seção 8).
+- Geração de diagramas de arquitetura (Mermaid.js) a partir dos componentes e fluxos
+  descritos no conteúdo indexado — útil para transcrições de palestras/reuniões técnicas
+  que descrevem uma arquitetura.
+- **Uma única caixa de pergunta** decide sozinha se deve responder em texto ou gerar um
+  diagrama, com base em palavras-chave na própria pergunta (ex.: "desenhe", "fluxo",
+  "arquitetura", "gráfico") — o usuário não precisa escolher o modo (ver seção 7 e
+  [ADR 0006](../docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)).
 - API REST documentada com OpenAPI/Swagger em cada serviço.
-- Interface web para upload e chat, sem necessidade de `curl`/Postman.
+- Interface web para upload e para perguntar/gerar diagramas, sem necessidade de
+  `curl`/Postman.
 - Logs estruturados (formato ECS), métricas Prometheus e health checks em ambos os
   serviços Java.
 - Testes unitários e de integração (estes últimos com Testcontainers, subindo um
@@ -63,6 +74,7 @@ conteúdo já está pesquisável.
 | Banco vetorial         | PostgreSQL 16 + extensão pgvector |
 | Modelos de IA          | Ollama — `nomic-embed-text` (embeddings) e `llama3.1` (chat) |
 | Frontend               | HTML/CSS/JS puro (sem framework, sem build), servido por nginx |
+| Diagramas              | Mermaid.js (renderizado no navegador a partir de texto gerado pelo LLM) |
 | Documentação de API    | springdoc-openapi / Swagger UI |
 | Observabilidade        | Micrometer + Prometheus, logs estruturados (ECS), Spring Boot Actuator |
 | Testes                 | JUnit 5, Mockito, Testcontainers |
@@ -102,7 +114,47 @@ automática e imediata.
    lista é construída diretamente a partir dos chunks recuperados na busca (arquivo,
    índice do chunk, score), e não a partir do texto gerado pelo modelo.
 
-## 7. Decisões de arquitetura (resumo)
+## 7. Roteamento único e fluxo de geração de diagramas
+
+A interface web tem **uma única caixa de pergunta** para tudo. Ao enviar, ela chama
+`POST /api/v1/ask`, e é o próprio `rag-service` quem decide o que fazer:
+
+1. O serviço verifica se a pergunta contém palavras que indicam pedido de diagrama
+   ("diagrama", "desenhe", "fluxo", "arquitetura", "imagem", "gráfico", "flowchart", etc.)
+   — a checagem ignora acentos, então "gráfico" e "grafico" funcionam igual.
+2. Se sim, segue o fluxo de diagrama abaixo. Se não, segue o fluxo de chat normal
+   (seção 6). A resposta sempre indica qual dos dois foi usado (campo `type`).
+
+Fluxo de diagrama, quando acionado:
+
+1. O `rag-service` recupera os chunks mais relevantes no pgvector, exatamente como no
+   fluxo de chat.
+2. Em vez de gerar uma resposta em prosa, o modelo é instruído a responder **apenas** com
+   uma definição de diagrama em [Mermaid.js](https://mermaid.js.org/) (formato
+   `flowchart LR`/`flowchart TD`), representando somente os componentes e conexões
+   explicitamente mencionados no contexto.
+3. O backend faz uma limpeza defensiva no texto retornado: remove blocos de código
+   Markdown (` ```mermaid ` ) que o modelo às vezes inclui por conta própria; força todo
+   rótulo de nó a vir entre aspas — um rótulo sem aspas contendo parênteses ou vírgula
+   (ex.: `B[Multi-AZ (alta disponibilidade)]`) quebra a sintaxe do Mermaid, mas com aspas
+   (`B["Multi-AZ (alta disponibilidade)"]`) funciona sempre; e corrige um `>` sobrando que
+   o modelo às vezes coloca depois do rótulo de uma seta (`-->|Backup|>` vira
+   `-->|Backup|`, a única forma válida).
+4. Se o contexto recuperado não descrever nenhuma arquitetura, processo ou fluxo, o
+   modelo retorna um único nó "dados insuficientes" em vez de inventar um diagrama.
+5. A definição Mermaid é enviada ao navegador, que a renderiza como SVG diretamente com
+   `mermaid.render(...)` — nenhum cálculo de posição de caixa/seta acontece no backend.
+
+O roteamento por palavra-chave é uma checagem simples de texto, não uma chamada extra ao
+LLM — ver [ADR 0006](../docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md).
+Os endpoints originais (`/api/v1/chat` e `/api/v1/diagrams`) continuam existindo
+separadamente para quem já sabe qual dos dois quer usar.
+
+A qualidade do diagrama (o quanto os componentes aparecem de fato conectados em um fluxo
+coerente, em vez de pares soltos) depende da capacidade do modelo local (`llama3.1`) de
+seguir as instruções — ver [ADR 0005](../docs/adr/0005-mermaid-for-generated-diagrams.md).
+
+## 8. Decisões de arquitetura (resumo)
 
 Documentadas em detalhe em [`../docs/adr`](../docs/adr):
 
@@ -116,8 +168,13 @@ Documentadas em detalhe em [`../docs/adr`](../docs/adr):
   único comando, sem chave de API nem custo por chamada.
 - **ADR 0004** — As citações retornadas vêm sempre da busca vetorial real, nunca de um
   parsing do texto do modelo, evitando o problema comum de "citação alucinada" em RAG.
+- **ADR 0005** — Diagramas de arquitetura são gerados pelo LLM como texto Mermaid.js
+  (renderizado no navegador), em vez de o backend calcular layout/posições; inclui as
+  correções defensivas de sempre citar rótulos de nó e corrigir setas malformadas.
+- **ADR 0006** — Existe um único endpoint `/api/v1/ask` que decide, por palavra-chave na
+  pergunta, se deve responder em texto ou gerar um diagrama — a interface web usa só ele.
 
-## 8. Como executar
+## 9. Como executar
 
 Pré-requisito: Docker e Docker Compose instalados. Não é necessário Java, Maven nem
 Ollama instalados na máquina — tudo roda dentro dos containers.
@@ -140,7 +197,7 @@ salvo em um volume Docker e as próximas subidas são rápidas.
 Para derrubar tudo: `docker compose down` (os dados e modelos ficam preservados em
 volumes; para apagar tudo também, `docker compose down -v`).
 
-## 9. Endpoints principais da API
+## 10. Endpoints principais da API
 
 ### Upload de documento
 
@@ -156,7 +213,34 @@ Resposta (`201 Created`):
 { "documentId": "…", "source": "arquivo.md", "pageCount": 1, "chunkCount": 3 }
 ```
 
-### Pergunta
+### Perguntar qualquer coisa (endpoint usado pela interface web)
+
+```
+POST /api/v1/ask
+Content-Type: application/json
+```
+
+```json
+{ "question": "Como funciona o padrão SAGA?" }
+```
+
+Resposta (`200 OK`) — decide sozinho entre texto e diagrama:
+
+```json
+{
+  "type": "answer",
+  "answer": "O padrão SAGA coordena transações distribuídas... [1]",
+  "mermaid": null,
+  "citations": [
+    { "source": "arquivo.md", "chunkIndex": 0, "score": 0.83, "snippet": "O padrão SAGA..." }
+  ]
+}
+```
+
+Se a pergunta pedir um diagrama (ex.: "desenhe..."), `type` vem `"diagram"` e o campo
+`mermaid` vem preenchido em vez de `answer`.
+
+### Pergunta (endpoint específico, só texto)
 
 ```
 POST /api/v1/chat
@@ -183,7 +267,29 @@ Resposta (`200 OK`):
 }
 ```
 
-## 10. Estrutura de pastas do repositório
+### Diagrama de arquitetura (endpoint específico, só diagrama)
+
+```
+POST /api/v1/diagrams
+Content-Type: application/json
+```
+
+```json
+{ "question": "Desenhe a arquitetura de recuperação de desastres descrita" }
+```
+
+Resposta (`200 OK`):
+
+```json
+{
+  "mermaid": "flowchart LR\n    A[\"Ambiente de Produção\"] --> B[\"Ambiente de Recuperação\"]\n    ...",
+  "citations": [
+    { "source": "palestra-aws.txt", "chunkIndex": 3, "score": 0.74, "snippet": "..." }
+  ]
+}
+```
+
+## 11. Estrutura de pastas do repositório
 
 ```
 enterprise-rag-platform/
@@ -197,7 +303,7 @@ enterprise-rag-platform/
 └── pom.xml               # projeto Maven multi-módulo (parent)
 ```
 
-## 11. Testes
+## 12. Testes
 
 ```bash
 ./mvnw test      # testes unitários — não precisam de Docker
@@ -208,7 +314,7 @@ Os testes de integração sobem um PostgreSQL/pgvector real via Testcontainers e
 apenas os modelos de IA (embedding e chat), validando o fluxo completo de
 ingestão/consulta contra um banco de verdade, e não contra um dublê genérico.
 
-## 12. Roadmap (próximos passos)
+## 13. Roadmap (próximos passos)
 
 - **chat-service**: conversas com memória de múltiplos turnos (Spring AI `ChatMemory`).
 - **auth-service**: autenticação JWT/OAuth2, permitindo ingestão e chat por

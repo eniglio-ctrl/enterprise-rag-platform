@@ -6,7 +6,9 @@ inference through Ollama, structured logging, metrics, health checks, and docume
 architecture decisions.
 
 Upload a PDF/DOCX/Markdown/text file, ask a question, get back an answer with the exact
-chunks (source + score) it was grounded in.
+chunks (source + score) it was grounded in — or ask for a diagram and get the
+architecture/flow described in that document drawn as a Mermaid diagram, extracted by the
+LLM straight from the ingested content.
 
 ## Architecture
 
@@ -24,7 +26,7 @@ flowchart LR
 
     U --> WEB
     WEB -- "POST /api/v1/documents" --> ING
-    WEB -- "POST /api/v1/chat" --> RAG
+    WEB -- "POST /api/v1/ask" --> RAG
     ING -- "embed chunks, INSERT" --> PG
     ING -- "embedding request" --> OLL
     RAG -- "similarity search" --> PG
@@ -60,7 +62,7 @@ enterprise-rag-platform/
 | API docs            | springdoc-openapi / Swagger UI            |
 | Observability       | Micrometer + Prometheus, Spring Boot structured (ECS) logs, Actuator health |
 | Testing             | JUnit 5, Mockito, Testcontainers (Postgres/pgvector) |
-| Frontend            | Vanilla HTML/CSS/JS (no build step), served by nginx |
+| Frontend            | Vanilla HTML/CSS/JS (no build step), served by nginx; Mermaid.js for diagrams |
 | Packaging            | Docker, Docker Compose                    |
 
 ## Running it
@@ -81,9 +83,10 @@ First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `lla
 | ingestion-service | http://localhost:8081/swagger-ui.html            |
 | rag-service       | http://localhost:8082/swagger-ui.html            |
 
-The web UI at `localhost:3000` covers both flows — drag a file in to upload and index it,
-then ask a question and see the answer with its citations. The sections below show the
-same two flows via `curl`, useful for scripting or CI.
+The web UI at `localhost:3000` has one box to upload a file and one box to ask
+anything — a question gets a text answer with citations, and a request for a
+diagram/drawing/flow gets a Mermaid diagram instead, all through the same input. The
+sections below show the underlying flows via `curl`, useful for scripting or CI.
 
 ### Ingest a document
 
@@ -96,22 +99,62 @@ curl -X POST http://localhost:8081/api/v1/documents \
 { "documentId": "…", "source": "aula12.md", "pageCount": 1, "chunkCount": 3 }
 ```
 
-### Ask a question
+### Ask anything
+
+This is what the web UI calls — one endpoint, routes itself to a text answer or a
+diagram based on the question.
 
 ```bash
-curl -X POST http://localhost:8082/api/v1/chat \
+curl -X POST http://localhost:8082/api/v1/ask \
   -H "Content-Type: application/json" \
   -d '{"question": "Como funciona o padrão SAGA?"}'
 ```
 
 ```json
 {
+  "type": "answer",
   "answer": "O padrão SAGA coordena transações distribuídas... [1]",
+  "mermaid": null,
   "citations": [
     { "source": "aula12.md", "chunkIndex": 0, "score": 0.83, "snippet": "O padrão SAGA..." }
   ]
 }
 ```
+
+```bash
+curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Draw the disaster recovery architecture described"}'
+```
+
+```json
+{
+  "type": "diagram",
+  "answer": null,
+  "mermaid": "flowchart LR\n    A[\"Ambiente de Produção\"] --> B[\"Ambiente de Recuperação\"]\n    ...",
+  "citations": [ { "source": "aws-dr-talk.txt", "chunkIndex": 3, "score": 0.74, "snippet": "..." } ]
+}
+```
+
+Routing is a plain keyword check on the question (mentions of "diagram", "draw", "flow",
+"architecture", etc.) rather than an extra LLM call, so it's fast and predictable. The
+underlying single-purpose endpoints (`/api/v1/chat`, `/api/v1/diagrams`) still exist too,
+useful when a caller already knows which one it wants:
+
+```bash
+curl -X POST http://localhost:8082/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Como funciona o padrão SAGA?"}'
+
+curl -X POST http://localhost:8082/api/v1/diagrams \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Draw the disaster recovery architecture described"}'
+```
+
+`mermaid` is a ready-to-render [Mermaid.js](https://mermaid.js.org/) flowchart definition;
+the web UI renders it directly with `mermaid.render(...)`. If the retrieved content
+doesn't describe an architecture, process or flow, `mermaid` comes back as a single
+"insufficient data" node instead of a fabricated diagram.
 
 ## Running the tests
 
@@ -148,3 +191,5 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0002 — Shared database between services (MVP simplification)](docs/adr/0002-shared-database-between-services.md)
 - [ADR 0003 — Ollama for local-first inference](docs/adr/0003-ollama-for-local-first-inference.md)
 - [ADR 0004 — Citations from retrieval, not from the LLM](docs/adr/0004-citations-from-retrieval-not-llm.md)
+- [ADR 0005 — LLM-generated Mermaid diagrams instead of a fixed layout engine](docs/adr/0005-mermaid-for-generated-diagrams.md)
+- [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
