@@ -60,6 +60,23 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+resilience4j:
+  retry:
+    instances:
+      ollama:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+  circuitbreaker:
+    instances:
+      ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
 ingestion:
   chunk-size-tokens: 800
   allowed-content-types:

@@ -213,6 +213,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
 - [ADR 0007 — Tenancy data contract (tenantId + userId), without real authentication yet](docs/adr/0007-tenancy-data-contract.md)
 - [ADR 0008 — Opt-in groundedness check as a second LLM call](docs/adr/0008-groundedness-check.md)
+- [ADR 0009 — Retry + circuit breaker around every Ollama call](docs/adr/0009-resilience4j-retry-circuit-breaker.md)
 
 ## License
 

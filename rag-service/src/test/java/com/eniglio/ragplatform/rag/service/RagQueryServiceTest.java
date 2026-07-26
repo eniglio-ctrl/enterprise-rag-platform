@@ -1,6 +1,8 @@
 package com.eniglio.ragplatform.rag.service;
 
 import com.eniglio.ragplatform.rag.config.RagProperties;
+import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import com.eniglio.ragplatform.rag.gateway.VectorStoreGateway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -46,7 +48,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", false);
 
@@ -76,7 +78,7 @@ class RagQueryServiceTest {
         });
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
 
@@ -102,7 +104,7 @@ class RagQueryServiceTest {
         });
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
 
@@ -114,7 +116,7 @@ class RagQueryServiceTest {
         given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of());
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false);
 
@@ -140,7 +142,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
@@ -165,7 +167,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
@@ -190,7 +192,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default");
 
@@ -203,7 +205,7 @@ class RagQueryServiceTest {
         given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of());
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default");
 
@@ -228,7 +230,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false);
 
@@ -253,7 +255,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?", "default", false);
 
@@ -279,7 +281,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
 
         com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false);
 

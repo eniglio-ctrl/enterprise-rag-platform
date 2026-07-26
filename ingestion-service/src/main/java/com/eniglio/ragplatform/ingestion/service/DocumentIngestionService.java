@@ -1,11 +1,11 @@
 package com.eniglio.ragplatform.ingestion.service;
 
 import com.eniglio.ragplatform.ingestion.dto.IngestResponse;
+import com.eniglio.ragplatform.ingestion.gateway.VectorStoreGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -20,14 +20,14 @@ public class DocumentIngestionService {
 
     private final DocumentReaderFactory documentReaderFactory;
     private final TokenTextSplitter tokenTextSplitter;
-    private final VectorStore vectorStore;
+    private final VectorStoreGateway vectorStoreGateway;
 
     public DocumentIngestionService(DocumentReaderFactory documentReaderFactory,
                                      TokenTextSplitter tokenTextSplitter,
-                                     VectorStore vectorStore) {
+                                     VectorStoreGateway vectorStoreGateway) {
         this.documentReaderFactory = documentReaderFactory;
         this.tokenTextSplitter = tokenTextSplitter;
-        this.vectorStore = vectorStore;
+        this.vectorStoreGateway = vectorStoreGateway;
     }
 
     public IngestResponse ingest(MultipartFile file, String tenantId, String userId) {
@@ -51,7 +51,7 @@ public class DocumentIngestionService {
             chunks.get(i).getMetadata().put("chunkIndex", i);
         }
 
-        vectorStore.add(chunks);
+        vectorStoreGateway.add(chunks);
 
         log.info("Ingested document source={} documentId={} pages={} chunks={}",
                 source, documentId, pages.size(), chunks.size());

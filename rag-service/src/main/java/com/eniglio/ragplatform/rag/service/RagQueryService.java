@@ -6,13 +6,14 @@ import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.Citation;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import com.eniglio.ragplatform.rag.gateway.VectorStoreGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
@@ -86,13 +87,16 @@ public class RagQueryService {
             "imagem", "picture", "esquema", "flowchart", "grafico", "chart", "grafo", "mapa mental",
             "mindmap", "ilustra");
 
-    private final VectorStore vectorStore;
+    private final VectorStoreGateway vectorStoreGateway;
     private final ChatClient chatClient;
+    private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
 
-    public RagQueryService(VectorStore vectorStore, ChatClient chatClient, RagProperties ragProperties) {
-        this.vectorStore = vectorStore;
+    public RagQueryService(VectorStoreGateway vectorStoreGateway, ChatClient chatClient, LlmGateway llmGateway,
+                            RagProperties ragProperties) {
+        this.vectorStoreGateway = vectorStoreGateway;
         this.chatClient = chatClient;
+        this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
     }
 
@@ -134,7 +138,7 @@ public class RagQueryService {
                 .filterExpression(tenantFilter(tenantId))
                 .build();
 
-        List<Document> retrieved = vectorStore.similaritySearch(searchRequest);
+        List<Document> retrieved = vectorStoreGateway.search(searchRequest);
 
         if (retrieved.isEmpty()) {
             log.info("No relevant chunks found for question");
@@ -145,11 +149,11 @@ public class RagQueryService {
 
         String context = buildContext(retrieved);
 
-        String answer = chatClient.prompt()
+        String answer = llmGateway.call(() -> chatClient.prompt()
                 .system(spec -> spec.text(SYSTEM_TEMPLATE).param("context", context))
                 .user(question)
                 .call()
-                .content();
+                .content());
 
         List<Citation> citations = buildCitations(retrieved);
         Groundedness groundedness = grounded ? checkGroundedness(context, answer) : null;
@@ -166,12 +170,12 @@ public class RagQueryService {
      * classification, not prose, so deterministic output is worth more than variety.
      */
     private Groundedness checkGroundedness(String context, String answer) {
-        String verdict = chatClient.prompt()
+        String verdict = llmGateway.call(() -> chatClient.prompt()
                 .system(spec -> spec.text(GROUNDEDNESS_SYSTEM_TEMPLATE).param("context", context))
                 .user("RESPOSTA:\n" + answer)
                 .options(OllamaOptions.builder().temperature(0.0).build())
                 .call()
-                .content();
+                .content());
         return parseGroundedness(verdict);
     }
 
@@ -195,7 +199,7 @@ public class RagQueryService {
                 .filterExpression(tenantFilter(tenantId))
                 .build();
 
-        List<Document> retrieved = vectorStore.similaritySearch(searchRequest);
+        List<Document> retrieved = vectorStoreGateway.search(searchRequest);
 
         if (retrieved.isEmpty()) {
             log.info("No relevant chunks found for diagram question");
@@ -206,12 +210,12 @@ public class RagQueryService {
 
         String mermaid;
         try {
-            String raw = chatClient.prompt()
+            String raw = llmGateway.call(() -> chatClient.prompt()
                     .system(spec -> spec.text(DIAGRAM_SYSTEM_TEMPLATE).param("context", context))
                     .user(question)
                     .options(OllamaOptions.builder().temperature(0.0).build())
                     .call()
-                    .content();
+                    .content());
             mermaid = fixMalformedEdgeLabels(quoteBracketLabels(stripCodeFences(raw)));
         } catch (Exception e) {
             log.warn("Failed to generate a diagram from the model response", e);
