@@ -65,6 +65,12 @@ springdoc:
 rag:
   top-k: 5
   similarity-threshold: 0.5
+  ollama:
+    connect-timeout: 5s
+    # Diagram/chat generation is CPU-bound local inference and can legitimately take
+    # over a minute — 180s gives real responses headroom without hanging forever on a
+    # genuinely stuck model.
+    read-timeout: 180s
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

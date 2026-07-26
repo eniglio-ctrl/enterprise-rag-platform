@@ -1,5 +1,6 @@
 # enterprise-rag-platform
 
+[![CI](https://github.com/eniglio-ctrl/enterprise-rag-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/eniglio-ctrl/enterprise-rag-platform/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
@@ -9,10 +10,11 @@ notebook: independent Spring Boot services, a shared Postgres/pgvector store, lo
 inference through Ollama, structured logging, metrics, health checks, and documented
 architecture decisions.
 
-Upload a PDF/DOCX/Markdown/text file, ask a question, get back an answer with the exact
-chunks (source + score) it was grounded in — or ask for a diagram and get the
-architecture/flow described in that document drawn as a Mermaid diagram, extracted by the
-LLM straight from the ingested content.
+Upload a document — a talk transcript, a design doc, meeting notes — and ask it to draw
+the architecture or flow it describes: the LLM extracts the components and relationships
+straight from the ingested content and returns a rendered Mermaid diagram, no
+fixed layout engine involved. Ask a plain question instead and get a text answer with the
+exact chunks (source + score) it was grounded in. Both go through the same input box.
 
 ## Architecture
 
@@ -105,8 +107,33 @@ curl -X POST http://localhost:8081/api/v1/documents \
 
 ### Ask anything
 
-This is what the web UI calls — one endpoint, routes itself to a text answer or a
-diagram based on the question.
+This is what the web UI calls — one endpoint, routes itself to a diagram or a text
+answer based on the question.
+
+```bash
+curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "Draw the disaster recovery architecture described"}'
+```
+
+```json
+{
+  "type": "diagram",
+  "answer": null,
+  "mermaid": "flowchart LR\n    A[\"Ambiente de Produção\"] --> B[\"Ambiente de Recuperação\"]\n    ...",
+  "citations": [ { "source": "aws-dr-talk.txt", "chunkIndex": 3, "score": 0.74, "snippet": "..." } ]
+}
+```
+
+That transcript never contained a diagram — the LLM read the described setup and
+produced this flowchart from scratch:
+
+```mermaid
+flowchart LR
+    A["Ambiente de Produção"] --> B["Ambiente de Recuperação"]
+    B --> C["Backup contínuo"]
+    C --> A
+```
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/ask \
@@ -122,21 +149,6 @@ curl -X POST http://localhost:8082/api/v1/ask \
   "citations": [
     { "source": "aula12.md", "chunkIndex": 0, "score": 0.83, "snippet": "O padrão SAGA..." }
   ]
-}
-```
-
-```bash
-curl -X POST http://localhost:8082/api/v1/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Draw the disaster recovery architecture described"}'
-```
-
-```json
-{
-  "type": "diagram",
-  "answer": null,
-  "mermaid": "flowchart LR\n    A[\"Ambiente de Produção\"] --> B[\"Ambiente de Recuperação\"]\n    ...",
-  "citations": [ { "source": "aws-dr-talk.txt", "chunkIndex": 3, "score": 0.74, "snippet": "..." } ]
 }
 ```
 
@@ -182,8 +194,6 @@ are fully working end to end, rather than six half-built modules. What's next:
 - **Hybrid search + re-ranking** — combine pgvector similarity with Postgres full-text
   (`tsvector`) search, re-rank the merged candidates with a cross-encoder.
 - **Kubernetes manifests** — Deployments, Services, ConfigMaps, HPA for each service.
-- **CI** — GitHub Actions running `./mvnw verify` (including the Testcontainers suite)
-  on every PR.
 - **Grafana dashboards** on top of the Prometheus metrics already exposed by both
   services.
 - Groundedness check for generated answers (see
