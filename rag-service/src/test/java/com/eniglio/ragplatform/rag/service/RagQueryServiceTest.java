@@ -48,12 +48,65 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default");
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", false);
 
         assertThat(response.answer()).contains("SAGA");
         assertThat(response.citations()).hasSize(1);
         assertThat(response.citations().get(0).source()).isEqualTo("aula12.md");
         assertThat(response.citations().get(0).chunkIndex()).isEqualTo(3);
+        assertThat(response.groundedness()).isNull();
+    }
+
+    @Test
+    void groundedAnswerIsMarkedSupportedWhenVerificationSaysSo() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
+                    ? "SUPORTADA"
+                    : "O padrão SAGA é usado para transações distribuídas [1]";
+            return new org.springframework.ai.chat.model.ChatResponse(
+                    List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
+
+        assertThat(response.groundedness()).isEqualTo(com.eniglio.ragplatform.rag.dto.Groundedness.SUPPORTED);
+    }
+
+    @Test
+    void groundedAnswerIsMarkedNotSupportedWhenVerificationSaysSo() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
+                    ? "NAO_SUPORTADA"
+                    : "O padrão SAGA foi inventado no Brasil em 1990 [1]";
+            return new org.springframework.ai.chat.model.ChatResponse(
+                    List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
+
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
+
+        assertThat(response.groundedness()).isEqualTo(com.eniglio.ragplatform.rag.dto.Groundedness.NOT_SUPPORTED);
     }
 
     @Test
@@ -63,7 +116,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base", "default");
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false);
 
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
@@ -177,7 +230,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito", "default");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false);
 
         assertThat(response.type()).isEqualTo("diagram");
         assertThat(response.mermaid()).contains("Amazon S3");
@@ -202,7 +255,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?", "default");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?", "default", false);
 
         assertThat(response.type()).isEqualTo("answer");
         assertThat(response.answer()).contains("SAGA");
@@ -228,7 +281,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false);
 
         assertThat(response.type()).isEqualTo("diagram");
     }

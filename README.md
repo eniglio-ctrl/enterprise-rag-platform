@@ -148,9 +148,15 @@ curl -X POST http://localhost:8082/api/v1/ask \
   "mermaid": null,
   "citations": [
     { "source": "aula12.md", "chunkIndex": 0, "score": 0.83, "snippet": "O padrão SAGA..." }
-  ]
+  ],
+  "groundedness": null
 }
 ```
+
+Add `"grounded": true` to the request to get a second, cheap opinion on whether the
+answer is actually backed by the retrieved context (`"groundedness": "SUPPORTED"` or
+`"NOT_SUPPORTED"`) — off by default since it's a second LLM call, roughly doubling
+latency. See [ADR 0008](docs/adr/0008-groundedness-check.md).
 
 Routing is a plain keyword check on the question (mentions of "diagram", "draw", "flow",
 "architecture", etc.) rather than an extra LLM call, so it's fast and predictable. The
@@ -196,8 +202,6 @@ are fully working end to end, rather than six half-built modules. What's next:
 - **Kubernetes manifests** — Deployments, Services, ConfigMaps, HPA for each service.
 - **Grafana dashboards** on top of the Prometheus metrics already exposed by both
   services.
-- Groundedness check for generated answers (see
-  [ADR 0004](docs/adr/0004-citations-from-retrieval-not-llm.md)).
 
 ## Architecture decisions
 
@@ -208,6 +212,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0005 — LLM-generated Mermaid diagrams instead of a fixed layout engine](docs/adr/0005-mermaid-for-generated-diagrams.md)
 - [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
 - [ADR 0007 — Tenancy data contract (tenantId + userId), without real authentication yet](docs/adr/0007-tenancy-data-contract.md)
+- [ADR 0008 — Opt-in groundedness check as a second LLM call](docs/adr/0008-groundedness-check.md)
 
 ## License
 

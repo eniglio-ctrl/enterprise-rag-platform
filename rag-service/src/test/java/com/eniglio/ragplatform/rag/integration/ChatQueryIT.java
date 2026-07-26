@@ -87,8 +87,18 @@ class ChatQueryIT {
                     return documents.stream().map(doc -> fixedVector).toList();
                 });
 
-        given(chatModel.call(any(Prompt.class))).willReturn(new ChatResponse(
-                List.of(new Generation(new AssistantMessage("O padrão SAGA coordena transações distribuídas [1]")))));
+        // Two different prompts go through this same mock: the regular answer prompt
+        // and the groundedness-verification prompt (ADR 0008). A single canned
+        // response for both would make grounded=true silently pass without actually
+        // exercising the verification path, so the verdict text is picked by
+        // inspecting which system prompt was used.
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
+                    ? "SUPORTADA"
+                    : "O padrão SAGA coordena transações distribuídas [1]";
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(content))));
+        });
 
         vectorStore.add(List.of(Document.builder()
                 .text("O padrão SAGA coordena transações distribuídas usando choreography ou orchestration.")
@@ -125,6 +135,41 @@ class ChatQueryIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.citations.length()").value(1))
                 .andExpect(jsonPath("$.citations[0].source").value("tenant-a-doc.md"));
+    }
+
+    @Test
+    void groundedRequestReturnsSupportedVerdict() throws Exception {
+        mockMvc.perform(post("/api/v1/chat")
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona o padrão SAGA?\",\"grounded\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groundedness").value("SUPPORTED"));
+    }
+
+    @Test
+    void groundedRequestReturnsNotSupportedVerdict() throws Exception {
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
+                    ? "NAO_SUPORTADA"
+                    : "O padrão SAGA foi inventado no Brasil em 1990 [1]";
+            return new ChatResponse(List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        mockMvc.perform(post("/api/v1/chat")
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona o padrão SAGA?\",\"grounded\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groundedness").value("NOT_SUPPORTED"));
+    }
+
+    @Test
+    void ungroundedRequestOmitsGroundedness() throws Exception {
+        mockMvc.perform(post("/api/v1/chat")
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groundedness").doesNotExist());
     }
 
     private static float[] fixedVector() {

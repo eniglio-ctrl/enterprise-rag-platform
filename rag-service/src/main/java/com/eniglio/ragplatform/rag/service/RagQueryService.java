@@ -5,6 +5,7 @@ import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.Citation;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.Groundedness;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -65,6 +66,15 @@ public class RagQueryService {
             {context}
             """;
 
+    private static final String GROUNDEDNESS_SYSTEM_TEMPLATE = """
+            Dado o CONTEXTO e a RESPOSTA abaixo, responda apenas "SUPORTADA" ou "NAO_SUPORTADA".
+            Considere SUPORTADA se todas as afirmações da resposta podem ser verificadas no contexto.
+            Considere NAO_SUPORTADA se a resposta contém qualquer afirmação que não aparece no contexto.
+
+            CONTEXTO:
+            {context}
+            """;
+
     private static final String EMPTY_DIAGRAM = "flowchart LR\n    A[Dados insuficientes para gerar um diagrama]";
 
     private static final Pattern BRACKET_LABEL = Pattern.compile("\\[([^\\[\\]]*)]");
@@ -92,13 +102,13 @@ public class RagQueryService {
      * {@link #answer(String, String)}. Routing is a plain keyword check on the
      * question text rather than an extra LLM call, keeping it fast and predictable.
      */
-    public AskResponse ask(String question, String tenantId) {
+    public AskResponse ask(String question, String tenantId, boolean grounded) {
         if (wantsDiagram(question)) {
             DiagramResponse diagram = diagram(question, tenantId);
-            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations());
+            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null);
         }
-        ChatResponse chat = answer(question, tenantId);
-        return new AskResponse("answer", chat.answer(), null, chat.citations());
+        ChatResponse chat = answer(question, tenantId, grounded);
+        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness());
     }
 
     private boolean wantsDiagram(String question) {
@@ -116,7 +126,7 @@ public class RagQueryService {
         return decomposed.replaceAll("\\p{M}", "");
     }
 
-    public ChatResponse answer(String question, String tenantId) {
+    public ChatResponse answer(String question, String tenantId, boolean grounded) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(question)
                 .topK(ragProperties.topK())
@@ -130,7 +140,7 @@ public class RagQueryService {
             log.info("No relevant chunks found for question");
             return new ChatResponse(
                     "Não encontrei informação suficiente na base de conhecimento para responder a essa pergunta.",
-                    List.of());
+                    List.of(), null);
         }
 
         String context = buildContext(retrieved);
@@ -142,10 +152,39 @@ public class RagQueryService {
                 .content();
 
         List<Citation> citations = buildCitations(retrieved);
+        Groundedness groundedness = grounded ? checkGroundedness(context, answer) : null;
 
         log.info("Answered question using {} retrieved chunks", retrieved.size());
 
-        return new ChatResponse(answer, citations);
+        return new ChatResponse(answer, citations, groundedness);
+    }
+
+    /**
+     * A second LLM call asking whether the answer is actually backed by the retrieved
+     * context (ADR 0008) — opt-in per request since it roughly doubles latency.
+     * Temperature 0.0 for the same reason as diagram generation: this is a
+     * classification, not prose, so deterministic output is worth more than variety.
+     */
+    private Groundedness checkGroundedness(String context, String answer) {
+        String verdict = chatClient.prompt()
+                .system(spec -> spec.text(GROUNDEDNESS_SYSTEM_TEMPLATE).param("context", context))
+                .user("RESPOSTA:\n" + answer)
+                .options(OllamaOptions.builder().temperature(0.0).build())
+                .call()
+                .content();
+        return parseGroundedness(verdict);
+    }
+
+    private Groundedness parseGroundedness(String verdict) {
+        String normalized = stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT));
+        if (normalized.contains("NAO_SUPORTADA") || normalized.contains("NAO SUPORTADA")) {
+            return Groundedness.NOT_SUPPORTED;
+        }
+        if (normalized.contains("SUPORTADA")) {
+            return Groundedness.SUPPORTED;
+        }
+        log.warn("Unexpected groundedness verdict from model, defaulting to SUPPORTED: {}", verdict);
+        return Groundedness.SUPPORTED;
     }
 
     public DiagramResponse diagram(String question, String tenantId) {
