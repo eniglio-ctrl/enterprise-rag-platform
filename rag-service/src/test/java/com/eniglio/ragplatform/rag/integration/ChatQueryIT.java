@@ -92,7 +92,7 @@ class ChatQueryIT {
 
         vectorStore.add(List.of(Document.builder()
                 .text("O padrão SAGA coordena transações distribuídas usando choreography ou orchestration.")
-                .metadata(Map.of("source", "aula12.md", "documentId", "doc-1", "chunkIndex", 0))
+                .metadata(Map.of("source", "aula12.md", "documentId", "doc-1", "chunkIndex", 0, "tenantId", "default"))
                 .build()));
     }
 
@@ -104,6 +104,27 @@ class ChatQueryIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("SAGA")))
                 .andExpect(jsonPath("$.citations[0].source").value("aula12.md"));
+    }
+
+    @Test
+    void isolatesRetrievalByTenantId() throws Exception {
+        vectorStore.add(List.of(
+                Document.builder()
+                        .text("O padrão SAGA coordena transações distribuídas usando choreography ou orchestration.")
+                        .metadata(Map.of("source", "tenant-a-doc.md", "documentId", "doc-a", "chunkIndex", 0, "tenantId", "tenant-a"))
+                        .build(),
+                Document.builder()
+                        .text("O padrão SAGA coordena transações distribuídas usando choreography ou orchestration.")
+                        .metadata(Map.of("source", "tenant-b-doc.md", "documentId", "doc-b", "chunkIndex", 0, "tenantId", "tenant-b"))
+                        .build()));
+
+        mockMvc.perform(post("/api/v1/chat")
+                        .header("X-Tenant-Id", "tenant-a")
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations.length()").value(1))
+                .andExpect(jsonPath("$.citations[0].source").value("tenant-a-doc.md"));
     }
 
     private static float[] fixedVector() {

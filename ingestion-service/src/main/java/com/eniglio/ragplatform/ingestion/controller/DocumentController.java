@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -28,8 +29,11 @@ public class DocumentController {
     @ApiResponse(responseCode = "201", description = "Document ingested successfully")
     @ApiResponse(responseCode = "415", description = "Unsupported file type")
     @PostMapping(value = "/api/v1/documents", consumes = "multipart/form-data")
-    public ResponseEntity<IngestResponse> upload(@RequestParam("file") @NotNull MultipartFile file) {
-        IngestResponse response = documentIngestionService.ingest(file);
+    public ResponseEntity<IngestResponse> upload(
+            @RequestParam("file") @NotNull MultipartFile file,
+            @RequestHeader(value = "X-Tenant-Id", required = false, defaultValue = "default") String tenantId,
+            @RequestHeader(value = "X-User-Id", required = false, defaultValue = "default") String userId) {
+        IngestResponse response = documentIngestionService.ingest(file, tenantId, userId);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }

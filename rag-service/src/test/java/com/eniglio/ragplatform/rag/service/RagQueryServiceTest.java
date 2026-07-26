@@ -48,7 +48,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?");
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default");
 
         assertThat(response.answer()).contains("SAGA");
         assertThat(response.citations()).hasSize(1);
@@ -63,7 +63,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base");
+        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base", "default");
 
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
@@ -89,7 +89,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita");
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
         assertThat(response.mermaid()).isEqualTo(expectedMermaid);
         assertThat(response.citations()).hasSize(1);
@@ -114,7 +114,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita");
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Banco de Dados\"] --> B[\"Multi-AZ (alta disponibilidade)\"]");
@@ -139,7 +139,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe o fluxo descrito");
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default");
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Producao\"] -->|Backup| B[\"S3\"]");
@@ -152,7 +152,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Pergunta sem contexto na base");
+        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default");
 
         assertThat(response.mermaid()).contains("Dados insuficientes");
         assertThat(response.citations()).isEmpty();
@@ -177,7 +177,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito", "default");
 
         assertThat(response.type()).isEqualTo("diagram");
         assertThat(response.mermaid()).contains("Amazon S3");
@@ -202,7 +202,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?", "default");
 
         assertThat(response.type()).isEqualTo("answer");
         assertThat(response.answer()).contains("SAGA");
@@ -228,7 +228,7 @@ class RagQueryServiceTest {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         RagQueryService service = new RagQueryService(vectorStore, chatClient, new RagProperties(5, 0.5));
 
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS");
+        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default");
 
         assertThat(response.type()).isEqualTo("diagram");
     }

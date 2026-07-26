@@ -12,6 +12,8 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
@@ -85,17 +87,17 @@ public class RagQueryService {
     }
 
     /**
-     * Single entry point for the UI: routes to {@link #diagram(String)} when the
-     * question itself asks for a diagram/drawing/flow, otherwise to
-     * {@link #answer(String)}. Routing is a plain keyword check on the question text
-     * rather than an extra LLM call, keeping it fast and predictable.
+     * Single entry point for the UI: routes to {@link #diagram(String, String)} when
+     * the question itself asks for a diagram/drawing/flow, otherwise to
+     * {@link #answer(String, String)}. Routing is a plain keyword check on the
+     * question text rather than an extra LLM call, keeping it fast and predictable.
      */
-    public AskResponse ask(String question) {
+    public AskResponse ask(String question, String tenantId) {
         if (wantsDiagram(question)) {
-            DiagramResponse diagram = diagram(question);
+            DiagramResponse diagram = diagram(question, tenantId);
             return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations());
         }
-        ChatResponse chat = answer(question);
+        ChatResponse chat = answer(question, tenantId);
         return new AskResponse("answer", chat.answer(), null, chat.citations());
     }
 
@@ -114,11 +116,12 @@ public class RagQueryService {
         return decomposed.replaceAll("\\p{M}", "");
     }
 
-    public ChatResponse answer(String question) {
+    public ChatResponse answer(String question, String tenantId) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(question)
                 .topK(ragProperties.topK())
                 .similarityThreshold(ragProperties.similarityThreshold())
+                .filterExpression(tenantFilter(tenantId))
                 .build();
 
         List<Document> retrieved = vectorStore.similaritySearch(searchRequest);
@@ -145,11 +148,12 @@ public class RagQueryService {
         return new ChatResponse(answer, citations);
     }
 
-    public DiagramResponse diagram(String question) {
+    public DiagramResponse diagram(String question, String tenantId) {
         SearchRequest searchRequest = SearchRequest.builder()
                 .query(question)
                 .topK(ragProperties.topK())
                 .similarityThreshold(ragProperties.similarityThreshold())
+                .filterExpression(tenantFilter(tenantId))
                 .build();
 
         List<Document> retrieved = vectorStore.similaritySearch(searchRequest);
@@ -180,6 +184,15 @@ public class RagQueryService {
         log.info("Generated diagram using {} retrieved chunks", retrieved.size());
 
         return new DiagramResponse(mermaid, citations);
+    }
+
+    /**
+     * Tenant is the data-isolation boundary (ADR 0007): every user within a tenant can
+     * search that tenant's whole knowledge base, so only tenantId is filtered here.
+     * userId is still recorded on every chunk at ingestion for attribution/audit.
+     */
+    private Filter.Expression tenantFilter(String tenantId) {
+        return new FilterExpressionBuilder().eq("tenantId", tenantId).build();
     }
 
     private String stripCodeFences(String text) {

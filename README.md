@@ -207,6 +207,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0004 — Citations from retrieval, not from the LLM](docs/adr/0004-citations-from-retrieval-not-llm.md)
 - [ADR 0005 — LLM-generated Mermaid diagrams instead of a fixed layout engine](docs/adr/0005-mermaid-for-generated-diagrams.md)
 - [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
+- [ADR 0007 — Tenancy data contract (tenantId + userId), without real authentication yet](docs/adr/0007-tenancy-data-contract.md)
 
 ## License
 

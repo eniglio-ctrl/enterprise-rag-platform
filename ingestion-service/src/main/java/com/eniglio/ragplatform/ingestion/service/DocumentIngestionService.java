@@ -30,7 +30,7 @@ public class DocumentIngestionService {
         this.vectorStore = vectorStore;
     }
 
-    public IngestResponse ingest(MultipartFile file) {
+    public IngestResponse ingest(MultipartFile file, String tenantId, String userId) {
         List<Document> pages = documentReaderFactory.read(file);
 
         String documentId = UUID.randomUUID().toString();
@@ -41,7 +41,9 @@ public class DocumentIngestionService {
                 "documentId", documentId,
                 "source", source,
                 "contentType", String.valueOf(file.getContentType()),
-                "ingestedAt", ingestedAt.toString()
+                "ingestedAt", ingestedAt.toString(),
+                "tenantId", tenantId,
+                "userId", userId
         )));
 
         List<Document> chunks = tokenTextSplitter.apply(pages);
