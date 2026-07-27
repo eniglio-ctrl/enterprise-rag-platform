@@ -57,18 +57,15 @@ up, not after.
   `@ExceptionHandler` methods to both copies. This is exactly the duplication Fase 1.5
   (`platform-common` extraction, already flagged in ADR 0007) is queued up to resolve;
   not worth doing early just for these two methods.
-- **Verification status**: `./mvnw clean verify` is green on both modules (all existing
-  and previously-added tests pass unmodified — Resilience4j annotations are no-ops
-  outside a Spring AOP context, so plain unit tests that construct `LlmGateway`/
-  `VectorStoreGateway` directly exercise the same code path as before). The manual
-  end-to-end check this ADR's "pronto quando" calls for — stop the `ollama` container
-  mid-request, confirm a clean `503` — was **not completed** in this session: rebuilding
-  the Docker images hit a sustained network failure reaching both Maven Central and
-  Docker Hub from inside the build sandbox (confirmed independent of any code or
-  Dockerfile change — the exact same `dependency:go-offline` step failed differently on
-  each of five consecutive attempts, and a plain `docker pull`-equivalent request to
-  Docker Hub's auth endpoint also failed with a reset connection). This is an
-  environment/network issue, not a defect in this change. **Next session**: rebuild
-  (`docker compose up -d --build ingestion-service rag-service`), then
-  `docker stop enterprise-rag-platform-ollama-1` mid-request and confirm the `503`
-  before considering this ADR's implementation fully verified.
+- **Verification status: fully verified.** `./mvnw clean verify` is green on both
+  modules. The Docker rebuild that was blocked earlier in this session by a sustained
+  network failure reaching Maven Central/Docker Hub from the build sandbox (many
+  consecutive attempts, each failing on a different unrelated artifact) eventually
+  succeeded on a later retry once that condition cleared — confirming it really was an
+  environment issue, not a defect. The manual end-to-end check then ran for real:
+  `docker stop enterprise-rag-platform-ollama-1` followed by a request to
+  `/api/v1/chat` returned `503` in **6.3 seconds** (3 retries against a fast
+  `ResourceAccessException`, then the clean fallback response) instead of hanging.
+  Restarting Ollama and repeating the same question afterward returned a normal `200`
+  with a correct, cited answer, confirming the service recovers cleanly once the
+  dependency comes back.

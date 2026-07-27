@@ -80,13 +80,8 @@ including the two `@SpringBootTest`-based ITs that only pass if `platform-common
 beans are genuinely being picked up by the real Spring context, not just present on
 the classpath).
 
-**Verification status**: the actual `docker compose up -d --build` rebuild — which
-would additionally prove problem #3 above is really fixed — was not completed this
-session, for the same reason recorded in ADR 0009: a sustained network failure
-reaching Maven Central from inside the Docker build sandbox, confirmed across many
-independent attempts each failing on a different, unrelated artifact after 15-30+
-minute hangs. This is unrelated to this module's code, which is otherwise fully
-verified on the host. **Next session, before considering Fase 1.5 (and 1c) fully
-closed**: `docker compose up -d --build`, confirm all 5 services report `healthy`,
-then do the Fase 1c manual check (stop the `ollama` container mid-request, confirm a
-clean `503`).
+**Verification status: fully verified.** After the network failure described in ADR
+0009 eventually cleared, `docker compose up -d --build ingestion-service rag-service`
+succeeded — proving problem #3 above is genuinely fixed, not just correct on paper —
+and all 5 services report `healthy`, including the OpenAPI metadata now coming from
+`platform.openapi.*` properties instead of hardcoded strings.
