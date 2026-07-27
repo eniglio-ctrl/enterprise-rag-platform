@@ -99,6 +99,8 @@ First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `lla
 | ingestion-service | http://localhost:8081/swagger-ui.html            |
 | rag-service       | http://localhost:8082/swagger-ui.html            |
 | chat-service      | http://localhost:8083/swagger-ui.html            |
+| Grafana           | http://localhost:3001 (anonymous viewer access)  |
+| Prometheus        | http://localhost:9090                            |
 
 The web UI at `localhost:3000` has one box to upload a file and one box to ask
 anything — a question gets a text answer with citations, and a request for a
@@ -232,6 +234,16 @@ kubectl apply -k kubernetes/base
 kubectl port-forward -n rag-platform svc/web-ui 3000:80
 ```
 
+### Observability
+
+Prometheus scrapes `/actuator/prometheus` from all three Java services every 10s;
+Grafana auto-provisions a datasource and a dashboard on startup — nothing to configure
+by hand. The **RAG Platform Overview** dashboard (`http://localhost:3001`) has three
+rows: HTTP (request rate, p95 latency, error rate, per service), JVM (heap, GC pause),
+and business metrics (documents ingested, chunks created, answers vs. diagrams
+generated, chat messages exchanged, average generation time per operation). See
+[ADR 0015](docs/adr/0015-observability-stack.md) for the design decisions.
+
 ## Running the tests
 
 ```bash
@@ -255,8 +267,6 @@ What's next:
   Kubernetes manifests above were built ahead of this (deliberate, documented deviation
   from the original phase order — see ADR 0014) and will need a second pass once it
   exists.
-- **Grafana dashboards** on top of the Prometheus metrics already exposed by both
-  services.
 
 ## Architecture decisions
 
@@ -274,6 +284,7 @@ What's next:
 - [ADR 0012 — Hybrid search (vector + full-text via RRF), opt-in LLM rerank](docs/adr/0012-hybrid-search-rrf-llm-rerank.md)
 - [ADR 0013 — chat-service: conversation memory on top of rag-service's retrieval](docs/adr/0013-chat-service-conversation-memory.md)
 - [ADR 0014 — Kubernetes manifests for local `kind` deployment](docs/adr/0014-kubernetes-manifests-kind.md)
+- [ADR 0015 — Observability stack (Prometheus + Grafana)](docs/adr/0015-observability-stack.md)
 
 ## License
 

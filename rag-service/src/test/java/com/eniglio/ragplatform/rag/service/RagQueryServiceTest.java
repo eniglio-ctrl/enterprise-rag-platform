@@ -6,6 +6,7 @@ import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -43,7 +44,7 @@ class RagQueryServiceTest {
     private RagQueryService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         return new RagQueryService(hybridSearchService, llmRerankService, chatClient, new LlmGateway(),
-                new RagProperties(5, 0.5, 15));
+                new RagProperties(5, 0.5, 15), new SimpleMeterRegistry());
     }
 
     @Test

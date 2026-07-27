@@ -52,6 +52,10 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        chat.message.duration: true
 
 logging:
   structured:

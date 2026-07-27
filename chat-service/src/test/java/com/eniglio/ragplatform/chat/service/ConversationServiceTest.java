@@ -6,6 +6,7 @@ import com.eniglio.ragplatform.chat.exception.ConversationNotFoundException;
 import com.eniglio.ragplatform.chat.gateway.RagServiceGateway;
 import com.eniglio.ragplatform.chat.repository.ConversationRepository;
 import com.eniglio.ragplatform.common.web.RetrievedChunk;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -42,7 +43,8 @@ class ConversationServiceTest {
 
     private ConversationService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        return new ConversationService(chatClient, chatMemory, ragServiceGateway, conversationRepository);
+        return new ConversationService(chatClient, chatMemory, ragServiceGateway, conversationRepository,
+                new SimpleMeterRegistry());
     }
 
     @Test

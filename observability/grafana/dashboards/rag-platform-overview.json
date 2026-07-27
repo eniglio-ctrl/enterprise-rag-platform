@@ -1,0 +1,124 @@
+{
+  "title": "RAG Platform Overview",
+  "uid": "rag-platform-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s",
+  "panels": [
+    { "type": "row", "title": "HTTP", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 }, "id": 1 },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Request rate (req/s) by service",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (application)",
+          "legendFormat": "{{application}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "p95 latency by service",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 1 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, application))",
+          "legendFormat": "{{application}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Error rate (5xx) by service",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 1 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[1m])) by (application)",
+          "legendFormat": "{{application}}"
+        }
+      ]
+    },
+    { "type": "row", "title": "JVM", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 }, "id": 5 },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Heap used by service",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (application)",
+          "legendFormat": "{{application}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "GC pause time by service",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "sum(rate(jvm_gc_pause_seconds_sum[1m])) by (application)",
+          "legendFormat": "{{application}}"
+        }
+      ]
+    },
+    { "type": "row", "title": "Negócio (RAG)", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 }, "id": 8 },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Documents ingested / chunks created (rate)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 19 },
+      "targets": [
+        { "expr": "rate(rag_documents_ingested_total[5m])", "legendFormat": "documents/s" },
+        { "expr": "rate(rag_chunks_ingested_total[5m])", "legendFormat": "chunks/s" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Answers vs diagrams generated (rate)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 19 },
+      "targets": [
+        { "expr": "rate(rag_answers_generated_total[5m])", "legendFormat": "answers/s" },
+        { "expr": "rate(rag_diagrams_generated_total[5m])", "legendFormat": "diagrams/s" },
+        { "expr": "rate(chat_messages_exchanged_total[5m])", "legendFormat": "chat messages/s" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Average generation time by operation",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 19 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "rate(rag_ingestion_duration_seconds_sum[5m]) / rate(rag_ingestion_duration_seconds_count[5m])",
+          "legendFormat": "ingestion"
+        },
+        {
+          "expr": "rate(rag_answer_generation_duration_seconds_sum[5m]) / rate(rag_answer_generation_duration_seconds_count[5m])",
+          "legendFormat": "answer"
+        },
+        {
+          "expr": "rate(rag_diagram_generation_duration_seconds_sum[5m]) / rate(rag_diagram_generation_duration_seconds_count[5m])",
+          "legendFormat": "diagram"
+        },
+        {
+          "expr": "rate(chat_message_duration_seconds_sum[5m]) / rate(chat_message_duration_seconds_count[5m])",
+          "legendFormat": "chat message"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,9 @@ import com.eniglio.ragplatform.chat.gateway.RagServiceGateway;
 import com.eniglio.ragplatform.chat.repository.ConversationRepository;
 import com.eniglio.ragplatform.common.web.Citation;
 import com.eniglio.ragplatform.common.web.RetrievedChunk;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -48,13 +51,21 @@ public class ConversationService {
     private final ChatMemory chatMemory;
     private final RagServiceGateway ragServiceGateway;
     private final ConversationRepository conversationRepository;
+    private final Counter messagesExchangedCounter;
+    private final Timer messageTimer;
 
     public ConversationService(ChatClient chatClient, ChatMemory chatMemory, RagServiceGateway ragServiceGateway,
-                                ConversationRepository conversationRepository) {
+                                ConversationRepository conversationRepository, MeterRegistry meterRegistry) {
         this.chatClient = chatClient;
         this.chatMemory = chatMemory;
         this.ragServiceGateway = ragServiceGateway;
         this.conversationRepository = conversationRepository;
+        this.messagesExchangedCounter = Counter.builder("chat.messages.exchanged")
+                .description("Number of chat messages answered")
+                .register(meterRegistry);
+        this.messageTimer = Timer.builder("chat.message.duration")
+                .description("Time to answer a chat message, from retrieval to generated answer")
+                .register(meterRegistry);
     }
 
     public String createConversation(String tenantId, String userId) {
@@ -62,6 +73,12 @@ public class ConversationService {
     }
 
     public SendMessageResponse sendMessage(String conversationId, String tenantId, String message) {
+        SendMessageResponse response = messageTimer.record(() -> doSendMessage(conversationId, tenantId, message));
+        messagesExchangedCounter.increment();
+        return response;
+    }
+
+    private SendMessageResponse doSendMessage(String conversationId, String tenantId, String message) {
         requireOwnership(conversationId, tenantId);
 
         List<RetrievedChunk> chunks = ragServiceGateway.retrieve(message, tenantId);

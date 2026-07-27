@@ -8,6 +8,9 @@ import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -89,14 +92,31 @@ public class RagQueryService {
     private final ChatClient chatClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
+    private final Counter answersGeneratedCounter;
+    private final Counter diagramsGeneratedCounter;
+    private final Timer answerTimer;
+    private final Timer diagramTimer;
 
     public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
-                            ChatClient chatClient, LlmGateway llmGateway, RagProperties ragProperties) {
+                            ChatClient chatClient, LlmGateway llmGateway, RagProperties ragProperties,
+                            MeterRegistry meterRegistry) {
         this.hybridSearchService = hybridSearchService;
         this.llmRerankService = llmRerankService;
         this.chatClient = chatClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
+        this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
+                .description("Number of text answers generated")
+                .register(meterRegistry);
+        this.diagramsGeneratedCounter = Counter.builder("rag.diagrams.generated")
+                .description("Number of Mermaid diagrams generated")
+                .register(meterRegistry);
+        this.answerTimer = Timer.builder("rag.answer.generation.duration")
+                .description("Time to answer a question, from retrieval to generated answer")
+                .register(meterRegistry);
+        this.diagramTimer = Timer.builder("rag.diagram.generation.duration")
+                .description("Time to generate a diagram, from retrieval to Mermaid output")
+                .register(meterRegistry);
     }
 
     /**
@@ -131,6 +151,12 @@ public class RagQueryService {
     }
 
     public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank) {
+        ChatResponse response = answerTimer.record(() -> doAnswer(question, tenantId, grounded, rerank));
+        answersGeneratedCounter.increment();
+        return response;
+    }
+
+    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank) {
         int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
         List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
         if (rerank) {
@@ -207,6 +233,12 @@ public class RagQueryService {
     }
 
     public DiagramResponse diagram(String question, String tenantId) {
+        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId));
+        diagramsGeneratedCounter.increment();
+        return response;
+    }
+
+    private DiagramResponse doDiagram(String question, String tenantId) {
         List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
 
         if (retrieved.isEmpty()) {

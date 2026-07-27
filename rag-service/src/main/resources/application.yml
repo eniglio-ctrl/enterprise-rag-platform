@@ -48,6 +48,11 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        rag.answer.generation.duration: true
+        rag.diagram.generation.duration: true
 
 logging:
   structured:
