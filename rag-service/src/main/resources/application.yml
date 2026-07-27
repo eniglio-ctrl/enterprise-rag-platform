@@ -62,6 +62,11 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+platform:
+  openapi:
+    title: RAG Service API
+    description: Retrieves relevant document chunks from pgvector and generates cited answers
+
 rag:
   top-k: 5
   similarity-threshold: 0.5

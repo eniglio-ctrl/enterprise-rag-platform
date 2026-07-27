@@ -46,6 +46,7 @@ choice live in [docs/architecture.md](docs/architecture.md) and [docs/adr](docs/
 
 ```
 enterprise-rag-platform/
+├── platform-common/     # shared CORS/OpenAPI/error-handling code (no controllers)
 ├── ingestion-service/   # upload, parse, chunk, embed, persist
 ├── rag-service/          # retrieve, generate, cite
 ├── web-ui/               # browser UI for upload + chat (static HTML/CSS/JS, nginx)
@@ -214,6 +215,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0007 — Tenancy data contract (tenantId + userId), without real authentication yet](docs/adr/0007-tenancy-data-contract.md)
 - [ADR 0008 — Opt-in groundedness check as a second LLM call](docs/adr/0008-groundedness-check.md)
 - [ADR 0009 — Retry + circuit breaker around every Ollama call](docs/adr/0009-resilience4j-retry-circuit-breaker.md)
+- [ADR 0010 — Extract `platform-common` for the code every service duplicated](docs/adr/0010-platform-common-module.md)
 
 ## License
 

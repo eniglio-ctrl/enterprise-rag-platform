@@ -13,6 +13,7 @@
     <description>Enterprise-grade Retrieval-Augmented Generation platform built with Spring Boot, Spring AI and pgvector</description>
 
     <modules>
+        <module>platform-common</module>
         <module>ingestion-service</module>
         <module>rag-service</module>
     </modules>
@@ -26,10 +27,29 @@
         <spring-ai.version>1.0.0</spring-ai.version>
         <springdoc.version>2.8.6</springdoc.version>
         <resilience4j.version>2.3.0</resilience4j.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!--
+                Declared first, deliberately: spring-boot-dependencies (below) also
+                imports testcontainers-bom internally (pinned to an older 1.x via its
+                own ${testcontainers.version} property), and Maven resolves conflicting
+                managed versions within a single dependencyManagement block by
+                declaration order — first wins. Overriding just the property was tried
+                first and silently lost (some 2.x-only module coordinates ended up with
+                no managed version at all), so the version needs to come from an import
+                that's textually ahead of spring-boot-dependencies, not from a property
+                spring-boot-dependencies itself is the one interpolating.
+            -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
@@ -53,6 +73,7 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
 
     <build>
         <pluginManagement>

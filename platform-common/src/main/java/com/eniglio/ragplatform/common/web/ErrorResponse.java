@@ -1,4 +1,4 @@
-package com.eniglio.ragplatform.ingestion.dto;
+package com.eniglio.ragplatform.common.web;
 
 import java.time.Instant;
 

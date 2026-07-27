@@ -1,4 +1,4 @@
-package com.eniglio.ragplatform.rag.config;
+package com.eniglio.ragplatform.common.web;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;

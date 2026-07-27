@@ -60,6 +60,11 @@ springdoc:
   api-docs:
     path: /v3/api-docs
 
+platform:
+  openapi:
+    title: Ingestion Service API
+    description: Uploads, parses, chunks and embeds documents into the shared pgvector store
+
 resilience4j:
   retry:
     instances:
