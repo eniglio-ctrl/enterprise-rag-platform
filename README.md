@@ -216,6 +216,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0008 — Opt-in groundedness check as a second LLM call](docs/adr/0008-groundedness-check.md)
 - [ADR 0009 — Retry + circuit breaker around every Ollama call](docs/adr/0009-resilience4j-retry-circuit-breaker.md)
 - [ADR 0010 — Extract `platform-common` for the code every service duplicated](docs/adr/0010-platform-common-module.md)
+- [ADR 0011 — Flyway takes over schema creation from PgVectorStore's auto-init](docs/adr/0011-flyway-schema-migrations.md)
 
 ## License
 

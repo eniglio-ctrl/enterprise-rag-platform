@@ -15,6 +15,16 @@ spring:
     username: ${DB_USER:ragplatform}
     password: ${DB_PASSWORD:ragplatform}
 
+  flyway:
+    # Lets Flyway adopt a database that already has the vector_store table (created
+    # previously by PgVectorStore's own auto-init, before ADR 0011) without erroring
+    # out. Safe for a genuinely empty database too — baselining only happens when the
+    # target schema is non-empty. baseline-version 0 means "nothing is considered
+    # applied yet", so V1/V2 still run for real against a pre-existing schema (both
+    # are idempotent, so re-running V1 against an already-matching table is a no-op).
+    baseline-on-migrate: true
+    baseline-version: 0
+
   ai:
     ollama:
       base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
@@ -31,7 +41,10 @@ spring:
         index-type: HNSW
         distance-type: COSINE_DISTANCE
         dimensions: 768
-        initialize-schema: true
+        # Flyway (db/migration) owns schema creation now — see ADR 0011. Letting
+        # PgVectorStore also try would race Flyway's own DataSource-init-time
+        # migrations in the wrong order (Flyway runs first, before this bean exists).
+        initialize-schema: false
         schema-name: public
         table-name: vector_store
 
