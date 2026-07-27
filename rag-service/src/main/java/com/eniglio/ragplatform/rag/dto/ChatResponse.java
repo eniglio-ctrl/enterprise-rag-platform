@@ -1,5 +1,7 @@
 package com.eniglio.ragplatform.rag.dto;
 
+import com.eniglio.ragplatform.common.web.Citation;
+
 import java.util.List;
 
 /**

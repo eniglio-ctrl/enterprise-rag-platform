@@ -4,6 +4,7 @@ import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatRequest;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.RetrieveResponse;
 import com.eniglio.ragplatform.rag.service.RagQueryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -44,5 +45,13 @@ public class ChatController {
     public DiagramResponse diagram(@Valid @RequestBody ChatRequest request,
             @RequestHeader(value = "X-Tenant-Id", required = false, defaultValue = "default") String tenantId) {
         return ragQueryService.diagram(request.question(), tenantId);
+    }
+
+    @Operation(summary = "Retrieve relevant chunks without generating an answer",
+            description = "Used by chat-service to get citations for a question while it generates its own conversation-aware answer (ADR 0013)")
+    @PostMapping("/api/v1/retrieve")
+    public RetrieveResponse retrieve(@Valid @RequestBody ChatRequest request,
+            @RequestHeader(value = "X-Tenant-Id", required = false, defaultValue = "default") String tenantId) {
+        return new RetrieveResponse(ragQueryService.retrieve(request.question(), tenantId));
     }
 }

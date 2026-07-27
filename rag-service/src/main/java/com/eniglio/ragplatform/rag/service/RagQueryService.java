@@ -1,9 +1,10 @@
 package com.eniglio.ragplatform.rag.service;
 
+import com.eniglio.ragplatform.common.web.Citation;
+import com.eniglio.ragplatform.common.web.RetrievedChunk;
 import com.eniglio.ragplatform.rag.config.RagProperties;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
-import com.eniglio.ragplatform.rag.dto.Citation;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
@@ -157,6 +158,24 @@ public class RagQueryService {
         log.info("Answered question using {} retrieved chunks", retrieved.size());
 
         return new ChatResponse(answer, citations, groundedness);
+    }
+
+    /**
+     * Retrieval only, no generation — used by chat-service (ADR 0013) so it can build
+     * its own conversation-aware answer without paying for (and discarding) a full
+     * generation call here too. Returns full chunk text ({@link RetrievedChunk}), not
+     * the truncated {@link Citation#snippet()} — a caller using this as real
+     * generation context needs the whole chunk, not a display-sized preview.
+     */
+    public List<RetrievedChunk> retrieve(String question, String tenantId) {
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
+        return retrieved.stream()
+                .map(doc -> new RetrievedChunk(
+                        String.valueOf(doc.getMetadata().getOrDefault("source", "unknown")),
+                        toInteger(doc.getMetadata().get("chunkIndex")),
+                        doc.getScore(),
+                        doc.getText()))
+                .toList();
     }
 
     /**

@@ -26,7 +26,8 @@ flowchart LR
         WEB["web-ui :3000"]
         ING["ingestion-service :8081"]
         RAG["rag-service :8082"]
-        PG[("PostgreSQL + pgvector")]
+        CHAT["chat-service :8083"]
+        PG[("PostgreSQL\npgvector + chat schema")]
         OLL["Ollama\nnomic-embed-text / llama3.1"]
     end
 
@@ -35,9 +36,16 @@ flowchart LR
     WEB -- "POST /api/v1/ask" --> RAG
     ING -- "embed chunks, INSERT" --> PG
     ING -- "embedding request" --> OLL
-    RAG -- "similarity search" --> PG
+    RAG -- "hybrid search" --> PG
     RAG -- "embedding + chat request" --> OLL
+    CHAT -- "POST /api/v1/retrieve" --> RAG
+    CHAT -- "conversation-aware chat request" --> OLL
+    CHAT -- "conversation memory" --> PG
 ```
+
+`chat-service` isn't wired into `web-ui` yet (`web-ui` still talks to `rag-service`
+directly) — it's reachable today via its own API, see
+[Multi-turn conversations](#multi-turn-conversations) below.
 
 Full ingestion/query sequence diagrams and the reasoning behind each architectural
 choice live in [docs/architecture.md](docs/architecture.md) and [docs/adr](docs/adr).
@@ -49,6 +57,7 @@ enterprise-rag-platform/
 ├── platform-common/     # shared CORS/OpenAPI/error-handling code (no controllers)
 ├── ingestion-service/   # upload, parse, chunk, embed, persist
 ├── rag-service/          # retrieve, generate, cite
+├── chat-service/         # multi-turn conversations with memory, on top of rag-service
 ├── web-ui/               # browser UI for upload + chat (static HTML/CSS/JS, nginx)
 ├── postgres-pgvector/    # DB init (vector extension)
 ├── docs/
@@ -89,6 +98,7 @@ First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `lla
 | web-ui            | http://localhost:3000                            |
 | ingestion-service | http://localhost:8081/swagger-ui.html            |
 | rag-service       | http://localhost:8082/swagger-ui.html            |
+| chat-service      | http://localhost:8083/swagger-ui.html            |
 
 The web UI at `localhost:3000` has one box to upload a file and one box to ask
 anything — a question gets a text answer with citations, and a request for a
@@ -185,6 +195,23 @@ the web UI renders it directly with `mermaid.render(...)`. If the retrieved cont
 doesn't describe an architecture, process or flow, `mermaid` comes back as a single
 "insufficient data" node instead of a fabricated diagram.
 
+### Multi-turn conversations
+
+`chat-service` (port 8083) delegates retrieval to `rag-service` and adds conversation
+memory on top — it never re-implements embedding or search itself. See
+[ADR 0013](docs/adr/0013-chat-service-conversation-memory.md).
+
+```bash
+CONVERSATION_ID=$(curl -s -X POST http://localhost:8083/api/v1/conversations \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['conversationId'])")
+
+curl -X POST http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Como funciona o padrão SAGA?"}'
+
+curl http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages
+```
+
 ## Running the tests
 
 ```bash
@@ -192,17 +219,18 @@ doesn't describe an architecture, process or flow, `mermaid` comes back as a sin
 ./mvnw verify         # includes Testcontainers integration tests — needs Docker
 ```
 
-Integration tests spin up a real `pgvector/pgvector:pg16` container per module and mock
-only the Ollama-backed models, so the ingestion → chunk → embed → store → retrieve path
-is exercised against a real database, not a fake.
+Integration tests spin up a real Postgres container per module (`pgvector/pgvector:pg16`
+for `ingestion-service`/`rag-service`, plain `postgres:16` for `chat-service` — it never
+touches the vector extension) and mock only the Ollama-backed models, so the real
+ingestion → chunk → embed → store → retrieve → converse path is exercised against a real
+database, not a fake.
 
 ## What's implemented vs. what's next
 
-This is a deliberately shipped **vertical slice**: `ingestion-service` and `rag-service`
-are fully working end to end, rather than six half-built modules. What's next:
+This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-service`
+and `chat-service` are fully working end to end, rather than six half-built modules.
+What's next:
 
-- **chat-service** — multi-turn conversations with memory (Spring AI `ChatMemory`),
-  sitting in front of `rag-service`.
 - **auth-service** — JWT/OAuth2, so ingestion and chat are per-user/per-tenant.
 - **Kubernetes manifests** — Deployments, Services, ConfigMaps, HPA for each service.
 - **Grafana dashboards** on top of the Prometheus metrics already exposed by both
@@ -222,6 +250,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0010 — Extract `platform-common` for the code every service duplicated](docs/adr/0010-platform-common-module.md)
 - [ADR 0011 — Flyway takes over schema creation from PgVectorStore's auto-init](docs/adr/0011-flyway-schema-migrations.md)
 - [ADR 0012 — Hybrid search (vector + full-text via RRF), opt-in LLM rerank](docs/adr/0012-hybrid-search-rrf-llm-rerank.md)
+- [ADR 0013 — chat-service: conversation memory on top of rag-service's retrieval](docs/adr/0013-chat-service-conversation-memory.md)
 
 ## License
 

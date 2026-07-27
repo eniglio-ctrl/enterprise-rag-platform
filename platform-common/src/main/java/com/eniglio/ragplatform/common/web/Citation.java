@@ -1,4 +1,4 @@
-package com.eniglio.ragplatform.rag.dto;
+package com.eniglio.ragplatform.common.web;
 
 public record Citation(
         String source,

@@ -16,6 +16,7 @@
         <module>platform-common</module>
         <module>ingestion-service</module>
         <module>rag-service</module>
+        <module>chat-service</module>
     </modules>
 
     <properties>

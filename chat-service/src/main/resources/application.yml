@@ -1,0 +1,102 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: chat-service
+
+  datasource:
+    # currentSchema=chat: every unqualified table reference on this connection
+    # (Flyway's own migrations, JdbcChatMemoryRepository's queries, our own
+    # ConversationRepository) resolves against the `chat` schema, not `public` —
+    # keeps this service's tables out of ingestion-service's schema/history.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}?currentSchema=chat
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  flyway:
+    schemas: chat
+    default-schema: chat
+    create-schemas: true
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${CHAT_MODEL:llama3.1}
+          temperature: 0.2
+      init:
+        pull-model-strategy: when_missing
+        chat:
+          include: true
+        embedding:
+          include: false
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # Flyway (db/migration) owns this table, not Spring AI's own
+            # auto-init — same reasoning as PgVectorStore in ADR 0011. The default
+            # (EMBEDDED) already skips a real Postgres, but set explicitly for clarity.
+            initialize-schema: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: Chat Service API
+    description: Multi-turn conversations with memory, delegating retrieval to rag-service
+
+chat:
+  max-messages: 10
+  ollama:
+    connect-timeout: 5s
+    read-timeout: 180s
+  rag-service:
+    base-url: ${RAG_SERVICE_BASE_URL:http://localhost:8082}
+    connect-timeout: 5s
+    read-timeout: 15s
+
+resilience4j:
+  retry:
+    instances:
+      rag-service:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+  circuitbreaker:
+    instances:
+      rag-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
