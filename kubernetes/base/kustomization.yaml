@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-platform
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - ollama.yaml
+  - ingestion-service.yaml
+  - rag-service.yaml
+  - chat-service.yaml
+  - web-ui.yaml
+  - ingress.yaml
+
+secretGenerator:
+  - name: rag-platform-db-credentials
+    envs:
+      - .env.secret

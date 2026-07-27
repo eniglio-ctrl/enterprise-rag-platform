@@ -1,0 +1,22 @@
+# Requires an ingress controller installed separately in the `kind` cluster
+# (not bundled by default — see kubernetes/README.md). `kubectl port-forward
+# svc/web-ui 3000:80` is the primary, always-available verification path;
+# this Ingress is a secondary, documented capability on top of that.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: web-ui
+  namespace: rag-platform
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: rag-platform.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web-ui
+                port:
+                  number: 80

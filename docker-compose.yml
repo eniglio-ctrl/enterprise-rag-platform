@@ -2,16 +2,16 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: ragplatform
-      POSTGRES_USER: ragplatform
-      POSTGRES_PASSWORD: ragplatform
+      POSTGRES_DB: ${DB_NAME:-ragplatform}
+      POSTGRES_USER: ${DB_USER:-ragplatform}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragplatform}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ragplatform -d ragplatform"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ragplatform} -d ${DB_NAME:-ragplatform}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -38,9 +38,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ragplatform
-      DB_USER: ragplatform
-      DB_PASSWORD: ragplatform
+      DB_NAME: ${DB_NAME:-ragplatform}
+      DB_USER: ${DB_USER:-ragplatform}
+      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       WEB_UI_ORIGIN: http://localhost:3000
@@ -65,9 +65,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ragplatform
-      DB_USER: ragplatform
-      DB_PASSWORD: ragplatform
+      DB_NAME: ${DB_NAME:-ragplatform}
+      DB_USER: ${DB_USER:-ragplatform}
+      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       CHAT_MODEL: llama3.1
@@ -97,9 +97,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ragplatform
-      DB_USER: ragplatform
-      DB_PASSWORD: ragplatform
+      DB_NAME: ${DB_NAME:-ragplatform}
+      DB_USER: ${DB_USER:-ragplatform}
+      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
       OLLAMA_BASE_URL: http://ollama:11434
       CHAT_MODEL: llama3.1
       RAG_SERVICE_BASE_URL: http://rag-service:8082

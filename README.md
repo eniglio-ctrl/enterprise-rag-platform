@@ -212,6 +212,26 @@ curl -X POST http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/message
 curl http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages
 ```
 
+### Running on Kubernetes (local)
+
+Kustomize manifests (`kubernetes/base/`) run the full stack in a local `kind` cluster —
+`StatefulSet`s for Postgres/Ollama, `Deployment`s for the four application services,
+Secrets via `kustomize`'s `secretGenerator` (never committed), and an initContainer
+wait-loop pattern standing in for docker-compose's `depends_on: condition:
+service_healthy`. See [kubernetes/README.md](kubernetes/README.md) for the full
+walkthrough and [ADR 0014](docs/adr/0014-kubernetes-manifests-kind.md) for the design
+decisions (and two real bugs found bringing it up).
+
+```bash
+kind create cluster --name rag-platform
+kind load docker-image rag-platform/ingestion-service:latest \
+  rag-platform/rag-service:latest rag-platform/chat-service:latest \
+  rag-platform/web-ui:latest --name rag-platform
+cp kubernetes/base/.env.secret.example kubernetes/base/.env.secret  # edit with real values
+kubectl apply -k kubernetes/base
+kubectl port-forward -n rag-platform svc/web-ui 3000:80
+```
+
 ## Running the tests
 
 ```bash
@@ -231,8 +251,10 @@ This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-ser
 and `chat-service` are fully working end to end, rather than six half-built modules.
 What's next:
 
-- **auth-service** — JWT/OAuth2, so ingestion and chat are per-user/per-tenant.
-- **Kubernetes manifests** — Deployments, Services, ConfigMaps, HPA for each service.
+- **auth-service** — JWT/OAuth2, so ingestion and chat are per-user/per-tenant. The
+  Kubernetes manifests above were built ahead of this (deliberate, documented deviation
+  from the original phase order — see ADR 0014) and will need a second pass once it
+  exists.
 - **Grafana dashboards** on top of the Prometheus metrics already exposed by both
   services.
 
@@ -251,6 +273,7 @@ What's next:
 - [ADR 0011 — Flyway takes over schema creation from PgVectorStore's auto-init](docs/adr/0011-flyway-schema-migrations.md)
 - [ADR 0012 — Hybrid search (vector + full-text via RRF), opt-in LLM rerank](docs/adr/0012-hybrid-search-rrf-llm-rerank.md)
 - [ADR 0013 — chat-service: conversation memory on top of rag-service's retrieval](docs/adr/0013-chat-service-conversation-memory.md)
+- [ADR 0014 — Kubernetes manifests for local `kind` deployment](docs/adr/0014-kubernetes-manifests-kind.md)
 
 ## License
 

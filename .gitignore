@@ -14,5 +14,7 @@ out/
 .DS_Store
 *.env
 .env
+.env.secret
+kubernetes/base/.env.secret
 ollama-data/
 postgres-data/
