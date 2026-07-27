@@ -18,6 +18,11 @@ import java.util.List;
  * own conversation-aware generation on top of chunks rag-service already found.
  * Resilience4j instance name "rag-service", separate from "ollama" (ADR 0009): this
  * fails for a different reason (rag-service being down/slow), not Ollama.
+ * <p>
+ * Forwards the caller's own bearer token (ADR 0016) rather than re-deriving or
+ * re-issuing one — rag-service validates it against the same JWKS every service
+ * trusts and extracts {@code tenantId} from it itself, so this gateway doesn't need
+ * to know or pass the tenant separately.
  */
 @Component
 public class RagServiceGateway {
@@ -37,10 +42,10 @@ public class RagServiceGateway {
 
     @CircuitBreaker(name = "rag-service")
     @Retry(name = "rag-service")
-    public List<RetrievedChunk> retrieve(String question, String tenantId) {
+    public List<RetrievedChunk> retrieve(String question, String bearerToken) {
         RetrieveResponse response = restClient.post()
                 .uri("/api/v1/retrieve")
-                .header("X-Tenant-Id", tenantId)
+                .header("Authorization", "Bearer " + bearerToken)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new RetrieveRequest(question))
                 .retrieve()

@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -44,15 +45,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Uses a plain {@code postgres:16} container (no vector extension needed — chat-service
  * never touches pgvector) and a real, minimal JDK {@link HttpServer} standing in for
  * rag-service, rather than mocking {@code RagServiceGateway} itself: this exercises the
- * actual HTTP call, including the {@code X-Tenant-Id} header and JSON (de)serialization,
- * not just chat-service's own logic in isolation (that's what {@code ConversationServiceTest}
- * already covers).
+ * actual HTTP call, including the {@code Authorization} bearer-token forwarding
+ * (ADR 0016) and JSON (de)serialization, not just chat-service's own logic in isolation
+ * (that's what {@code ConversationServiceTest} already covers).
  */
 @Testcontainers
 @SpringBootTest(classes = ChatServiceApplication.class)
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class ConversationIT {
+
+    private static final String TEST_TOKEN_VALUE = "test-jwt-token";
+
+    private static volatile String lastAuthorizationHeaderSeenByRagServiceStub;
 
     private static final HttpServer RAG_SERVICE_STUB = startRagServiceStub();
 
@@ -95,16 +100,23 @@ class ConversationIT {
         String conversationId = createConversation();
 
         mockMvc.perform(post("/api/v1/conversations/" + conversationId + "/messages")
+                        .with(testJwt())
                         .contentType("application/json")
                         .content("{\"message\":\"Como funciona o SAGA?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value(containsString("SAGA")))
                 .andExpect(jsonPath("$.citations[0].source").value("aula12.md"));
+
+        // Verifies the actual wiring (ADR 0016), not just that chat-service itself
+        // accepted the caller's token: the same token must reach rag-service too,
+        // forwarded as-is by RagServiceGateway rather than re-derived or dropped.
+        assertThat(lastAuthorizationHeaderSeenByRagServiceStub).isEqualTo("Bearer " + TEST_TOKEN_VALUE);
     }
 
     @Test
     void unknownConversationReturnsNotFound() throws Exception {
         mockMvc.perform(post("/api/v1/conversations/" + java.util.UUID.randomUUID() + "/messages")
+                        .with(testJwt())
                         .contentType("application/json")
                         .content("{\"message\":\"oi\"}"))
                 .andExpect(status().isNotFound());
@@ -120,13 +132,14 @@ class ConversationIT {
                     new ChatResponse(List.of(new Generation(new AssistantMessage("Resposta " + question)))));
 
             mockMvc.perform(post("/api/v1/conversations/" + conversationId + "/messages")
+                            .with(testJwt())
                             .contentType("application/json")
                             .content("{\"message\":\"" + question + "\"}"))
                     .andExpect(status().isOk());
         }
 
         // chat.max-messages=10 (5 turns worth): the 6th turn pushes the 1st out.
-        MvcResult result = mockMvc.perform(get("/api/v1/conversations/" + conversationId + "/messages"))
+        MvcResult result = mockMvc.perform(get("/api/v1/conversations/" + conversationId + "/messages").with(testJwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(10))
                 .andReturn();
@@ -136,8 +149,14 @@ class ConversationIT {
         assertThat(body).contains("Pergunta numero 6");
     }
 
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor testJwt() {
+        return jwt().jwt(token -> token.tokenValue(TEST_TOKEN_VALUE)
+                .subject("user-1")
+                .claim("tenantId", "default"));
+    }
+
     private String createConversation() throws Exception {
-        MvcResult result = mockMvc.perform(post("/api/v1/conversations"))
+        MvcResult result = mockMvc.perform(post("/api/v1/conversations").with(testJwt()))
                 .andExpect(status().isCreated())
                 .andReturn();
         JsonNode json = objectMapper.readTree(result.getResponse().getContentAsString());
@@ -156,6 +175,8 @@ class ConversationIT {
     }
 
     private static void handleRetrieve(com.sun.net.httpserver.HttpExchange exchange) throws IOException {
+        lastAuthorizationHeaderSeenByRagServiceStub = exchange.getRequestHeaders().getFirst("Authorization");
+
         String body = """
                 {"chunks":[{"source":"aula12.md","chunkIndex":0,"score":0.87,"content":"O padrão SAGA coordena transações distribuídas usando choreography ou orchestration."}]}
                 """;

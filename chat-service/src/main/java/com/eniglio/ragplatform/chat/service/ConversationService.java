@@ -72,16 +72,22 @@ public class ConversationService {
         return conversationRepository.create(tenantId, userId);
     }
 
-    public SendMessageResponse sendMessage(String conversationId, String tenantId, String message) {
-        SendMessageResponse response = messageTimer.record(() -> doSendMessage(conversationId, tenantId, message));
+    public SendMessageResponse sendMessage(String conversationId, String tenantId, String message, String bearerToken) {
+        SendMessageResponse response = messageTimer.record(
+                () -> doSendMessage(conversationId, tenantId, message, bearerToken));
         messagesExchangedCounter.increment();
         return response;
     }
 
-    private SendMessageResponse doSendMessage(String conversationId, String tenantId, String message) {
+    private SendMessageResponse doSendMessage(String conversationId, String tenantId, String message,
+            String bearerToken) {
         requireOwnership(conversationId, tenantId);
 
-        List<RetrievedChunk> chunks = ragServiceGateway.retrieve(message, tenantId);
+        // Forwards the caller's own token (ADR 0016) rather than re-deriving tenantId
+        // for the outbound call — rag-service validates it itself against the same
+        // JWKS and extracts tenantId from it, so it never needs to trust this service's
+        // say-so about who's asking.
+        List<RetrievedChunk> chunks = ragServiceGateway.retrieve(message, bearerToken);
         String context = buildContext(chunks);
 
         String answer = chatClient.prompt()

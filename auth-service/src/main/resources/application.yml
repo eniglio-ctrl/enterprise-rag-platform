@@ -1,0 +1,58 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}?currentSchema=auth
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  flyway:
+    schemas: auth
+    default-schema: auth
+    create-schemas: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: Auth Service API
+    description: Issues RS256-signed JWTs and exposes a JWKS endpoint for the other services
+
+auth:
+  # 1h: long enough to not be annoying in a demo, short enough that a leaked/stale
+  # token doesn't stay valid indefinitely. The signing key itself is regenerated on
+  # every restart (JwtKeyProvider) — that's the real limitation, not this value.
+  token-ttl: 1h
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

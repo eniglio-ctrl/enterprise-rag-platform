@@ -29,6 +29,29 @@ services:
       retries: 10
       start_period: 30s
 
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:-ragplatform}
+      DB_USER: ${DB_USER:-ragplatform}
+      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      WEB_UI_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
   ingestion-service:
     build:
       context: .
@@ -43,11 +66,14 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
       WEB_UI_ORIGIN: http://localhost:3000
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      auth-service:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
@@ -71,11 +97,14 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       CHAT_MODEL: llama3.1
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
       WEB_UI_ORIGIN: http://localhost:3000
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      auth-service:
         condition: service_healthy
       # rag-service runs with initialize-schema=false, so ingestion-service
       # must be the one to create the pgvector table first.
@@ -103,11 +132,14 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       CHAT_MODEL: llama3.1
       RAG_SERVICE_BASE_URL: http://rag-service:8082
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
       WEB_UI_ORIGIN: http://localhost:3000
     depends_on:
       postgres:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      auth-service:
         condition: service_healthy
       rag-service:
         condition: service_healthy
@@ -124,6 +156,7 @@ services:
     ports:
       - "3000:80"
     depends_on:
+      - auth-service
       - ingestion-service
       - rag-service
       - chat-service
@@ -142,6 +175,7 @@ services:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     depends_on:
+      - auth-service
       - ingestion-service
       - rag-service
       - chat-service

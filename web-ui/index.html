@@ -11,9 +11,38 @@
   <header class="app-header">
     <h1>Enterprise RAG Platform</h1>
     <p>Upload documents, they're embedded and indexed automatically, then ask questions grounded in what you uploaded.</p>
+    <div id="auth-bar" class="auth-bar" hidden>
+      <span id="auth-summary"></span>
+      <button id="logout-button" type="button">Log out</button>
+    </div>
   </header>
 
-  <main class="layout">
+  <section class="panel auth-panel" id="auth-panel">
+    <h2>Log in</h2>
+    <p class="hint">Everything you upload and every question you ask is scoped to your tenant — accounts sharing the
+      same tenant ID share a knowledge base.</p>
+
+    <form id="login-form">
+      <input type="email" id="login-email" placeholder="Email" autocomplete="email" required />
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
+      <button type="submit">Log in</button>
+    </form>
+    <div id="login-status" class="status" hidden></div>
+
+    <hr />
+
+    <h2>Register</h2>
+    <form id="register-form">
+      <input type="email" id="register-email" placeholder="Email" autocomplete="email" required />
+      <input type="password" id="register-password" placeholder="Password (min 8 characters)"
+        autocomplete="new-password" minlength="8" required />
+      <input type="text" id="register-tenant" placeholder="Tenant ID (e.g. your company name)" required />
+      <button type="submit">Register</button>
+    </form>
+    <div id="register-status" class="status" hidden></div>
+  </section>
+
+  <main class="layout" id="app-layout" hidden>
     <section class="panel">
       <h2>1. Upload a document</h2>
       <p class="hint">PDF, DOCX, Markdown or plain text. Indexing into pgvector happens automatically after upload.</p>

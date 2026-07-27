@@ -33,6 +33,7 @@ import java.util.Random;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -126,9 +127,15 @@ class ChatQueryIT {
                 .build()));
     }
 
+    /** Every JWT in this test class carries the same claim shape auth-service issues (ADR 0016). */
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor jwtFor(String tenantId) {
+        return jwt().jwt(token -> token.subject("user-1").claim("tenantId", tenantId));
+    }
+
     @Test
     void answersWithCitationsFromTheVectorStore() throws Exception {
         mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
                 .andExpect(status().isOk())
@@ -149,7 +156,7 @@ class ChatQueryIT {
                         .build()));
 
         mockMvc.perform(post("/api/v1/chat")
-                        .header("X-Tenant-Id", "tenant-a")
+                        .with(jwtFor("tenant-a"))
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
                 .andExpect(status().isOk())
@@ -160,6 +167,7 @@ class ChatQueryIT {
     @Test
     void groundedRequestReturnsSupportedVerdict() throws Exception {
         mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\",\"grounded\":true}"))
                 .andExpect(status().isOk())
@@ -177,6 +185,7 @@ class ChatQueryIT {
         });
 
         mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\",\"grounded\":true}"))
                 .andExpect(status().isOk())
@@ -215,6 +224,7 @@ class ChatQueryIT {
                 .build()));
 
         mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
                         .contentType("application/json")
                         .content("{\"question\":\"Globodyne\"}"))
                 .andExpect(status().isOk())
@@ -224,6 +234,7 @@ class ChatQueryIT {
     @Test
     void ungroundedRequestOmitsGroundedness() throws Exception {
         mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
                 .andExpect(status().isOk())

@@ -5,6 +5,12 @@ spring:
   application:
     name: chat-service
 
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_SERVICE_BASE_URL:http://localhost:8084}/.well-known/jwks.json
+
   datasource:
     # currentSchema=chat: every unqualified table reference on this connection
     # (Flyway's own migrations, JdbcChatMemoryRepository's queries, our own

@@ -62,7 +62,7 @@ class ConversationServiceTest {
 
         ConversationService service = newService();
 
-        assertThatThrownBy(() -> service.sendMessage("conv-1", "tenant-a", "oi"))
+        assertThatThrownBy(() -> service.sendMessage("conv-1", "tenant-a", "oi", "token-abc"))
                 .isInstanceOf(ConversationNotFoundException.class);
     }
 
@@ -71,13 +71,13 @@ class ConversationServiceTest {
         given(conversationRepository.belongsToTenant("conv-1", "tenant-a")).willReturn(true);
         given(chatMemory.get("conv-1")).willReturn(List.of());
         String longContent = "x".repeat(250);
-        given(ragServiceGateway.retrieve("pergunta", "tenant-a")).willReturn(
+        given(ragServiceGateway.retrieve("pergunta", "token-abc")).willReturn(
                 List.of(new RetrievedChunk("aula.md", 0, 0.9, longContent)));
         given(chatModel.call(any(Prompt.class))).willReturn(
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("resposta [1]")))));
 
-        SendMessageResponse response = newService().sendMessage("conv-1", "tenant-a", "pergunta");
+        SendMessageResponse response = newService().sendMessage("conv-1", "tenant-a", "pergunta", "token-abc");
 
         assertThat(response.answer()).isEqualTo("resposta [1]");
         assertThat(response.citations()).hasSize(1);

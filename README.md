@@ -24,21 +24,27 @@ flowchart LR
 
     subgraph Platform["enterprise-rag-platform"]
         WEB["web-ui :3000"]
+        AUTH["auth-service :8084"]
         ING["ingestion-service :8081"]
         RAG["rag-service :8082"]
         CHAT["chat-service :8083"]
-        PG[("PostgreSQL\npgvector + chat schema")]
+        PG[("PostgreSQL\npgvector + chat/auth schemas")]
         OLL["Ollama\nnomic-embed-text / llama3.1"]
     end
 
     U --> WEB
-    WEB -- "POST /api/v1/documents" --> ING
-    WEB -- "POST /api/v1/ask" --> RAG
+    WEB -- "POST /api/v1/auth/login" --> AUTH
+    WEB -- "POST /api/v1/documents\n(Bearer JWT)" --> ING
+    WEB -- "POST /api/v1/ask\n(Bearer JWT)" --> RAG
+    AUTH -- "users" --> PG
+    ING -. "validate JWT via JWKS" .-> AUTH
+    RAG -. "validate JWT via JWKS" .-> AUTH
+    CHAT -. "validate JWT via JWKS" .-> AUTH
     ING -- "embed chunks, INSERT" --> PG
     ING -- "embedding request" --> OLL
     RAG -- "hybrid search" --> PG
     RAG -- "embedding + chat request" --> OLL
-    CHAT -- "POST /api/v1/retrieve" --> RAG
+    CHAT -- "POST /api/v1/retrieve\n(forwards Bearer JWT)" --> RAG
     CHAT -- "conversation-aware chat request" --> OLL
     CHAT -- "conversation memory" --> PG
 ```
@@ -54,12 +60,15 @@ choice live in [docs/architecture.md](docs/architecture.md) and [docs/adr](docs/
 
 ```
 enterprise-rag-platform/
-├── platform-common/     # shared CORS/OpenAPI/error-handling code (no controllers)
+├── platform-common/     # shared CORS/OpenAPI/error-handling/security code (no controllers)
+├── auth-service/         # issues RS256 JWTs, exposes JWKS
 ├── ingestion-service/   # upload, parse, chunk, embed, persist
 ├── rag-service/          # retrieve, generate, cite
 ├── chat-service/         # multi-turn conversations with memory, on top of rag-service
-├── web-ui/               # browser UI for upload + chat (static HTML/CSS/JS, nginx)
+├── web-ui/               # browser UI for login + upload + chat (static HTML/CSS/JS, nginx)
 ├── postgres-pgvector/    # DB init (vector extension)
+├── kubernetes/           # Kustomize manifests for a local `kind` cluster
+├── observability/        # Prometheus scrape config + Grafana provisioning/dashboards
 ├── docs/
 │   ├── architecture.md
 │   └── adr/              # architecture decision records
@@ -96,21 +105,43 @@ First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `lla
 | Service           | URL                                             |
 |-------------------|--------------------------------------------------|
 | web-ui            | http://localhost:3000                            |
+| auth-service      | http://localhost:8084/swagger-ui.html            |
 | ingestion-service | http://localhost:8081/swagger-ui.html            |
 | rag-service       | http://localhost:8082/swagger-ui.html            |
 | chat-service      | http://localhost:8083/swagger-ui.html            |
 | Grafana           | http://localhost:3001 (anonymous viewer access)  |
 | Prometheus        | http://localhost:9090                            |
 
-The web UI at `localhost:3000` has one box to upload a file and one box to ask
-anything — a question gets a text answer with citations, and a request for a
-diagram/drawing/flow gets a Mermaid diagram instead, all through the same input. The
-sections below show the underlying flows via `curl`, useful for scripting or CI.
+The web UI at `localhost:3000` logs you in (or registers a new account) first —
+every document you upload and every question you ask is scoped to your tenant, per
+[ADR 0016](docs/adr/0016-auth-service-jwt-oauth2.md). Once authenticated, one box
+uploads a file and one box asks anything — a question gets a text answer with
+citations, and a request for a diagram/drawing/flow gets a Mermaid diagram instead, all
+through the same input. The sections below show the underlying flows via `curl`,
+useful for scripting or CI.
+
+### Authenticate
+
+Every endpoint below except `/api/v1/auth/*` and `/.well-known/jwks.json` requires
+`Authorization: Bearer <token>` — `auth-service` issues RS256-signed JWTs
+(`tenantId`/`userId` claims) and exposes the public key the other three services
+validate them against.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8084/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "supersecret", "tenantId": "acme"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+```
+
+Accounts registering with the same `tenantId` share a knowledge base; a different
+`tenantId` gets a fully isolated one — retrieval never crosses the boundary.
 
 ### Ingest a document
 
 ```bash
 curl -X POST http://localhost:8081/api/v1/documents \
+  -H "Authorization: Bearer $TOKEN" \
   -F "file=@/path/to/aula12.md"
 ```
 
@@ -125,6 +156,7 @@ answer based on the question.
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Draw the disaster recovery architecture described"}'
 ```
@@ -150,6 +182,7 @@ flowchart LR
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Como funciona o padrão SAGA?"}'
 ```
@@ -184,10 +217,12 @@ useful when a caller already knows which one it wants:
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/chat \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Como funciona o padrão SAGA?"}'
 
 curl -X POST http://localhost:8082/api/v1/diagrams \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"question": "Draw the disaster recovery architecture described"}'
 ```
@@ -205,13 +240,16 @@ memory on top — it never re-implements embedding or search itself. See
 
 ```bash
 CONVERSATION_ID=$(curl -s -X POST http://localhost:8083/api/v1/conversations \
+  -H "Authorization: Bearer $TOKEN" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['conversationId'])")
 
 curl -X POST http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message": "Como funciona o padrão SAGA?"}'
 
-curl http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages
+curl http://localhost:8083/api/v1/conversations/$CONVERSATION_ID/messages \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Running on Kubernetes (local)
@@ -259,14 +297,18 @@ database, not a fake.
 
 ## What's implemented vs. what's next
 
-This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-service`
-and `chat-service` are fully working end to end, rather than six half-built modules.
-What's next:
+This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-service`,
+`chat-service` and `auth-service` are fully working end to end, rather than six
+half-built modules. What's next:
 
-- **auth-service** — JWT/OAuth2, so ingestion and chat are per-user/per-tenant. The
-  Kubernetes manifests above were built ahead of this (deliberate, documented deviation
-  from the original phase order — see ADR 0014) and will need a second pass once it
-  exists.
+- **Kubernetes manifests second pass** — the manifests in `kubernetes/base/` (ADR 0014)
+  were built before `auth-service` existed, a deliberate, documented deviation from the
+  original phase order. They need a fifth Deployment+Service for `auth-service` and an
+  `AUTH_SERVICE_BASE_URL` wired into the other three.
+- **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
+  every restart (ADR 0016); tokens issued before a restart stop validating after one.
+  Fine for a demo, not for a real deployment.
+- **Pluggable LLM provider, public deploy, and a quality benchmark** — see the roadmap.
 
 ## Architecture decisions
 
@@ -276,7 +318,7 @@ What's next:
 - [ADR 0004 — Citations from retrieval, not from the LLM](docs/adr/0004-citations-from-retrieval-not-llm.md)
 - [ADR 0005 — LLM-generated Mermaid diagrams instead of a fixed layout engine](docs/adr/0005-mermaid-for-generated-diagrams.md)
 - [ADR 0006 — Single "ask" endpoint with keyword-based routing](docs/adr/0006-unified-ask-endpoint-with-keyword-routing.md)
-- [ADR 0007 — Tenancy data contract (tenantId + userId), without real authentication yet](docs/adr/0007-tenancy-data-contract.md)
+- [ADR 0007 — Tenancy data contract (tenantId + userId); real authentication came later in ADR 0016](docs/adr/0007-tenancy-data-contract.md)
 - [ADR 0008 — Opt-in groundedness check as a second LLM call](docs/adr/0008-groundedness-check.md)
 - [ADR 0009 — Retry + circuit breaker around every Ollama call](docs/adr/0009-resilience4j-retry-circuit-breaker.md)
 - [ADR 0010 — Extract `platform-common` for the code every service duplicated](docs/adr/0010-platform-common-module.md)
@@ -285,6 +327,7 @@ What's next:
 - [ADR 0013 — chat-service: conversation memory on top of rag-service's retrieval](docs/adr/0013-chat-service-conversation-memory.md)
 - [ADR 0014 — Kubernetes manifests for local `kind` deployment](docs/adr/0014-kubernetes-manifests-kind.md)
 - [ADR 0015 — Observability stack (Prometheus + Grafana)](docs/adr/0015-observability-stack.md)
+- [ADR 0016 — auth-service: RS256 JWTs, JWKS, and the transition from trusted headers](docs/adr/0016-auth-service-jwt-oauth2.md)
 
 ## License
 

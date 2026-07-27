@@ -28,6 +28,7 @@ import java.util.Random;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -81,7 +82,8 @@ class DocumentIngestionIT {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "aula12.md", "text/markdown", markdown.getBytes(StandardCharsets.UTF_8));
 
-        mockMvc.perform(multipart("/api/v1/documents").file(file))
+        mockMvc.perform(multipart("/api/v1/documents").file(file)
+                        .with(jwt().jwt(token -> token.subject("user-1").claim("tenantId", "acme"))))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.source").value("aula12.md"))
                 .andExpect(jsonPath("$.chunkCount").value(1));

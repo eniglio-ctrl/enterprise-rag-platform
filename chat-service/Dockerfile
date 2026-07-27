@@ -4,6 +4,7 @@ WORKDIR /workspace
 COPY .mvn/ .mvn/
 COPY mvnw pom.xml ./
 COPY platform-common/pom.xml platform-common/pom.xml
+COPY auth-service/pom.xml auth-service/pom.xml
 COPY ingestion-service/pom.xml ingestion-service/pom.xml
 COPY rag-service/pom.xml rag-service/pom.xml
 COPY chat-service/pom.xml chat-service/pom.xml
