@@ -28,14 +28,14 @@ public class ChatController {
     @PostMapping("/api/v1/ask")
     public AskResponse ask(@Valid @RequestBody ChatRequest request,
             @RequestHeader(value = "X-Tenant-Id", required = false, defaultValue = "default") String tenantId) {
-        return ragQueryService.ask(request.question(), tenantId, request.isGrounded());
+        return ragQueryService.ask(request.question(), tenantId, request.isGrounded(), request.isRerank());
     }
 
     @Operation(summary = "Ask a question", description = "Retrieves relevant chunks and generates a cited answer")
     @PostMapping("/api/v1/chat")
     public ChatResponse chat(@Valid @RequestBody ChatRequest request,
             @RequestHeader(value = "X-Tenant-Id", required = false, defaultValue = "default") String tenantId) {
-        return ragQueryService.answer(request.question(), tenantId, request.isGrounded());
+        return ragQueryService.answer(request.question(), tenantId, request.isGrounded(), request.isRerank());
     }
 
     @Operation(summary = "Generate an architecture diagram from ingested data",

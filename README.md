@@ -159,6 +159,12 @@ answer is actually backed by the retrieved context (`"groundedness": "SUPPORTED"
 `"NOT_SUPPORTED"`) — off by default since it's a second LLM call, roughly doubling
 latency. See [ADR 0008](docs/adr/0008-groundedness-check.md).
 
+Retrieval already combines pgvector similarity with Postgres full-text search (RRF
+fusion) by default — no flag needed, it's a strict quality improvement with no extra
+LLM call. Add `"rerank": true` on top for an LLM-as-judge pass over a wider candidate
+pool before answering; like `grounded`, it's a full extra Ollama call so it's opt-in.
+See [ADR 0012](docs/adr/0012-hybrid-search-rrf-llm-rerank.md).
+
 Routing is a plain keyword check on the question (mentions of "diagram", "draw", "flow",
 "architecture", etc.) rather than an extra LLM call, so it's fast and predictable. The
 underlying single-purpose endpoints (`/api/v1/chat`, `/api/v1/diagrams`) still exist too,
@@ -198,8 +204,6 @@ are fully working end to end, rather than six half-built modules. What's next:
 - **chat-service** — multi-turn conversations with memory (Spring AI `ChatMemory`),
   sitting in front of `rag-service`.
 - **auth-service** — JWT/OAuth2, so ingestion and chat are per-user/per-tenant.
-- **Hybrid search + re-ranking** — combine pgvector similarity with Postgres full-text
-  (`tsvector`) search, re-rank the merged candidates with a cross-encoder.
 - **Kubernetes manifests** — Deployments, Services, ConfigMaps, HPA for each service.
 - **Grafana dashboards** on top of the Prometheus metrics already exposed by both
   services.
@@ -217,6 +221,7 @@ are fully working end to end, rather than six half-built modules. What's next:
 - [ADR 0009 — Retry + circuit breaker around every Ollama call](docs/adr/0009-resilience4j-retry-circuit-breaker.md)
 - [ADR 0010 — Extract `platform-common` for the code every service duplicated](docs/adr/0010-platform-common-module.md)
 - [ADR 0011 — Flyway takes over schema creation from PgVectorStore's auto-init](docs/adr/0011-flyway-schema-migrations.md)
+- [ADR 0012 — Hybrid search (vector + full-text via RRF), opt-in LLM rerank](docs/adr/0012-hybrid-search-rrf-llm-rerank.md)
 
 ## License
 

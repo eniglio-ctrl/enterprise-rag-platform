@@ -1,8 +1,11 @@
 package com.eniglio.ragplatform.rag.service;
 
 import com.eniglio.ragplatform.rag.config.RagProperties;
+import com.eniglio.ragplatform.rag.dto.AskResponse;
+import com.eniglio.ragplatform.rag.dto.ChatResponse;
+import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
-import com.eniglio.ragplatform.rag.gateway.VectorStoreGateway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -13,24 +16,35 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.VectorStore;
 
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class RagQueryServiceTest {
 
     @Mock
-    private VectorStore vectorStore;
+    private HybridSearchService hybridSearchService;
+
+    @Mock
+    private LlmRerankService llmRerankService;
 
     @Mock
     private ChatModel chatModel;
+
+    private RagQueryService newService() {
+        ChatClient chatClient = ChatClient.builder(chatModel).build();
+        return new RagQueryService(hybridSearchService, llmRerankService, chatClient, new LlmGateway(),
+                new RagProperties(5, 0.5, 15));
+    }
 
     @Test
     void answersUsingRetrievedDocumentsAndCitesSources() {
@@ -40,23 +54,46 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", false);
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false);
 
         assertThat(response.answer()).contains("SAGA");
         assertThat(response.citations()).hasSize(1);
         assertThat(response.citations().get(0).source()).isEqualTo("aula12.md");
         assertThat(response.citations().get(0).chunkIndex()).isEqualTo(3);
         assertThat(response.groundedness()).isNull();
+        verify(llmRerankService, never()).rerank(anyString(), any(), anyInt());
+    }
+
+    @Test
+    void rerankRequestPassesHybridResultsThroughTheReranker() {
+        Document original = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.5)
+                .build();
+        Document reranked = original.mutate().score(0.9).build();
+
+        given(hybridSearchService.search("Como funciona o SAGA?", "default", 15)).willReturn(List.of(original));
+        given(llmRerankService.rerank("Como funciona o SAGA?", List.of(original), 5)).willReturn(List.of(reranked));
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, true);
+
+        assertThat(response.citations()).hasSize(1);
+        assertThat(response.citations().get(0).score()).isEqualTo(0.9);
     }
 
     @Test
@@ -67,7 +104,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
             String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
@@ -77,12 +114,10 @@ class RagQueryServiceTest {
                     List.of(new Generation(new AssistantMessage(content))));
         });
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false);
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
-
-        assertThat(response.groundedness()).isEqualTo(com.eniglio.ragplatform.rag.dto.Groundedness.SUPPORTED);
+        assertThat(response.groundedness()).isEqualTo(Groundedness.SUPPORTED);
     }
 
     @Test
@@ -93,7 +128,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
             String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
@@ -103,22 +138,18 @@ class RagQueryServiceTest {
                     List.of(new Generation(new AssistantMessage(content))));
         });
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false);
 
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Como funciona o SAGA?", "default", true);
-
-        assertThat(response.groundedness()).isEqualTo(com.eniglio.ragplatform.rag.dto.Groundedness.NOT_SUPPORTED);
+        assertThat(response.groundedness()).isEqualTo(Groundedness.NOT_SUPPORTED);
     }
 
     @Test
     void returnsFallbackMessageWhenNothingIsRetrieved() {
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false);
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false);
 
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
@@ -132,7 +163,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3] --> C[AWS Lambda]";
         String expectedMermaid = "flowchart LR\n    A[\"Cliente\"] --> B[\"Amazon S3\"] --> C[\"AWS Lambda\"]";
@@ -141,10 +172,8 @@ class RagQueryServiceTest {
                         List.of(new Generation(new AssistantMessage("```mermaid\n" + rawMermaid + "\n```"))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
+        RagQueryService service = newService();
+        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
         assertThat(response.mermaid()).isEqualTo(expectedMermaid);
         assertThat(response.citations()).hasSize(1);
@@ -158,7 +187,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Banco de Dados] --> B[Multi-AZ (alta disponibilidade)]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -166,10 +195,8 @@ class RagQueryServiceTest {
                         List.of(new Generation(new AssistantMessage(rawMermaid))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
+        RagQueryService service = newService();
+        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Banco de Dados\"] --> B[\"Multi-AZ (alta disponibilidade)\"]");
@@ -183,7 +210,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Producao] -->|Backup|> B[S3]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -191,10 +218,8 @@ class RagQueryServiceTest {
                         List.of(new Generation(new AssistantMessage(rawMermaid))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default");
+        RagQueryService service = newService();
+        DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default");
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Producao\"] -->|Backup| B[\"S3\"]");
@@ -202,12 +227,10 @@ class RagQueryServiceTest {
 
     @Test
     void returnsEmptyDiagramWhenNothingIsRetrieved() {
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default");
+        RagQueryService service = newService();
+        DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default");
 
         assertThat(response.mermaid()).contains("Dados insuficientes");
         assertThat(response.citations()).isEmpty();
@@ -221,7 +244,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -229,10 +252,8 @@ class RagQueryServiceTest {
                         List.of(new Generation(new AssistantMessage(rawMermaid))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false);
+        RagQueryService service = newService();
+        AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false, false);
 
         assertThat(response.type()).isEqualTo("diagram");
         assertThat(response.mermaid()).contains("Amazon S3");
@@ -247,17 +268,15 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Como funciona o SAGA?", "default", false);
+        RagQueryService service = newService();
+        AskResponse response = service.ask("Como funciona o SAGA?", "default", false, false);
 
         assertThat(response.type()).isEqualTo("answer");
         assertThat(response.answer()).contains("SAGA");
@@ -272,7 +291,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(vectorStore.similaritySearch(any(SearchRequest.class))).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -280,10 +299,8 @@ class RagQueryServiceTest {
                         List.of(new Generation(new AssistantMessage(rawMermaid))));
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
-        ChatClient chatClient = ChatClient.builder(chatModel).build();
-        RagQueryService service = new RagQueryService(new VectorStoreGateway(vectorStore), chatClient, new LlmGateway(), new RagProperties(5, 0.5));
-
-        com.eniglio.ragplatform.rag.dto.AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false);
+        RagQueryService service = newService();
+        AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false, false);
 
         assertThat(response.type()).isEqualTo("diagram");
     }

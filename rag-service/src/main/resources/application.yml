@@ -70,6 +70,10 @@ platform:
 rag:
   top-k: 5
   similarity-threshold: 0.5
+  # Candidate pool fetched from each hybrid-search leg (vector + full-text) before RRF
+  # fusion narrows down to top-k; also the pool size handed to the reranker when
+  # "rerank": true is requested.
+  rerank-candidate-pool-size: 15
   ollama:
     connect-timeout: 5s
     # Diagram/chat generation is CPU-bound local inference and can legitimately take

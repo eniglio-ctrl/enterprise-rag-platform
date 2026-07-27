@@ -12,14 +12,16 @@ import java.util.function.Supplier;
  * calls made through the Spring proxy, so wrapping call sites inline inside
  * {@code RagQueryService} itself would silently do nothing (self-invocation bypasses
  * the proxy). Taking a {@code Supplier} instead of re-exposing {@code ChatClient}
- * keeps each call site's own prompt-building logic unchanged.
+ * keeps each call site's own prompt-building logic unchanged; generic so it covers
+ * both plain-text calls ({@code .content()}) and structured-output ones
+ * ({@code .entity(SomeRecord.class)}, used by the LLM reranker, ADR 0012).
  */
 @Component
 public class LlmGateway {
 
     @CircuitBreaker(name = "ollama")
     @Retry(name = "ollama")
-    public String call(Supplier<String> chatCall) {
+    public <T> T call(Supplier<T> chatCall) {
         return chatCall.get();
     }
 }

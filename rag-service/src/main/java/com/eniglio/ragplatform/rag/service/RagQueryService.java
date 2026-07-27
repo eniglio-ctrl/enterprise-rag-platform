@@ -7,15 +7,11 @@ import com.eniglio.ragplatform.rag.dto.Citation;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
-import com.eniglio.ragplatform.rag.gateway.VectorStoreGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaOptions;
-import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.filter.Filter;
-import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
@@ -87,14 +83,16 @@ public class RagQueryService {
             "imagem", "picture", "esquema", "flowchart", "grafico", "chart", "grafo", "mapa mental",
             "mindmap", "ilustra");
 
-    private final VectorStoreGateway vectorStoreGateway;
+    private final HybridSearchService hybridSearchService;
+    private final LlmRerankService llmRerankService;
     private final ChatClient chatClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
 
-    public RagQueryService(VectorStoreGateway vectorStoreGateway, ChatClient chatClient, LlmGateway llmGateway,
-                            RagProperties ragProperties) {
-        this.vectorStoreGateway = vectorStoreGateway;
+    public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
+                            ChatClient chatClient, LlmGateway llmGateway, RagProperties ragProperties) {
+        this.hybridSearchService = hybridSearchService;
+        this.llmRerankService = llmRerankService;
         this.chatClient = chatClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
@@ -103,15 +101,16 @@ public class RagQueryService {
     /**
      * Single entry point for the UI: routes to {@link #diagram(String, String)} when
      * the question itself asks for a diagram/drawing/flow, otherwise to
-     * {@link #answer(String, String)}. Routing is a plain keyword check on the
-     * question text rather than an extra LLM call, keeping it fast and predictable.
+     * {@link #answer(String, String, boolean, boolean)}. Routing is a plain keyword
+     * check on the question text rather than an extra LLM call, keeping it fast and
+     * predictable.
      */
-    public AskResponse ask(String question, String tenantId, boolean grounded) {
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank) {
         if (wantsDiagram(question)) {
             DiagramResponse diagram = diagram(question, tenantId);
             return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null);
         }
-        ChatResponse chat = answer(question, tenantId, grounded);
+        ChatResponse chat = answer(question, tenantId, grounded, rerank);
         return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness());
     }
 
@@ -130,15 +129,12 @@ public class RagQueryService {
         return decomposed.replaceAll("\\p{M}", "");
     }
 
-    public ChatResponse answer(String question, String tenantId, boolean grounded) {
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(question)
-                .topK(ragProperties.topK())
-                .similarityThreshold(ragProperties.similarityThreshold())
-                .filterExpression(tenantFilter(tenantId))
-                .build();
-
-        List<Document> retrieved = vectorStoreGateway.search(searchRequest);
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank) {
+        int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
+        if (rerank) {
+            retrieved = llmRerankService.rerank(question, retrieved, ragProperties.topK());
+        }
 
         if (retrieved.isEmpty()) {
             log.info("No relevant chunks found for question");
@@ -192,14 +188,7 @@ public class RagQueryService {
     }
 
     public DiagramResponse diagram(String question, String tenantId) {
-        SearchRequest searchRequest = SearchRequest.builder()
-                .query(question)
-                .topK(ragProperties.topK())
-                .similarityThreshold(ragProperties.similarityThreshold())
-                .filterExpression(tenantFilter(tenantId))
-                .build();
-
-        List<Document> retrieved = vectorStoreGateway.search(searchRequest);
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
 
         if (retrieved.isEmpty()) {
             log.info("No relevant chunks found for diagram question");
@@ -227,15 +216,6 @@ public class RagQueryService {
         log.info("Generated diagram using {} retrieved chunks", retrieved.size());
 
         return new DiagramResponse(mermaid, citations);
-    }
-
-    /**
-     * Tenant is the data-isolation boundary (ADR 0007): every user within a tenant can
-     * search that tenant's whole knowledge base, so only tenantId is filtered here.
-     * userId is still recorded on every chunk at ingestion for attribution/audit.
-     */
-    private Filter.Expression tenantFilter(String tenantId) {
-        return new FilterExpressionBuilder().eq("tenantId", tenantId).build();
     }
 
     private String stripCodeFences(String text) {
