@@ -176,7 +176,9 @@ declared content type, and actual byte content (a small magic-byte signature
 table, not just the filename) all have to agree, or the request is rejected with
 `415`/`422` before reaching Tika/PDFBox/Ollama/Whisper. See
 [ADR 0022](docs/adr/0022-upload-validation-hardening.md), part of the security
-hardening rollout in [ADR 0021](docs/adr/0021-security-hardening-baseline.md).
+hardening rollout in [ADR 0021](docs/adr/0021-security-hardening-baseline.md) —
+full status and remaining phases tracked in
+[docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 
 ### Ask anything
 
@@ -384,7 +386,8 @@ half-built modules. What's next:
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
   content validation is done (ADR 0022); rate limiting, secrets/CORS/headers,
   a real tenant/invitation model with a persistent JWT signing key, security
-  audit logging, and public-demo hardening are next.
+  audit logging, and public-demo hardening are next. Full phase-by-phase status:
+  [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment. Being replaced as part of the
