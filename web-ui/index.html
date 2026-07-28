@@ -45,12 +45,16 @@
   <main class="layout" id="app-layout" hidden>
     <section class="panel">
       <h2>1. Upload a document</h2>
-      <p class="hint">PDF, DOCX, Markdown or plain text. Indexing into pgvector happens automatically after upload.</p>
+      <p class="hint">PDF, DOCX, Markdown, plain text, an image (PNG/JPEG/GIF/WebP —
+        described by a vision model), or audio (MP3/WAV/M4A/OGG/FLAC — transcribed by a
+        local Whisper server). Either way, the derived text is what gets indexed into
+        pgvector, automatically after upload.</p>
 
       <form id="upload-form">
         <label class="dropzone" id="dropzone" for="file-input">
           <span id="dropzone-label">Drag a file here or click to choose</span>
-          <input type="file" id="file-input" name="file" accept=".pdf,.docx,.md,.txt" hidden />
+          <input type="file" id="file-input" name="file"
+            accept=".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.ogg,.flac" hidden />
         </label>
         <button type="submit" id="upload-button" disabled>Upload &amp; index</button>
       </form>

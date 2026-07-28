@@ -37,9 +37,19 @@ spring:
       embedding:
         options:
           model: ${EMBEDDING_MODEL:nomic-embed-text}
+      # Vision-capable chat model for image ingestion (ADR 0018) — an uploaded image
+      # is described in detail by this model, and the description is what actually
+      # gets chunked/embedded/stored, not the image bytes. llava is on the smaller
+      # side of Ollama's vision models, a reasonable local-first default.
+      chat:
+        options:
+          model: ${VISION_MODEL:llava}
+          temperature: 0.2
       init:
         pull-model-strategy: when_missing
         embedding:
+          include: true
+        chat:
           include: true
 
     vectorstore:
@@ -96,9 +106,23 @@ resilience4j:
         wait-duration: 500ms
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
+      # Separate instance from "ollama" (ADR 0019) — Whisper is a different
+      # dependency in a different failure domain; an outage there says nothing
+      # about Ollama's health, and vice versa.
+      whisper:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
   circuitbreaker:
     instances:
       ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      whisper:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50
@@ -112,6 +136,12 @@ ingestion:
     - application/vnd.openxmlformats-officedocument.wordprocessingml.document
     - text/markdown
     - text/plain
+  whisper:
+    base-url: ${WHISPER_BASE_URL:http://localhost:9000}
+    connect-timeout: 5s
+    # Transcribing a longer audio file on CPU can take a while — same reasoning as
+    # rag-service's Ollama read-timeout (ADR 0009's original finding).
+    read-timeout: 120s
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

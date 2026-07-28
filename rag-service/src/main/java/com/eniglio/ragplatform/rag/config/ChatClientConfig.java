@@ -49,6 +49,14 @@ public class ChatClientConfig {
     // RestClient.Builder bean as the base client for both providers' API clients —
     // sharing one timeout config is a deliberate simplification, both are local,
     // CPU-bound inference with similar latency characteristics.
+    // Pinned to .simple() rather than .detect(): the JDK HttpClient-based factory
+    // detect() otherwise selects sends an "Upgrade: h2c" cleartext-HTTP/2 attempt
+    // alongside a chunked request body, which both Ollama's own Go HTTP server and
+    // (in the ADR 0019 whisper case) uvicorn/Starlette have been confirmed — by
+    // capturing and replaying the exact raw request bytes both ways — to sometimes
+    // mishandle, corrupting or dropping the body (an image silently missing from a
+    // vision call, or a 500 "unexpected EOF"). .simple() sends the identical bytes
+    // without the upgrade attempt and was verified reliable in its place.
     @Bean
     public RestClient.Builder restClientBuilder(
             @Value("${rag.ollama.connect-timeout:5s}") Duration connectTimeout,
@@ -57,6 +65,6 @@ public class ChatClientConfig {
                 .withConnectTimeout(connectTimeout)
                 .withReadTimeout(readTimeout);
         return RestClient.builder()
-                .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings));
+                .requestFactory(ClientHttpRequestFactoryBuilder.simple().build(settings));
     }
 }

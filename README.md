@@ -149,6 +149,19 @@ curl -X POST http://localhost:8081/api/v1/documents \
 { "documentId": "…", "source": "aula12.md", "pageCount": 1, "chunkCount": 3 }
 ```
 
+PDF, DOCX, Markdown and plain text all work the same way. Two more file types are
+supported by turning them into text first, then flowing through the exact same
+chunk → embed → store pipeline:
+
+- **Images** (`.png`/`.jpg`/`.jpeg`/`.gif`/`.webp`) — described by a local
+  vision-capable Ollama model (`llava` by default); the description, not the image
+  itself, gets indexed. See [ADR 0018](docs/adr/0018-image-ingestion-via-vision-model.md).
+- **Audio** (`.mp3`/`.wav`/`.m4a`/`.ogg`/`.flac`) — transcribed by a local Whisper
+  server (`onerahmet/openai-whisper-asr-webservice`); the transcript gets indexed.
+  See [ADR 0019](docs/adr/0019-audio-ingestion-via-local-whisper.md).
+
+Both are genuinely local — no OpenAI Whisper API key, no cloud vision call.
+
 ### Ask anything
 
 This is what the web UI calls — one endpoint, routes itself to a diagram or a text
@@ -355,6 +368,8 @@ half-built modules. What's next:
 - [ADR 0015 — Observability stack (Prometheus + Grafana)](docs/adr/0015-observability-stack.md)
 - [ADR 0016 — auth-service: RS256 JWTs, JWKS, and the transition from trusted headers](docs/adr/0016-auth-service-jwt-oauth2.md)
 - [ADR 0017 — Per-request chat model picker (Ollama models + LM Studio)](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md)
+- [ADR 0018 — Image ingestion via a local vision model](docs/adr/0018-image-ingestion-via-vision-model.md)
+- [ADR 0019 — Audio ingestion via a local Whisper server; the real root cause of an early transport bug](docs/adr/0019-audio-ingestion-via-local-whisper.md)
 
 ## License
 

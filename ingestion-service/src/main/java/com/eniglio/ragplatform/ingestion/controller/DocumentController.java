@@ -27,7 +27,10 @@ public class DocumentController {
     }
 
     @Operation(summary = "Upload a document for ingestion",
-            description = "Parses, chunks, embeds and stores a PDF, DOCX, Markdown or plain-text file")
+            description = "Parses, chunks, embeds and stores a PDF, DOCX, Markdown or plain-text file. "
+                    + "PNG/JPEG/GIF/WebP images are described by a vision model instead (ADR 0018), and "
+                    + "MP3/WAV/M4A/OGG/FLAC audio is transcribed by a local Whisper server (ADR 0019) — "
+                    + "either way, the derived text is what gets embedded, never the original bytes.")
     @ApiResponse(responseCode = "201", description = "Document ingested successfully")
     @ApiResponse(responseCode = "415", description = "Unsupported file type")
     @PostMapping(value = "/api/v1/documents", consumes = "multipart/form-data")

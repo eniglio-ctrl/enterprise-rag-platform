@@ -29,6 +29,22 @@ services:
       retries: 10
       start_period: 30s
 
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    environment:
+      ASR_MODEL: base
+      ASR_ENGINE: openai_whisper
+    ports:
+      - "9000:9000"
+    volumes:
+      - whisper-data:/root/.cache/whisper
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/docs || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
   auth-service:
     build:
       context: .
@@ -66,6 +82,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
+      VISION_MODEL: llava
+      WHISPER_BASE_URL: http://whisper:9000
       AUTH_SERVICE_BASE_URL: http://auth-service:8084
       WEB_UI_ORIGIN: http://localhost:3000
     depends_on:
@@ -74,6 +92,8 @@ services:
       ollama:
         condition: service_healthy
       auth-service:
+        condition: service_healthy
+      whisper:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
@@ -211,5 +231,6 @@ services:
 volumes:
   postgres-data:
   ollama-data:
+  whisper-data:
   prometheus-data:
   grafana-data:
