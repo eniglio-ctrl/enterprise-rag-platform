@@ -341,6 +341,29 @@ touches the vector extension) and mock only the Ollama-backed models, so the rea
 ingestion → chunk → embed → store → retrieve → converse path is exercised against a real
 database, not a fake.
 
+### RAG quality benchmark
+
+A separate, opt-in benchmark scores real answer quality — not mocked models — against
+10 question/expected-answer pairs, via cosine similarity between each generated
+answer's embedding and its expected answer's (reusing the same `EmbeddingModel` bean
+the app already injects, no new dependency). It needs a real, reachable local Ollama
+with `llama3.1` and `nomic-embed-text` already pulled, so it's excluded from both
+`verify` and CI:
+
+```bash
+./mvnw test -pl rag-service -Dtest=RagQualityBenchmark -Dbenchmark=true \
+    -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Latest real run: **average similarity 0.651** across 10 questions (minimum bar:
+0.60), individual scores 0.47–0.93. Several answers came back in Portuguese for
+English questions — a genuine, CPU-bound `llama3.1` quirk on this hardware, not a
+retrieval defect — which cross-lingual cosine similarity penalizes even when the
+answer is factually correct; see the class's own Javadoc for the full account,
+including a real, reproducible gotcha (a second, unrelated local Ollama process
+competing for port 11434) that looked like test flakiness before it was tracked
+down.
+
 ## What's implemented vs. what's next
 
 This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-service`,
@@ -354,7 +377,8 @@ half-built modules. What's next:
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment.
-- **A quality benchmark** — see the roadmap.
+- ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
+  above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
   (ADR 0020: Groq for chat via the same pluggable-provider mechanism as ADR 0017,
   Mistral AI's free embedding API, Render + Neon + Netlify, a demo-only no-login
