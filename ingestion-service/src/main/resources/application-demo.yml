@@ -1,0 +1,17 @@
+# ADR 0020: used to seed the free public demo's database once, locally — this
+# profile is never deployed as a running service, unlike rag-service's own
+# application-demo.yml. Points Flyway at a separate 384-dimension schema
+# (db/migration-demo) and swaps the EmbeddingModel to the same in-process ONNX
+# model the deployed rag-service queries with, so seeded vectors are actually
+# comparable to query-time vectors.
+spring:
+  flyway:
+    locations: classpath:db/migration-demo
+
+  autoconfigure:
+    exclude: org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+
+  ai:
+    vectorstore:
+      pgvector:
+        dimensions: 384

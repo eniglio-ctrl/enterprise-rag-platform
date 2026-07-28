@@ -11,6 +11,9 @@
   <header class="app-header">
     <h1>Enterprise RAG Platform</h1>
     <p>Upload documents, they're embedded and indexed automatically, then ask questions grounded in what you uploaded.</p>
+    <p id="demo-banner" class="demo-banner" hidden>Public demo — a fixed set of documents is already
+      indexed below; there's no login and no upload here (see the README for how to run the full stack
+      locally with your own files).</p>
     <div id="auth-bar" class="auth-bar" hidden>
       <span id="auth-summary"></span>
       <button id="logout-button" type="button">Log out</button>
@@ -43,7 +46,7 @@
   </section>
 
   <main class="layout" id="app-layout" hidden>
-    <section class="panel">
+    <section class="panel" id="upload-panel">
       <h2>1. Upload a document</h2>
       <p class="hint">PDF, DOCX, Markdown, plain text, an image (PNG/JPEG/GIF/WebP —
         described by a vision model), or audio (MP3/WAV/M4A/OGG/FLAC — transcribed by a
@@ -65,7 +68,7 @@
     </section>
 
     <section class="panel panel-wide">
-      <h2>2. Ask</h2>
+      <h2 id="ask-heading">2. Ask</h2>
       <p class="hint">Ask a question about what you uploaded, or ask for a diagram/drawing/flow of an
         architecture or process described in it — the same box handles both, based on what you ask.
         Running on a local model with no GPU, so a diagram can take a minute or two.</p>
@@ -98,6 +101,7 @@
     <span id="config-summary"></span>
   </footer>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -10,6 +10,14 @@ spring:
       max-file-size: 25MB
       max-request-size: 25MB
 
+  # TransformersEmbeddingModelAutoConfiguration is only on the classpath for the
+  # "demo" profile's sake (ADR 0020, seeding the free public demo's database with
+  # matching-dimension vectors) — excluded by default so Ollama's EmbeddingModel
+  # stays the sole candidate everywhere else, same reasoning as rag-service's
+  # OpenAiEmbeddingAutoConfiguration exclude (ADR 0017).
+  autoconfigure:
+    exclude: org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration
+
   security:
     oauth2:
       resourceserver:

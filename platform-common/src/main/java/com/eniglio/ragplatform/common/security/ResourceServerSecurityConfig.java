@@ -2,6 +2,7 @@ package com.eniglio.ragplatform.common.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -16,9 +17,15 @@ import org.springframework.security.web.SecurityFilterChain;
  * {@link com.eniglio.ragplatform.common.web.CorsConfig}, ADR 0010). Each service only
  * needs to set {@code spring.security.oauth2.resourceserver.jwt.jwk-set-uri} pointing
  * at auth-service's JWKS endpoint.
+ * <p>
+ * {@code @Profile("!demo")}: the public demo deployment (ADR 0020) has no
+ * auth-service to validate against and deliberately has no login, so it replaces
+ * this bean with {@link DemoSecurityConfig} instead — real JWT validation stays the
+ * only option for every other profile.
  */
 @Configuration
 @EnableWebSecurity
+@Profile("!demo")
 public class ResourceServerSecurityConfig {
 
     @Bean

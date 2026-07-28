@@ -1,0 +1,44 @@
+# ADR 0020: the free public demo deployment. Activated with
+# SPRING_PROFILES_ACTIVE=demo. No Ollama, no auth-service, no login — a single
+# fixed "demo" tenant sees whatever documents were seeded into the demo database
+# ahead of time (platform-common's DemoSecurityConfig supplies that tenant).
+spring:
+  # Flips which EmbeddingModel auto-configuration wins (base application.yml
+  # excludes Transformers and keeps Ollama's; this profile does the opposite) —
+  # there's no Ollama to reach here, so the in-process ONNX model
+  # (sentence-transformers/all-MiniLM-L6-v2, 384 dimensions) takes over.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+
+  ai:
+    # Groq's API is OpenAI-compatible, so this reuses the exact same "openai"
+    # provider wiring ADR 0017 built for LM Studio — just pointed at a different
+    # base-url/key/model. GROQ_API_KEY has no default: the app fails fast on boot
+    # if it's missing, rather than booting into a demo that can never answer.
+    # base-url is "https://api.groq.com/openai", NOT "…/openai/v1": Spring AI's
+    # OpenAiApi always appends "/v1/chat/completions" itself — including "/v1" here
+    # too produced a real, confirmed bug ("/openai/v1/v1/chat/completions" — 404,
+    # "Unknown request URL") the first time this was tested against Groq's real API,
+    # not assumed correct from documentation alone.
+    openai:
+      base-url: https://api.groq.com/openai
+      api-key: ${GROQ_API_KEY:?GROQ_API_KEY is required when the "demo" profile is active}
+      chat:
+        options:
+          model: ${GROQ_MODEL:llama-3.3-70b-versatile}
+          temperature: 0.2
+    vectorstore:
+      pgvector:
+        # sentence-transformers/all-MiniLM-L6-v2's output size, not
+        # nomic-embed-text's 768 (base application.yml) — the demo database is a
+        # separate, freshly-seeded instance, so there's no existing-data mismatch
+        # to reconcile.
+        dimensions: 384
+
+rag:
+  available-models:
+    - id: ${GROQ_MODEL:llama-3.3-70b-versatile}
+      label: "Groq — Llama 3.3 70B (demo público)"
+      provider: lmstudio

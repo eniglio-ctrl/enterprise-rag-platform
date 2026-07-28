@@ -1,6 +1,12 @@
 const INGESTION_BASE = window.RAG_PLATFORM_CONFIG?.ingestionBaseUrl ?? "http://localhost:8081";
 const RAG_BASE = window.RAG_PLATFORM_CONFIG?.ragBaseUrl ?? "http://localhost:8082";
 const AUTH_BASE = window.RAG_PLATFORM_CONFIG?.authBaseUrl ?? "http://localhost:8084";
+// ADR 0020: the free public demo has no auth-service and no upload — rag-service's
+// own "demo" Spring profile treats every request as one fixed tenant regardless of
+// headers sent, so there's nothing for a login form or bearer token to accomplish
+// there. Everywhere else (local, docker-compose), this stays false and behavior is
+// unchanged from before this flag existed.
+const DEMO_MODE = window.RAG_PLATFORM_CONFIG?.demoMode ?? false;
 
 // localStorage, not an HttpOnly cookie (ADR 0016): auth-service would need to set a
 // cross-origin cookie for a static file server on a different port, complicating CORS
@@ -56,6 +62,17 @@ function authHeader() {
 }
 
 function renderAuthState() {
+  if (DEMO_MODE) {
+    authPanel.hidden = true;
+    appLayout.hidden = false;
+    authBar.hidden = true;
+    document.getElementById("upload-panel").hidden = true;
+    document.getElementById("demo-banner").hidden = false;
+    document.getElementById("ask-heading").textContent = "Ask";
+    loadModels();
+    return;
+  }
+
   const auth = getAuth();
   const authenticated = Boolean(auth);
   authPanel.hidden = authenticated;
@@ -169,8 +186,9 @@ let diagramCounter = 0;
 
 mermaid.initialize({ startOnLoad: false });
 
-document.getElementById("config-summary").textContent =
-  `ingestion-service: ${INGESTION_BASE} · rag-service: ${RAG_BASE} · auth-service: ${AUTH_BASE}`;
+document.getElementById("config-summary").textContent = DEMO_MODE
+  ? `rag-service: ${RAG_BASE} · public demo (ADR 0020)`
+  : `ingestion-service: ${INGESTION_BASE} · rag-service: ${RAG_BASE} · auth-service: ${AUTH_BASE}`;
 
 function setStatus(el, message, kind) {
   el.textContent = message;

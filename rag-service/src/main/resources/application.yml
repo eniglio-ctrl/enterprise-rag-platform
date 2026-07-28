@@ -11,8 +11,14 @@ spring:
   # anything that autowires EmbeddingModel by type (PgVectorStore's own similarity
   # search does this internally). Embeddings stay Ollama-only — LM Studio is only ever
   # selected for chat generation, never embedding.
+  # TransformersEmbeddingModelAutoConfiguration is also excluded here for the same
+  # reason (ADR 0020): its starter is only on the classpath for the "demo" profile's
+  # sake, which flips this exclude list around instead (see application-demo.yml) —
+  # every other profile keeps Ollama as the sole EmbeddingModel.
   autoconfigure:
-    exclude: org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration
 
   security:
     oauth2:
