@@ -48,6 +48,20 @@ spring:
       embedding:
         options:
           model: mistral-embed
+    ollama:
+      # A real, confirmed bug, not a hypothetical one: Spring AI's OllamaChatModel
+      # eagerly calls GET /api/tags against Ollama *at bean-construction time*
+      # (OllamaModelManager.pullModel -> isModelAvailable), to decide whether to pull
+      # the configured model — it is not lazy the way this was originally assumed to
+      # be. With no Ollama reachable in this deployment, that network call threw
+      # Connection refused and crashed the entire application at boot, even though
+      # the "demo" profile's available-models list never selects Ollama at all.
+      # "never" skips that eager check/pull entirely, letting the (unused) bean
+      # construct successfully. Caught by a real failed Render deploy, not by local
+      # testing — every local run of this profile happened to have a real Ollama
+      # reachable at localhost:11434 the whole time, which masked this exact bug.
+      init:
+        pull-model-strategy: never
     vectorstore:
       pgvector:
         # mistral-embed's output size, not nomic-embed-text's 768 (base

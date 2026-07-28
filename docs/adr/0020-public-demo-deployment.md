@@ -149,3 +149,40 @@ Verified for real, end-to-end, after both fixes: the demo Neon database reseeded
 with `mistral-embed` vectors, `rag-service` (demo profile) retrieving them and
 answering via Groq — a genuine cloud-to-cloud-to-cloud round trip (Neon, Mistral,
 Groq), not simulated.
+
+## Update: `OllamaChatModel` isn't lazy — a real deploy failure, and a real gap in
+## how this was tested locally
+
+Redeploying to Render after the Mistral switch above failed at boot with
+`Connection refused` to `http://localhost:11434/api/tags`, even though the "demo"
+profile's `rag.available-models` never lists an Ollama entry and nothing in the
+request path calls it. Root cause: `OllamaChatAutoConfiguration`'s `ollamaChatModel`
+bean isn't a passive wrapper the way this ADR had assumed — Spring AI's
+`OllamaChatModel` constructor calls `initializeModel()`, which calls
+`OllamaModelManager.pullModel()`, which calls `isModelAvailable()` — a real `GET
+/api/tags` — *before* the object even finishes constructing, to decide whether the
+configured model needs pulling. With no Ollama reachable in this deployment, that
+call throws, and Spring's `UnsatisfiedDependencyException` chain takes down the
+entire application context: `ChatController` → `RagQueryService` → `LlmRerankService`
+→ the `ollamaChatClient` bean → `ollamaChatModel` → the failed HTTP call, five beans
+deep, none of them ever actually used by anything the "demo" profile does.
+
+**Why local testing never caught this**: every local run of the "demo" profile up to
+this point (seeding the database, the first end-to-end retrieval test, the Mistral
+switch's own verification) happened with the real local `docker-compose` stack's
+Ollama container still running and reachable at `localhost:11434` — the default
+`OLLAMA_BASE_URL`. The eager check quietly succeeded every time, so the bug was
+invisible until the first deploy to an environment where Ollama genuinely doesn't
+exist. Fixed properly the second time: rebuilt and reran locally with
+`OLLAMA_BASE_URL` pointed at a deliberately unreachable host
+(`http://ollama-does-not-exist.invalid:11434`) to actually reproduce Render's
+condition, not just its absence-of-config.
+
+**Fix**: `spring.ai.ollama.init.pull-model-strategy: never` added to
+`application-demo.yml`, which skips that eager availability check/pull entirely —
+the (unused) `ollamaChatModel` bean now constructs successfully regardless of
+whether Ollama is reachable, and only the fixed-Groq-only `available-models` list
+ever gets used at request time anyway. Verified twice: booting cleanly with a
+genuinely unreachable `OLLAMA_BASE_URL`, and a real question still answering
+correctly end-to-end (Neon retrieval, Mistral embeddings, Groq generation) under
+that same condition.
