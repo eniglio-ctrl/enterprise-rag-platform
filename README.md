@@ -13,9 +13,11 @@ architecture decisions.
 **Live demo**: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app) — a free,
 public, no-login instance answering questions from a small pre-seeded document set
 about this project itself (Groq for chat, Mistral AI for embeddings, Neon Postgres;
-see [ADR 0020](docs/adr/0020-public-demo-deployment.md)). The full stack with your
-own documents, image/audio ingestion, and every model provider still needs the
-local setup below.
+decision rationale in [ADR 0020](docs/adr/0020-public-demo-deployment.md), full
+configuration reference and test guide in
+[docs/DEMO-DEPLOYMENT.md](docs/DEMO-DEPLOYMENT.md)). The full stack with your own
+documents, image/audio ingestion, and every model provider still needs the local
+setup below.
 
 Upload a document — a talk transcript, a design doc, meeting notes — and ask it to draw
 the architecture or flow it describes: the LLM extracts the components and relationships
