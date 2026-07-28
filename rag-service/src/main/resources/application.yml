@@ -11,14 +11,22 @@ spring:
   # anything that autowires EmbeddingModel by type (PgVectorStore's own similarity
   # search does this internally). Embeddings stay Ollama-only — LM Studio is only ever
   # selected for chat generation, never embedding.
-  # TransformersEmbeddingModelAutoConfiguration is also excluded here for the same
-  # reason (ADR 0020): its starter is only on the classpath for the "demo" profile's
-  # sake, which flips this exclude list around instead (see application-demo.yml) —
-  # every other profile keeps Ollama as the sole EmbeddingModel.
+  # MistralAiEmbeddingAutoConfiguration is excluded here for the same reason (ADR
+  # 0020): its starter is only on the classpath for the "demo" profile's sake, which
+  # flips this exclude list around instead (see application-demo.yml) — every other
+  # profile keeps Ollama as the sole EmbeddingModel. MistralAiChatAutoConfiguration and
+  # MistralAiModerationAutoConfiguration are excluded in every profile, including
+  # "demo" — Groq already covers "cloud OpenAI-compatible chat" via the existing
+  # "openai" provider (ADR 0017), so Mistral is only ever used here for its embedding
+  # model. Both of those auto-configurations fail fast at boot without an api-key set
+  # rather than quietly backing off (confirmed by a real failing build before this
+  # exclude existed), so they can't just be left inactive-by-absence-of-key.
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
-      - org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
 
   security:
     oauth2:

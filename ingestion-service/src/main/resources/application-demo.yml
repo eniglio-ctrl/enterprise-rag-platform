@@ -1,17 +1,31 @@
 # ADR 0020: used to seed the free public demo's database once, locally — this
 # profile is never deployed as a running service, unlike rag-service's own
-# application-demo.yml. Points Flyway at a separate 384-dimension schema
-# (db/migration-demo) and swaps the EmbeddingModel to the same in-process ONNX
-# model the deployed rag-service queries with, so seeded vectors are actually
-# comparable to query-time vectors.
+# application-demo.yml. Points Flyway at a separate 1024-dimension schema
+# (db/migration-demo) and swaps the EmbeddingModel to Mistral AI's free-tier
+# embedding API, the same one the deployed rag-service queries with, so seeded
+# vectors are actually comparable to query-time vectors.
 spring:
   flyway:
     locations: classpath:db/migration-demo
 
+  # A profile-specific spring.autoconfigure.exclude list REPLACES the base
+  # application.yml's list entirely rather than merging with it — confirmed the hard
+  # way: an earlier version of this file only listed OllamaEmbeddingAutoConfiguration
+  # here, which silently un-excluded MistralAiChatAutoConfiguration and let it create
+  # a second, competing ChatModel bean alongside Ollama's. All four excludes need to
+  # be spelled out again here, not just the one this profile actually changes.
   autoconfigure:
-    exclude: org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+    exclude:
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
 
   ai:
+    mistralai:
+      api-key: ${MISTRAL_API_KEY:?MISTRAL_API_KEY is required when the "demo" profile is active}
+      embedding:
+        options:
+          model: mistral-embed
     vectorstore:
       pgvector:
-        dimensions: 384
+        dimensions: 1024

@@ -4,13 +4,27 @@
 # ahead of time (platform-common's DemoSecurityConfig supplies that tenant).
 spring:
   # Flips which EmbeddingModel auto-configuration wins (base application.yml
-  # excludes Transformers and keeps Ollama's; this profile does the opposite) —
-  # there's no Ollama to reach here, so the in-process ONNX model
-  # (sentence-transformers/all-MiniLM-L6-v2, 384 dimensions) takes over.
+  # excludes Mistral's and keeps Ollama's; this profile does the opposite) —
+  # there's no Ollama to reach here, so Mistral AI's free-tier embedding API
+  # (mistral-embed, 1024 dimensions) takes over. A local ONNX model
+  # (spring-ai-starter-model-transformers) was tried first instead of a fourth
+  # external account — reverted after two real Render deploys confirmed the free
+  # tier's 512MB container can't fit the JVM plus that model's runtime and download
+  # (OS-level OOM kill both times, not a tunable JVM heap setting). See ADR 0020's
+  # update section for the full account.
+  # A profile-specific spring.autoconfigure.exclude list REPLACES the base
+  # application.yml's list entirely rather than merging with it — confirmed the hard
+  # way in ingestion-service's own application-demo.yml (an earlier version only
+  # listed OllamaEmbeddingAutoConfiguration here, which silently un-excluded
+  # MistralAiChatAutoConfiguration and let it create a second, competing ChatModel
+  # bean alongside the openai-provider one Groq uses). All four excludes need to be
+  # spelled out again here, not just the one this profile actually changes.
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
 
   ai:
     # Groq's API is OpenAI-compatible, so this reuses the exact same "openai"
@@ -29,13 +43,17 @@ spring:
         options:
           model: ${GROQ_MODEL:llama-3.3-70b-versatile}
           temperature: 0.2
+    mistralai:
+      api-key: ${MISTRAL_API_KEY:?MISTRAL_API_KEY is required when the "demo" profile is active}
+      embedding:
+        options:
+          model: mistral-embed
     vectorstore:
       pgvector:
-        # sentence-transformers/all-MiniLM-L6-v2's output size, not
-        # nomic-embed-text's 768 (base application.yml) — the demo database is a
-        # separate, freshly-seeded instance, so there's no existing-data mismatch
-        # to reconcile.
-        dimensions: 384
+        # mistral-embed's output size, not nomic-embed-text's 768 (base
+        # application.yml) — the demo database is a separate, freshly-seeded
+        # instance, so there's no existing-data mismatch to reconcile.
+        dimensions: 1024
 
 rag:
   available-models:

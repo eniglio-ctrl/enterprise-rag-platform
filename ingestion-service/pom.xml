@@ -44,14 +44,15 @@
         </dependency>
         <!--
             ADR 0020: seeding the free public demo's database needs the same
-            in-process ONNX embedding model rag-service's "demo" profile queries with
-            (nomic-embed-text isn't reachable from wherever seeding runs) — otherwise
-            the vectors written here wouldn't even share a dimension with what the
-            deployed rag-service expects to compare against.
+            embedding model rag-service's "demo" profile queries with (nomic-embed-text
+            isn't reachable from wherever seeding runs) — otherwise the vectors written
+            here wouldn't even share a dimension with what the deployed rag-service
+            expects to compare against. Mistral AI's free-tier embedding API, not a
+            local ONNX model — see rag-service/pom.xml's note on why that was reverted.
         -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-transformers</artifactId>
+            <artifactId>spring-ai-starter-model-mistral-ai</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.ai</groupId>

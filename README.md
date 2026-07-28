@@ -346,9 +346,9 @@ half-built modules. What's next:
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment.
 - **A quality benchmark** — see the roadmap.
-- **Public deploy** — the code side is done and verified locally end-to-end (ADR
-  0020: Groq for chat via the same pluggable-provider mechanism as ADR 0017, a local
-  ONNX embedding model, a demo-only no-login security profile). Actually live on
+- **Public deploy** — the code side is done and verified end-to-end (ADR 0020: Groq
+  for chat via the same pluggable-provider mechanism as ADR 0017, Mistral AI's free
+  embedding API, a demo-only no-login security profile). Actually live on
   Render/Neon depends on external accounts this repo can't create on its own.
 
 ## Architecture decisions
@@ -372,7 +372,7 @@ half-built modules. What's next:
 - [ADR 0017 — Per-request chat model picker (Ollama models + LM Studio)](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md)
 - [ADR 0018 — Image ingestion via a local vision model](docs/adr/0018-image-ingestion-via-vision-model.md)
 - [ADR 0019 — Audio ingestion via a local Whisper server; the real root cause of an early transport bug](docs/adr/0019-audio-ingestion-via-local-whisper.md)
-- [ADR 0020 — Free public demo deployment (Groq + local ONNX embeddings + Render + Neon)](docs/adr/0020-public-demo-deployment.md)
+- [ADR 0020 — Free public demo deployment (Groq + Mistral AI embeddings + Render + Neon)](docs/adr/0020-public-demo-deployment.md)
 
 ## License
 

@@ -1,4 +1,4 @@
-# ADR 0020: Free public demo deployment (Groq + local ONNX embeddings + Render + Neon)
+# ADR 0020: Free public demo deployment (Groq + Mistral AI embeddings + Render + Neon)
 
 ## Status
 Accepted
@@ -20,13 +20,12 @@ Three scope decisions were confirmed with the user before implementing:
 
 ## Decision
 
-- **Embeddings switch to a local ONNX model (`spring-ai-starter-model-transformers`,
-  `sentence-transformers/all-MiniLM-L6-v2`, 384 dimensions), not another cloud API.**
-  Groq doesn't serve embeddings, and adding a fourth external account (for embeddings
-  alone) was worse than running a small, already-Spring-AI-supported model in-process
-  — no network call, no API key, no rate limit to hit mid-demo. Verified the
-  dependency and its autoconfiguration exist and resolve cleanly in Spring AI 1.0.0
-  GA before committing to this, not assumed.
+- **Embeddings use Mistral AI's free-tier `mistral-embed` API (1024 dimensions), not
+  Ollama.** Groq doesn't serve embeddings itself, so a second provider is needed
+  regardless. Spring AI 1.0.0 GA has a first-party `spring-ai-starter-model-mistral-ai`
+  starter covering both chat and embeddings via simple API-key auth — reused only for
+  embeddings here (see the Update section below for why a local ONNX model was tried
+  first and reverted).
 - **A "demo" Spring profile, not a new deployment-only fork of the codebase.**
   `rag-service` and `ingestion-service` both gain `application-demo.yml`, flipping
   `spring.autoconfigure.exclude` to swap which `EmbeddingModel` auto-configuration
@@ -40,10 +39,10 @@ Three scope decisions were confirmed with the user before implementing:
   discovered after.
 - **A separate Flyway migration location (`db/migration-demo`) for the demo schema**,
   not a new migration appended to the regular `db/migration` — the embedding column's
-  dimension is baked into the `CREATE TABLE` DDL (`vector(384)` vs. the regular
-  schema's `vector(768)`), and Flyway migrations are static SQL, not
-  environment-parametrized. `spring.flyway.locations` points the "demo" profile at
-  its own copy instead.
+  dimension is baked into the `CREATE TABLE` DDL (`vector(1024)` for `mistral-embed`
+  vs. the regular schema's `vector(768)` for `nomic-embed-text`), and Flyway
+  migrations are static SQL, not environment-parametrized. `spring.flyway.locations`
+  points the "demo" profile at its own copy instead.
 - **No login, via a demo-only `SecurityFilterChain`, not by disabling security
   annotations piecemeal.** `platform-common` gains `DemoSecurityConfig`
   (`@Profile("demo")`), replacing `ResourceServerSecurityConfig`
@@ -65,10 +64,17 @@ Three scope decisions were confirmed with the user before implementing:
   project's existing local `docker-compose` behavior — verified side-by-side in the
   browser, not assumed unaffected.
 - **Seeding the demo database is a one-time local operation, not a deployed
-  service.** `ingestion-service` also gets the Transformers/demo-profile treatment
+  service.** `ingestion-service` also gets the Mistral/demo-profile treatment
   (matching embedding dimensions matter for what gets read later), but only to be run
   once against the Neon connection string to index a handful of documents — it is
   never itself deployed publicly, keeping the lean-scope decision honest.
+- **`MistralAiChatAutoConfiguration` and `MistralAiModerationAutoConfiguration` are
+  excluded in every profile, in both services**, alongside whichever
+  `EmbeddingModel` auto-configuration a given profile doesn't want. Mistral is only
+  ever used here for its embedding model — Groq already covers cloud chat — and
+  both of those auto-configurations were confirmed, by a real failing build, to
+  fail fast at boot without an api-key set rather than quietly backing off, so they
+  can't be left inactive-by-omission.
 
 ## Consequences
 
@@ -94,3 +100,52 @@ Three scope decisions were confirmed with the user before implementing:
   by design (ADR scope decision); a visitor asking about a topic the seeded documents
   don't cover will correctly get "not enough information," the same well-understood
   behavior already documented for the tenant-isolation case (ADR 0007).
+
+## Update: the local ONNX embedding model didn't fit Render's free tier; switched to
+## Mistral AI's embedding API instead
+
+The original decision above (a local `sentence-transformers/all-MiniLM-L6-v2` model
+via `spring-ai-starter-model-transformers`) was implemented, verified locally
+end-to-end, and deployed — twice. Both real deploys to Render's free tier (512MB
+RAM) were killed by the platform itself, not a catchable JVM exception:
+
+- **First attempt**: `java.lang.OutOfMemoryError: Java heap space`, thrown from
+  inside `TransformersEmbeddingModel.afterPropertiesSet()` while reading the
+  downloaded ONNX model file into a byte array. Tuning `-Xmx` alone didn't fix
+  it — the failure mode just changed shape.
+- **Second attempt**, after adding `-XX:+UseSerialGC`, a capped `-Xmx350m`,
+  `-XX:MaxMetaspaceSize=96m`, `-Xss512k`, and a reduced Tomcat thread pool: the
+  **container itself** was OOM-killed by Render (`Out of memory (used over
+  512Mi)`) at the exact same step — downloading and caching `model.onnx` (~90MB).
+  JVM heap flags only constrain the JVM's own heap; they don't change the total
+  resident memory Tomcat + Spring + the JVM baseline + the ONNX/DJL native runtime
+  + that download need all at once, and that total genuinely exceeds 512MB.
+
+Given the user's explicit constraint — free, not "cheaply paid" — the fix wasn't
+more JVM tuning (already exhausted, with real evidence from two separate deploys)
+or upgrading Render's tier (contradicts the constraint), but replacing the
+in-process model with **Mistral AI's `mistral-embed`** (1024 dimensions), one more
+free-tier external API rather than a memory-heavy local runtime. `rag-service` and
+`ingestion-service` both swap `spring-ai-starter-model-transformers` for
+`spring-ai-starter-model-mistral-ai`; `db/migration-demo`'s `vector(384)` became
+`vector(1024)`; the demo Neon database's `vector_store` table was dropped and
+reseeded from scratch (a demo dataset, not real user data — no migration path
+needed, a clean recreate was the right call).
+
+**A second real bug found and fixed during this switch**: a Spring Boot subtlety
+already suspected but not yet proven — a profile-specific `spring.autoconfigure
+.exclude` list *replaces* the base `application.yml`'s list entirely, it doesn't
+merge with it. The first version of `application-demo.yml` in both services listed
+only the one exclude each profile actually meant to change (e.g. swapping
+`OllamaEmbeddingAutoConfiguration` in), which silently un-excluded
+`MistralAiChatAutoConfiguration` — Spring AI then had two competing, unqualified
+`ChatModel` beans at boot (`NoUniqueBeanDefinitionException`), confirmed by a real
+failing local boot before this was understood, not predicted in advance. Fixed by
+spelling out the full exclude list again in every profile-specific file, not just
+the one entry that changes — a real, easy-to-repeat trap worth flagging for any
+future profile added to either service.
+
+Verified for real, end-to-end, after both fixes: the demo Neon database reseeded
+with `mistral-embed` vectors, `rag-service` (demo profile) retrieving them and
+answering via Groq — a genuine cloud-to-cloud-to-cloud round trip (Neon, Mistral,
+Groq), not simulated.

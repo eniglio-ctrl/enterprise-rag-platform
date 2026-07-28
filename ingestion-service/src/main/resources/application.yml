@@ -10,13 +10,21 @@ spring:
       max-file-size: 25MB
       max-request-size: 25MB
 
-  # TransformersEmbeddingModelAutoConfiguration is only on the classpath for the
-  # "demo" profile's sake (ADR 0020, seeding the free public demo's database with
+  # MistralAiEmbeddingAutoConfiguration is only on the classpath for the "demo"
+  # profile's sake (ADR 0020, seeding the free public demo's database with
   # matching-dimension vectors) — excluded by default so Ollama's EmbeddingModel
   # stays the sole candidate everywhere else, same reasoning as rag-service's
-  # OpenAiEmbeddingAutoConfiguration exclude (ADR 0017).
+  # OpenAiEmbeddingAutoConfiguration exclude (ADR 0017). MistralAiChatAutoConfiguration
+  # and MistralAiModerationAutoConfiguration are excluded always — this service never
+  # uses Mistral for chat or moderation, only embedding, and both of those
+  # auto-configurations otherwise fail fast at boot (even without an api-key set)
+  # rather than quietly backing off, confirmed by a real failing build before this
+  # exclude existed.
   autoconfigure:
-    exclude: org.springframework.ai.model.transformers.autoconfigure.TransformersEmbeddingModelAutoConfiguration
+    exclude:
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
 
   security:
     oauth2:
