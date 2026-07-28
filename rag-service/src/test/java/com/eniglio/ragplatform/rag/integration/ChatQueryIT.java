@@ -76,7 +76,10 @@ class ChatQueryIT {
     @MockitoBean
     private EmbeddingModel embeddingModel;
 
-    @MockitoBean
+    // Named explicitly (ADR 0017): two ChatModel beans exist now (ollamaChatModel,
+    // openAiChatModel for LM Studio), so Spring's bean-override can't auto-pick one.
+    // This test exercises the Ollama path, the default provider.
+    @MockitoBean(name = "ollamaChatModel")
     private ChatModel chatModel;
 
     @BeforeEach

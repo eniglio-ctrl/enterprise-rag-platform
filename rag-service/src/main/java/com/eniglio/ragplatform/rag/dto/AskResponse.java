@@ -9,8 +9,9 @@ import java.util.List;
  * text response is in {@code answer}) or "diagram" (a Mermaid definition is in
  * {@code mermaid}) — only the field matching {@code type} is populated.
  * {@code groundedness} is only ever set for {@code type == "answer"}, and only when
- * the request opted into the check.
+ * the request opted into the check. {@code model} is the chat model that generated
+ * the response (ADR 0017).
  */
 public record AskResponse(String type, String answer, String mermaid, List<Citation> citations,
-                           Groundedness groundedness) {
+                           Groundedness groundedness, String model) {
 }

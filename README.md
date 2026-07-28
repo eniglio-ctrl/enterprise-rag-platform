@@ -227,6 +227,30 @@ curl -X POST http://localhost:8082/api/v1/diagrams \
   -d '{"question": "Draw the disaster recovery architecture described"}'
 ```
 
+### Picking a chat model (Ollama + LM Studio)
+
+`GET /api/v1/models` lists the chat models configured in `rag.available-models`
+(`application.yml`) — the web-ui's dropdown renders exactly this list, nothing
+hardcoded client-side. Pass `"model"` in any `/api/v1/ask`/`/chat`/`/diagrams`
+request to override the default for that one call:
+
+```bash
+curl http://localhost:8082/api/v1/models -H "Authorization: Bearer $TOKEN"
+
+curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"question": "Como funciona o padrão SAGA?", "model": "llama3.2"}'
+```
+
+Out of the box this lists two Ollama models (the default, plus `llama3.2` — pull it
+first with `ollama pull llama3.2` to actually use it) and one
+[LM Studio](https://lmstudio.ai) entry, which talks to LM Studio's local
+OpenAI-compatible server (`http://localhost:1234` by default) if it's running with a
+model loaded. An unknown/unreachable model id falls back to the default rather than
+erroring the whole question. See
+[ADR 0017](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md) for how two
+`ChatModel` providers coexist on the same classpath without conflict.
+
 `mermaid` is a ready-to-render [Mermaid.js](https://mermaid.js.org/) flowchart definition;
 the web UI renders it directly with `mermaid.render(...)`. If the retrieved content
 doesn't describe an architecture, process or flow, `mermaid` comes back as a single
@@ -308,7 +332,9 @@ half-built modules. What's next:
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment.
-- **Pluggable LLM provider, public deploy, and a quality benchmark** — see the roadmap.
+- **Public deploy and a quality benchmark** — see the roadmap. Provider pluggability
+  itself is done (ADR 0017 — Ollama + LM Studio, selectable per request); a cloud
+  provider entry (for the public deploy) can reuse the same mechanism.
 
 ## Architecture decisions
 
@@ -328,6 +354,7 @@ half-built modules. What's next:
 - [ADR 0014 — Kubernetes manifests for local `kind` deployment](docs/adr/0014-kubernetes-manifests-kind.md)
 - [ADR 0015 — Observability stack (Prometheus + Grafana)](docs/adr/0015-observability-stack.md)
 - [ADR 0016 — auth-service: RS256 JWTs, JWKS, and the transition from trusted headers](docs/adr/0016-auth-service-jwt-oauth2.md)
+- [ADR 0017 — Per-request chat model picker (Ollama models + LM Studio)](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md)
 
 ## License
 

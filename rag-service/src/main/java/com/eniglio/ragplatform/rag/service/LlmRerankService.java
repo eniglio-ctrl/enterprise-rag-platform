@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
@@ -42,7 +43,10 @@ public class LlmRerankService {
     private final ChatClient chatClient;
     private final LlmGateway llmGateway;
 
-    public LlmRerankService(ChatClient chatClient, LlmGateway llmGateway) {
+    // Always Ollama, regardless of the chat model selected for generation (ADR 0017):
+    // rerank's own output-reliability tradeoffs (structured-output fallback, ADR 0012)
+    // are already handled separately and don't need multiplying by provider choice.
+    public LlmRerankService(@Qualifier("ollama") ChatClient chatClient, LlmGateway llmGateway) {
         this.chatClient = chatClient;
         this.llmGateway = llmGateway;
     }
@@ -55,7 +59,7 @@ public class LlmRerankService {
         String candidatesText = buildCandidatesText(candidates);
         RerankResponse response;
         try {
-            response = llmGateway.call(() -> chatClient.prompt()
+            response = llmGateway.callOllama(() -> chatClient.prompt()
                     .system(spec -> spec.text(RERANK_SYSTEM_TEMPLATE)
                             .param("question", question)
                             .param("candidates", candidatesText))

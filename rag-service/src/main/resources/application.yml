@@ -5,6 +5,15 @@ spring:
   application:
     name: rag-service
 
+  # OpenAiEmbeddingAutoConfiguration is excluded (ADR 0017): with both the Ollama and
+  # OpenAI-compatible (LM Studio) starters on the classpath, Spring AI would otherwise
+  # also auto-configure an OpenAiEmbeddingModel bean, competing with Ollama's for
+  # anything that autowires EmbeddingModel by type (PgVectorStore's own similarity
+  # search does this internally). Embeddings stay Ollama-only — LM Studio is only ever
+  # selected for chat generation, never embedding.
+  autoconfigure:
+    exclude: org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+
   security:
     oauth2:
       resourceserver:
@@ -32,6 +41,21 @@ spring:
           include: true
         embedding:
           include: true
+
+    # LM Studio's local server (https://lmstudio.ai) speaks the OpenAI-compatible chat
+    # API on whatever port its "Local Server" tab is running (default 1234) — this
+    # isn't OpenAI itself, just the same wire protocol. api-key is a placeholder: the
+    # OpenAI client requires a non-blank Authorization value, but LM Studio's local
+    # server doesn't actually check it. Defaults let the app boot fine even when LM
+    # Studio isn't running; only a request that selects it would fail (connection
+    # refused), same as any other unreachable dependency.
+    openai:
+      base-url: ${LMSTUDIO_BASE_URL:http://localhost:1234}
+      api-key: ${LMSTUDIO_API_KEY:lm-studio}
+      chat:
+        options:
+          model: ${LMSTUDIO_MODEL:local-model}
+          temperature: 0.2
 
     vectorstore:
       pgvector:
@@ -85,6 +109,21 @@ rag:
   # fusion narrows down to top-k; also the pool size handed to the reranker when
   # "rerank": true is requested.
   rerank-candidate-pool-size: 15
+  # Selectable in the web-ui's model dropdown (ADR 0017), sent as "model" in
+  # /api/v1/ask. The FIRST entry is the default. Ollama entries beyond the default
+  # must already be pulled (`ollama pull <id>`); the LM Studio entry needs its local
+  # server running with a model loaded. This list doesn't pull/start anything itself,
+  # it only says what's allowed to be requested.
+  available-models:
+    - id: ${CHAT_MODEL:llama3.1}
+      label: "Llama 3.1 (Ollama, padrão)"
+      provider: ollama
+    - id: llama3.2
+      label: "Llama 3.2 (Ollama — requer 'ollama pull llama3.2')"
+      provider: ollama
+    - id: ${LMSTUDIO_MODEL:local-model}
+      label: "LM Studio (requer o servidor local rodando)"
+      provider: lmstudio
   ollama:
     connect-timeout: 5s
     # Diagram/chat generation is CPU-bound local inference and can legitimately take
@@ -103,9 +142,22 @@ resilience4j:
         wait-duration: 500ms
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
+      # Separate instance from "ollama" (ADR 0017) — LM Studio being down/slow is a
+      # different failure than Ollama's, and shouldn't trip Ollama's breaker too.
+      lmstudio:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
   circuitbreaker:
     instances:
       ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      lmstudio:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50

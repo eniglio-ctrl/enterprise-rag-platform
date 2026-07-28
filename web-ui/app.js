@@ -63,6 +63,32 @@ function renderAuthState() {
   authBar.hidden = !authenticated;
   if (authenticated) {
     authSummary.textContent = `${auth.email ?? auth.userId} · tenant ${auth.tenantId}`;
+    loadModels();
+  }
+}
+
+// Populates the model dropdown from rag.available-models (ADR 0017) — the frontend
+// never hardcodes model ids/labels, it just renders whatever the backend is
+// configured to offer (Ollama models already pulled, plus LM Studio if its local
+// server is running).
+async function loadModels() {
+  try {
+    const response = await fetch(`${RAG_BASE}/api/v1/models`, { headers: authHeader() });
+    if (!response.ok) {
+      return;
+    }
+    const { models } = await response.json();
+    modelSelect.innerHTML = "";
+    models.forEach(({ id, label, isDefault }) => {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = label;
+      option.selected = isDefault;
+      modelSelect.appendChild(option);
+    });
+  } catch {
+    // Model picker is a convenience, not a critical path — if it fails to load,
+    // /api/v1/ask still works with the server's own default model.
   }
 }
 
@@ -131,6 +157,7 @@ const askForm = document.getElementById("ask-form");
 const askButton = document.getElementById("ask-button");
 const askStatus = document.getElementById("ask-status");
 const questionInput = document.getElementById("question-input");
+const modelSelect = document.getElementById("model-select");
 const answerCard = document.getElementById("answer-card");
 const answerText = document.getElementById("answer-text");
 const citationsList = document.getElementById("citations-list");
@@ -249,7 +276,7 @@ askForm.addEventListener("submit", async (event) => {
     const response = await fetch(`${RAG_BASE}/api/v1/ask`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, model: modelSelect.value || undefined }),
     });
 
     if (response.status === 401) {

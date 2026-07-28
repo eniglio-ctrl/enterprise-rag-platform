@@ -43,8 +43,13 @@ class RagQueryServiceTest {
 
     private RagQueryService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        return new RagQueryService(hybridSearchService, llmRerankService, chatClient, new LlmGateway(),
-                new RagProperties(5, 0.5, 15), new SimpleMeterRegistry());
+        List<RagProperties.AvailableModel> availableModels =
+                List.of(new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
+        // lmStudioChatClient is never exercised by these tests — every available model
+        // is "ollama" (resolveModel always resolves to that provider), so the second
+        // client param can be null without any test needing to touch it.
+        return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, new LlmGateway(),
+                new RagProperties(5, 0.5, 15, availableModels), new SimpleMeterRegistry());
     }
 
     @Test
@@ -63,7 +68,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false);
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false, null);
 
         assertThat(response.answer()).contains("SAGA");
         assertThat(response.citations()).hasSize(1);
@@ -91,7 +96,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, true);
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, true, null);
 
         assertThat(response.citations()).hasSize(1);
         assertThat(response.citations().get(0).score()).isEqualTo(0.9);
@@ -116,7 +121,7 @@ class RagQueryServiceTest {
         });
 
         RagQueryService service = newService();
-        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false);
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false, null);
 
         assertThat(response.groundedness()).isEqualTo(Groundedness.SUPPORTED);
     }
@@ -140,7 +145,7 @@ class RagQueryServiceTest {
         });
 
         RagQueryService service = newService();
-        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false);
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false, null);
 
         assertThat(response.groundedness()).isEqualTo(Groundedness.NOT_SUPPORTED);
     }
@@ -150,7 +155,7 @@ class RagQueryServiceTest {
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
 
         RagQueryService service = newService();
-        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false);
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null);
 
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
@@ -174,7 +179,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
+        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default", null);
 
         assertThat(response.mermaid()).isEqualTo(expectedMermaid);
         assertThat(response.citations()).hasSize(1);
@@ -197,7 +202,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default");
+        DiagramResponse response = service.diagram("Desenhe a arquitetura descrita", "default", null);
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Banco de Dados\"] --> B[\"Multi-AZ (alta disponibilidade)\"]");
@@ -220,7 +225,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default");
+        DiagramResponse response = service.diagram("Desenhe o fluxo descrito", "default", null);
 
         assertThat(response.mermaid()).isEqualTo(
                 "flowchart LR\n    A[\"Producao\"] -->|Backup| B[\"S3\"]");
@@ -231,7 +236,7 @@ class RagQueryServiceTest {
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
 
         RagQueryService service = newService();
-        DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default");
+        DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default", null);
 
         assertThat(response.mermaid()).contains("Dados insuficientes");
         assertThat(response.citations()).isEmpty();
@@ -254,7 +259,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false, false);
+        AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false, false, null);
 
         assertThat(response.type()).isEqualTo("diagram");
         assertThat(response.mermaid()).contains("Amazon S3");
@@ -277,7 +282,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        AskResponse response = service.ask("Como funciona o SAGA?", "default", false, false);
+        AskResponse response = service.ask("Como funciona o SAGA?", "default", false, false, null);
 
         assertThat(response.type()).isEqualTo("answer");
         assertThat(response.answer()).contains("SAGA");
@@ -301,7 +306,7 @@ class RagQueryServiceTest {
         given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
 
         RagQueryService service = newService();
-        AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false, false);
+        AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false, false, null);
 
         assertThat(response.type()).isEqualTo("diagram");
     }

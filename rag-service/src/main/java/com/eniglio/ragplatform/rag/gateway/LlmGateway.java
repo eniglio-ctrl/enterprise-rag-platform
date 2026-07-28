@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.function.Supplier;
 
 /**
- * Every call to the chat model goes through here so {@code @CircuitBreaker}/
+ * Every call to a chat model goes through here so {@code @CircuitBreaker}/
  * {@code @Retry} apply (see ADR 0009) — Resilience4j's annotations only intercept
  * calls made through the Spring proxy, so wrapping call sites inline inside
  * {@code RagQueryService} itself would silently do nothing (self-invocation bypasses
@@ -15,13 +15,26 @@ import java.util.function.Supplier;
  * keeps each call site's own prompt-building logic unchanged; generic so it covers
  * both plain-text calls ({@code .content()}) and structured-output ones
  * ({@code .entity(SomeRecord.class)}, used by the LLM reranker, ADR 0012).
+ * <p>
+ * Two methods, not one parametrized by provider name (ADR 0017): Resilience4j's
+ * {@code @CircuitBreaker}/{@code @Retry} instance name is a compile-time annotation
+ * attribute, so a single method can't pick "ollama" vs "lmstudio" at runtime — and
+ * routing both providers' calls through the same named breaker would let an LM Studio
+ * outage trip Ollama's circuit too, an unrelated dependency failing for an unrelated
+ * reason. Callers pick the method matching {@code AvailableModel.provider()}.
  */
 @Component
 public class LlmGateway {
 
     @CircuitBreaker(name = "ollama")
     @Retry(name = "ollama")
-    public <T> T call(Supplier<T> chatCall) {
+    public <T> T callOllama(Supplier<T> chatCall) {
+        return chatCall.get();
+    }
+
+    @CircuitBreaker(name = "lmstudio")
+    @Retry(name = "lmstudio")
+    public <T> T callLmStudio(Supplier<T> chatCall) {
         return chatCall.get();
     }
 }

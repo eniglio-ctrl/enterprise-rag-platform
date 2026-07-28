@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.rag.service;
 import com.eniglio.ragplatform.common.web.Citation;
 import com.eniglio.ragplatform.common.web.RetrievedChunk;
 import com.eniglio.ragplatform.rag.config.RagProperties;
+import com.eniglio.ragplatform.rag.config.RagProperties.AvailableModel;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
@@ -14,13 +15,17 @@ import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -89,7 +94,8 @@ public class RagQueryService {
 
     private final HybridSearchService hybridSearchService;
     private final LlmRerankService llmRerankService;
-    private final ChatClient chatClient;
+    private final ChatClient ollamaChatClient;
+    private final ChatClient lmStudioChatClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
     private final Counter answersGeneratedCounter;
@@ -98,11 +104,14 @@ public class RagQueryService {
     private final Timer diagramTimer;
 
     public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
-                            ChatClient chatClient, LlmGateway llmGateway, RagProperties ragProperties,
+                            @Qualifier("ollama") ChatClient ollamaChatClient,
+                            @Qualifier("lmstudio") ChatClient lmStudioChatClient,
+                            LlmGateway llmGateway, RagProperties ragProperties,
                             MeterRegistry meterRegistry) {
         this.hybridSearchService = hybridSearchService;
         this.llmRerankService = llmRerankService;
-        this.chatClient = chatClient;
+        this.ollamaChatClient = ollamaChatClient;
+        this.lmStudioChatClient = lmStudioChatClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
         this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
@@ -120,19 +129,19 @@ public class RagQueryService {
     }
 
     /**
-     * Single entry point for the UI: routes to {@link #diagram(String, String)} when
-     * the question itself asks for a diagram/drawing/flow, otherwise to
-     * {@link #answer(String, String, boolean, boolean)}. Routing is a plain keyword
-     * check on the question text rather than an extra LLM call, keeping it fast and
-     * predictable.
+     * Single entry point for the UI: routes to {@link #diagram(String, String, String)}
+     * when the question itself asks for a diagram/drawing/flow, otherwise to
+     * {@link #answer(String, String, boolean, boolean, String)}. Routing is a plain
+     * keyword check on the question text rather than an extra LLM call, keeping it
+     * fast and predictable.
      */
-    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank) {
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
         if (wantsDiagram(question)) {
-            DiagramResponse diagram = diagram(question, tenantId);
-            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null);
+            DiagramResponse diagram = diagram(question, tenantId, model);
+            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model());
         }
-        ChatResponse chat = answer(question, tenantId, grounded, rerank);
-        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness());
+        ChatResponse chat = answer(question, tenantId, grounded, rerank, model);
+        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model());
     }
 
     private boolean wantsDiagram(String question) {
@@ -150,13 +159,13 @@ public class RagQueryService {
         return decomposed.replaceAll("\\p{M}", "");
     }
 
-    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank) {
-        ChatResponse response = answerTimer.record(() -> doAnswer(question, tenantId, grounded, rerank));
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
+        ChatResponse response = answerTimer.record(() -> doAnswer(question, tenantId, grounded, rerank, model));
         answersGeneratedCounter.increment();
         return response;
     }
 
-    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank) {
+    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
         int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
         List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
         if (rerank) {
@@ -167,23 +176,85 @@ public class RagQueryService {
             log.info("No relevant chunks found for question");
             return new ChatResponse(
                     "Não encontrei informação suficiente na base de conhecimento para responder a essa pergunta.",
-                    List.of(), null);
+                    List.of(), null, null);
         }
 
         String context = buildContext(retrieved);
+        AvailableModel resolvedModel = resolveModel(model);
 
-        String answer = llmGateway.call(() -> chatClient.prompt()
+        String answer = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
                 .system(spec -> spec.text(SYSTEM_TEMPLATE).param("context", context))
                 .user(question)
+                .options(modelOptions(resolvedModel, null))
                 .call()
                 .content());
 
         List<Citation> citations = buildCitations(retrieved);
-        Groundedness groundedness = grounded ? checkGroundedness(context, answer) : null;
+        Groundedness groundedness = grounded ? checkGroundedness(context, answer, resolvedModel) : null;
 
         log.info("Answered question using {} retrieved chunks", retrieved.size());
 
-        return new ChatResponse(answer, citations, groundedness);
+        return new ChatResponse(answer, citations, groundedness, resolvedModel.id());
+    }
+
+    /**
+     * Falls back to the first (default) entry in {@code rag.available-models}
+     * (ADR 0017) when nothing was requested, or when the requested id isn't in that
+     * list — a stale/mistyped id from a client shouldn't break the whole question.
+     */
+    private AvailableModel resolveModel(String requestedModel) {
+        List<AvailableModel> available = ragProperties.availableModels();
+        if (requestedModel == null || requestedModel.isBlank()) {
+            return available.get(0);
+        }
+        return available.stream()
+                .filter(m -> m.id().equals(requestedModel))
+                .findFirst()
+                .orElseGet(() -> {
+                    log.warn("Requested model '{}' is not in rag.available-models, using the default",
+                            requestedModel);
+                    return available.get(0);
+                });
+    }
+
+    /** Picks the {@code ChatClient} backing {@code model}'s provider (ADR 0017). */
+    private ChatClient clientFor(AvailableModel model) {
+        return "lmstudio".equals(model.provider()) ? lmStudioChatClient : ollamaChatClient;
+    }
+
+    /**
+     * Dispatches through the gateway method matching {@code model}'s provider, so
+     * each provider's circuit breaker/retry is tracked separately (ADR 0017) — must be
+     * an external call through the {@code LlmGateway} bean, never {@code this.*},
+     * or Resilience4j's proxy-based interception silently does nothing (ADR 0009's
+     * self-invocation gotcha).
+     */
+    private <T> T callLlm(AvailableModel model, Supplier<T> chatCall) {
+        return "lmstudio".equals(model.provider()) ? llmGateway.callLmStudio(chatCall) : llmGateway.callOllama(chatCall);
+    }
+
+    /**
+     * Only non-null fields here override the {@code ChatClient}'s configured default
+     * options bean — Spring AI merges per-call options with it field by field, so
+     * leaving {@code temperature} null when not overriding keeps whatever the default
+     * bean already has. {@code model} is always set explicitly (ADR 0017): unlike
+     * temperature, which has one shared default per provider, the model id is the
+     * whole point of this override and {@link #resolveModel} always returns a concrete
+     * one, never a "use whatever's default" signal.
+     */
+    private ChatOptions modelOptions(AvailableModel model, Double temperature) {
+        if ("lmstudio".equals(model.provider())) {
+            OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder().model(model.id());
+            if (temperature != null) {
+                builder.temperature(temperature);
+            }
+            return builder.build();
+        }
+        OllamaOptions.Builder builder = OllamaOptions.builder().model(model.id());
+        if (temperature != null) {
+            builder.temperature(temperature);
+        }
+        return builder.build();
     }
 
     /**
@@ -210,11 +281,11 @@ public class RagQueryService {
      * Temperature 0.0 for the same reason as diagram generation: this is a
      * classification, not prose, so deterministic output is worth more than variety.
      */
-    private Groundedness checkGroundedness(String context, String answer) {
-        String verdict = llmGateway.call(() -> chatClient.prompt()
+    private Groundedness checkGroundedness(String context, String answer, AvailableModel resolvedModel) {
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
                 .system(spec -> spec.text(GROUNDEDNESS_SYSTEM_TEMPLATE).param("context", context))
                 .user("RESPOSTA:\n" + answer)
-                .options(OllamaOptions.builder().temperature(0.0).build())
+                .options(modelOptions(resolvedModel, 0.0))
                 .call()
                 .content());
         return parseGroundedness(verdict);
@@ -232,41 +303,44 @@ public class RagQueryService {
         return Groundedness.SUPPORTED;
     }
 
-    public DiagramResponse diagram(String question, String tenantId) {
-        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId));
+    public DiagramResponse diagram(String question, String tenantId, String model) {
+        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId, model));
         diagramsGeneratedCounter.increment();
         return response;
     }
 
-    private DiagramResponse doDiagram(String question, String tenantId) {
+    private DiagramResponse doDiagram(String question, String tenantId, String model) {
         List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
 
         if (retrieved.isEmpty()) {
             log.info("No relevant chunks found for diagram question");
-            return new DiagramResponse(EMPTY_DIAGRAM, List.of());
+            return new DiagramResponse(EMPTY_DIAGRAM, List.of(), null);
         }
 
         String context = buildContext(retrieved);
+        AvailableModel resolvedModel = resolveModel(model);
 
         String mermaid;
+        String usedModel = resolvedModel.id();
         try {
-            String raw = llmGateway.call(() -> chatClient.prompt()
+            String raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
                     .system(spec -> spec.text(DIAGRAM_SYSTEM_TEMPLATE).param("context", context))
                     .user(question)
-                    .options(OllamaOptions.builder().temperature(0.0).build())
+                    .options(modelOptions(resolvedModel, 0.0))
                     .call()
                     .content());
             mermaid = fixMalformedEdgeLabels(quoteBracketLabels(stripCodeFences(raw)));
         } catch (Exception e) {
             log.warn("Failed to generate a diagram from the model response", e);
             mermaid = EMPTY_DIAGRAM;
+            usedModel = null;
         }
 
         List<Citation> citations = buildCitations(retrieved);
 
         log.info("Generated diagram using {} retrieved chunks", retrieved.size());
 
-        return new DiagramResponse(mermaid, citations);
+        return new DiagramResponse(mermaid, citations, usedModel);
     }
 
     private String stripCodeFences(String text) {
