@@ -16,7 +16,13 @@ Three scope decisions were confirmed with the user before implementing:
 - **Scope**: a lean demo (`rag-service` + `web-ui` only, no login, a fixed pre-seeded
   document set) instead of the full four-service stack — running four separate JVMs
   continuously on free tiers is a much harder fit than one.
-- **Hosting**: Render (web services) + Neon (serverless Postgres with pgvector).
+- **Hosting**: Render (`rag-service`) + Neon (serverless Postgres with pgvector) +
+  Netlify (`web-ui`, static hosting — see the update section on why not Render for
+  this piece too).
+
+**Live**: https://web-ui-rag.netlify.app (frontend),
+https://ag-service-demo.onrender.com (API) — both free tier, verified working
+end-to-end through the real browser UI, not just curl.
 
 ## Decision
 
@@ -186,3 +192,41 @@ ever gets used at request time anyway. Verified twice: booting cleanly with a
 genuinely unreachable `OLLAMA_BASE_URL`, and a real question still answering
 correctly end-to-end (Neon retrieval, Mistral embeddings, Groq generation) under
 that same condition.
+
+## Update: `web-ui` ended up on Netlify, not Render — and two more real gotchas
+## found deploying it
+
+Creating a *second* Render web service (for `web-ui`) prompted for a credit card
+(a common anti-abuse verification step on free tiers, with a refunded $1 hold —
+not a real charge, but still card data this project won't collect). Given the
+"free, not just cheap" constraint, `web-ui` moved to **Netlify** instead — genuinely
+free, no card, and since `web-ui` is plain static files (`index.html`/`style.css`/
+`app.js`), it doesn't need Render's Docker build pipeline at all.
+
+- **The Docker-based `envsubst` config injection (`config.js.template` +
+  `docker-entrypoint.sh`) doesn't apply to plain static hosting** — Netlify just
+  serves files as-is, no container, no entrypoint script. A real, committed
+  `web-ui/config.js` (not a template) was added specifically for this path, with
+  `demoMode: true` and the real deployed `rag-service` URL hardcoded. The
+  Docker-based deployment is unaffected: its `Dockerfile` only ever `COPY`s
+  `config.js.template`, never this file, so the entrypoint's generated version
+  still wins there.
+- **A real, initially confusing access-control gotcha**: the new Netlify site
+  returned `401` with a "Login Redirect" page even after the team's
+  "Default project visibility" was set to Public. That default, per Netlify's own
+  UI copy, only applies to *new* projects created after the setting changes —
+  "existing projects keep their current visibility." The already-created site
+  needed its own, separate, per-project visibility toggle (on the project's own
+  overview page, not the team settings page) switched to Public.
+- **CORS**: `rag-service`'s `web-ui.allowed-origin` (`WEB_UI_ORIGIN` env var)
+  defaults to `http://localhost:3000` — correct for local dev, but it would have
+  silently blocked every request from `https://web-ui-rag.netlify.app` in the
+  browser (curl doesn't enforce CORS, so this wouldn't have shown up in any of the
+  curl-based verification done so far). Caught before the user hit it, not after:
+  `WEB_UI_ORIGIN` set to the real Netlify URL on `rag-service`'s Render environment
+  before ever testing the deployed frontend in a real browser.
+
+Verified for real in a browser, not just via curl this time: the deployed
+`web-ui` on Netlify calling the deployed `rag-service` on Render, model dropdown
+populated, a real question asked and answered correctly with citations, no login
+screen, demo banner visible.

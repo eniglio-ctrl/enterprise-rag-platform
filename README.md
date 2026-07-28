@@ -10,6 +10,13 @@ notebook: independent Spring Boot services, a shared Postgres/pgvector store, lo
 inference through Ollama, structured logging, metrics, health checks, and documented
 architecture decisions.
 
+**Live demo**: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app) — a free,
+public, no-login instance answering questions from a small pre-seeded document set
+about this project itself (Groq for chat, Mistral AI for embeddings, Neon Postgres;
+see [ADR 0020](docs/adr/0020-public-demo-deployment.md)). The full stack with your
+own documents, image/audio ingestion, and every model provider still needs the
+local setup below.
+
 Upload a document — a talk transcript, a design doc, meeting notes — and ask it to draw
 the architecture or flow it describes: the LLM extracts the components and relationships
 straight from the ingested content and returns a rendered Mermaid diagram, no
@@ -346,10 +353,10 @@ half-built modules. What's next:
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment.
 - **A quality benchmark** — see the roadmap.
-- **Public deploy** — the code side is done and verified end-to-end (ADR 0020: Groq
-  for chat via the same pluggable-provider mechanism as ADR 0017, Mistral AI's free
-  embedding API, a demo-only no-login security profile). Actually live on
-  Render/Neon depends on external accounts this repo can't create on its own.
+- ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
+  (ADR 0020: Groq for chat via the same pluggable-provider mechanism as ADR 0017,
+  Mistral AI's free embedding API, Render + Neon + Netlify, a demo-only no-login
+  security profile).
 
 ## Architecture decisions
 
