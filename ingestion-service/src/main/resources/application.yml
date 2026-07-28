@@ -147,11 +147,27 @@ resilience4j:
 
 ingestion:
   chunk-size-tokens: 800
+  # Enforced for real by UploadValidationService (ADR 0021) — every extension
+  # DocumentReaderFactory/ImageDescriptionService/AudioTranscriptionService support
+  # (ADR 0018/0019) needs its declared MIME type listed here or upload rejects with
+  # 415 before the magic-byte check ever runs.
   allowed-content-types:
     - application/pdf
     - application/vnd.openxmlformats-officedocument.wordprocessingml.document
     - text/markdown
     - text/plain
+    - image/png
+    - image/jpeg
+    - image/gif
+    - image/webp
+    - audio/mpeg
+    - audio/wav
+    - audio/x-wav
+    - audio/mp4
+    - audio/x-m4a
+    - audio/ogg
+    - audio/flac
+    - audio/webm
   whisper:
     base-url: ${WHISPER_BASE_URL:http://localhost:9000}
     connect-timeout: 5s

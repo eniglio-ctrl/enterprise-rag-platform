@@ -21,6 +21,7 @@ public class DocumentIngestionService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentIngestionService.class);
 
+    private final UploadValidationService uploadValidationService;
     private final DocumentReaderFactory documentReaderFactory;
     private final TokenTextSplitter tokenTextSplitter;
     private final VectorStoreGateway vectorStoreGateway;
@@ -28,10 +29,12 @@ public class DocumentIngestionService {
     private final Counter chunksIngestedCounter;
     private final Timer ingestionTimer;
 
-    public DocumentIngestionService(DocumentReaderFactory documentReaderFactory,
+    public DocumentIngestionService(UploadValidationService uploadValidationService,
+                                     DocumentReaderFactory documentReaderFactory,
                                      TokenTextSplitter tokenTextSplitter,
                                      VectorStoreGateway vectorStoreGateway,
                                      MeterRegistry meterRegistry) {
+        this.uploadValidationService = uploadValidationService;
         this.documentReaderFactory = documentReaderFactory;
         this.tokenTextSplitter = tokenTextSplitter;
         this.vectorStoreGateway = vectorStoreGateway;
@@ -55,7 +58,8 @@ public class DocumentIngestionService {
     }
 
     private IngestResponse doIngest(MultipartFile file, String tenantId, String userId) {
-        List<Document> pages = documentReaderFactory.read(file);
+        ValidatedUpload upload = uploadValidationService.validate(file);
+        List<Document> pages = documentReaderFactory.read(upload);
 
         String documentId = UUID.randomUUID().toString();
         String source = file.getOriginalFilename();
@@ -64,7 +68,7 @@ public class DocumentIngestionService {
         pages.forEach(page -> page.getMetadata().putAll(java.util.Map.of(
                 "documentId", documentId,
                 "source", source,
-                "contentType", String.valueOf(file.getContentType()),
+                "contentType", upload.mimeType().toString(),
                 "ingestedAt", ingestedAt.toString(),
                 "tenantId", tenantId,
                 "userId", userId

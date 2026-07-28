@@ -171,6 +171,13 @@ chunk → embed → store pipeline:
 
 Both are genuinely local — no OpenAI Whisper API key, no cloud vision call.
 
+Every upload is verified before any of the above ever touches it: extension,
+declared content type, and actual byte content (a small magic-byte signature
+table, not just the filename) all have to agree, or the request is rejected with
+`415`/`422` before reaching Tika/PDFBox/Ollama/Whisper. See
+[ADR 0022](docs/adr/0022-upload-validation-hardening.md), part of the security
+hardening rollout in [ADR 0021](docs/adr/0021-security-hardening-baseline.md).
+
 ### Ask anything
 
 This is what the web UI calls — one endpoint, routes itself to a diagram or a text
@@ -374,9 +381,14 @@ half-built modules. What's next:
   were built before `auth-service` existed, a deliberate, documented deviation from the
   original phase order. They need a fifth Deployment+Service for `auth-service` and an
   `AUTH_SERVICE_BASE_URL` wired into the other three.
+- **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
+  content validation is done (ADR 0022); rate limiting, secrets/CORS/headers,
+  a real tenant/invitation model with a persistent JWT signing key, security
+  audit logging, and public-demo hardening are next.
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
-  Fine for a demo, not for a real deployment.
+  Fine for a demo, not for a real deployment. Being replaced as part of the
+  security hardening rollout above.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
@@ -406,6 +418,8 @@ half-built modules. What's next:
 - [ADR 0018 — Image ingestion via a local vision model](docs/adr/0018-image-ingestion-via-vision-model.md)
 - [ADR 0019 — Audio ingestion via a local Whisper server; the real root cause of an early transport bug](docs/adr/0019-audio-ingestion-via-local-whisper.md)
 - [ADR 0020 — Free public demo deployment (Groq + Mistral AI embeddings + Render + Neon)](docs/adr/0020-public-demo-deployment.md)
+- [ADR 0021 — Security hardening baseline (the layered rollout this and the following ADRs are part of)](docs/adr/0021-security-hardening-baseline.md)
+- [ADR 0022 — Upload content validation via magic bytes](docs/adr/0022-upload-validation-hardening.md)
 
 ## License
 

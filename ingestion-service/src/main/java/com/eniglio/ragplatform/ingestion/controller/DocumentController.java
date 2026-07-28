@@ -32,7 +32,8 @@ public class DocumentController {
                     + "MP3/WAV/M4A/OGG/FLAC audio is transcribed by a local Whisper server (ADR 0019) — "
                     + "either way, the derived text is what gets embedded, never the original bytes.")
     @ApiResponse(responseCode = "201", description = "Document ingested successfully")
-    @ApiResponse(responseCode = "415", description = "Unsupported file type")
+    @ApiResponse(responseCode = "415", description = "Unsupported file extension or declared content type")
+    @ApiResponse(responseCode = "422", description = "File content does not match its declared type")
     @PostMapping(value = "/api/v1/documents", consumes = "multipart/form-data")
     public ResponseEntity<IngestResponse> upload(
             @RequestParam("file") @NotNull MultipartFile file,

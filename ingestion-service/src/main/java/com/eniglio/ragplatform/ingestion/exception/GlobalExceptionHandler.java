@@ -23,6 +23,11 @@ public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
         return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(InvalidUploadException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidUpload(InvalidUploadException ex, HttpServletRequest request) {
+        return build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request);
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
         return build(HttpStatus.PAYLOAD_TOO_LARGE, "Uploaded file exceeds the maximum allowed size", request);
