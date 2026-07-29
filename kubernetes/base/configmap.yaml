@@ -11,6 +11,7 @@ data:
   EMBEDDING_MODEL: nomic-embed-text
   CHAT_MODEL: llama3.1
   RAG_SERVICE_BASE_URL: http://rag-service:8082
+  AUTH_SERVICE_BASE_URL: http://auth-service:8084
   # Matches the Ingress host (ingress.yaml) — only relevant if a caller reaches the
   # platform through it. For `kubectl port-forward web-ui`, the browser hits
   # localhost directly and this value doesn't matter to CORS at all.

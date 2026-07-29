@@ -409,10 +409,10 @@ half-built modules. What's next, in the actual order to do it:
 detailed roadmap files (plus the Kubernetes gap), sorted into what can start today
 vs. what's blocked on a decision or resource only the user can provide.
 
-- **Kubernetes manifests second pass** — the manifests in `kubernetes/base/` (ADR 0014)
-  were built before `auth-service` existed, a deliberate, documented deviation from the
-  original phase order. They need a fifth Deployment+Service for `auth-service` and an
-  `AUTH_SERVICE_BASE_URL` wired into the other three.
+- ~~Kubernetes manifests second pass~~ — done: `kubernetes/base/` (ADR 0014) now has
+  a fifth Deployment+Service for `auth-service`, and the other three services'
+  initContainers wait on it the same way they wait on each other, mirroring
+  `docker-compose.yml`'s dependency chain. Verified against a real `kind` cluster.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
   content validation is done (ADR 0022); rate limiting, secrets/CORS/headers,
   a real tenant/invitation model with a persistent JWT signing key, security

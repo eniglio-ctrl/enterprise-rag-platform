@@ -8,6 +8,7 @@ resources:
   - configmap.yaml
   - postgres.yaml
   - ollama.yaml
+  - auth-service.yaml
   - ingestion-service.yaml
   - rag-service.yaml
   - chat-service.yaml

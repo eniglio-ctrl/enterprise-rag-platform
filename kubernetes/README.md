@@ -1,6 +1,6 @@
 # Kubernetes manifests
 
-Base manifests (Kustomize) to run the full platform (Postgres, Ollama, and the four
+Base manifests (Kustomize) to run the full platform (Postgres, Ollama, and the five
 application services) in a local `kind` cluster. See [ADR 0014](../docs/adr/0014-kubernetes-manifests-kind.md)
 for the design decisions behind these files.
 
@@ -22,6 +22,7 @@ for the design decisions behind these files.
 ## 1. Build the images with the tags the manifests expect
 
 ```bash
+docker build -t rag-platform/auth-service:latest -f auth-service/Dockerfile .
 docker build -t rag-platform/ingestion-service:latest -f ingestion-service/Dockerfile .
 docker build -t rag-platform/rag-service:latest -f rag-service/Dockerfile .
 docker build -t rag-platform/chat-service:latest -f chat-service/Dockerfile .
@@ -35,7 +36,8 @@ built image isn't visible to the cluster until it's explicitly loaded in.
 
 ```bash
 kind create cluster --name rag-platform
-kind load docker-image rag-platform/ingestion-service:latest \
+kind load docker-image rag-platform/auth-service:latest \
+  rag-platform/ingestion-service:latest \
   rag-platform/rag-service:latest rag-platform/chat-service:latest \
   rag-platform/web-ui:latest --name rag-platform
 ```
@@ -54,10 +56,12 @@ kubectl apply -k kubernetes/base
 kubectl get pods -n rag-platform -w
 ```
 
-`postgres-0` and `ollama-0` come up first; the three Java services each run an
-initContainer that polls the dependencies they need (Postgres/Ollama, and — for
-rag-service/chat-service — the upstream service's `/actuator/health`) before starting,
-mirroring docker-compose's `depends_on: condition: service_healthy`. The first boot is
+`postgres-0` and `ollama-0` come up first; `auth-service` only waits on Postgres (it
+never calls Ollama), and the other three Java services each run an initContainer that
+polls every dependency they need (Postgres/Ollama, `auth-service`'s `/actuator/health`,
+and — for rag-service/chat-service — the upstream service's `/actuator/health` too)
+before starting, mirroring docker-compose's `depends_on: condition: service_healthy`
+chain exactly. The first boot is
 slow: each Java service pulls its Ollama model(s) itself (`pull-model-strategy:
 when_missing`), so `nomic-embed-text` and `llama3.1` are downloaded fresh into the
 `ollama-0` pod's volume the first time any service needs them.
@@ -98,6 +102,13 @@ kind delete cluster --name rag-platform
   public deploy phase (`cert-manager` or the hosting provider's own termination).
 - No `HorizontalPodAutoscaler` or `PodDisruptionBudget` — single replica everywhere,
   portfolio/demo scale, not a production sizing exercise.
-- Manifests predate `auth-service` (deliberately built out of the plan's original
-  order, per explicit direction) — they'll need a second pass once JWT/OAuth2 exists
-  ([ADR 0014](../docs/adr/0014-kubernetes-manifests-kind.md)).
+- `auth-service`'s RSA signing key is still generated in memory on every pod restart
+  (ADR 0016) — fine for this local demo cluster, not for a real deployment. A
+  persistent key is Security Phase 4 (`docs/SECURITY-HARDENING-ROADMAP.md`), tracked
+  separately from these manifests.
+- The browser only reaches `web-ui` through `kubectl port-forward` in the primary
+  path above; `web-ui`'s own static JS still points at `http://localhost:8081`/`8084`
+  for ingestion-service/auth-service by default (same as docker-compose), so a login
+  or upload from the browser needs those two also port-forwarded locally
+  (`kubectl port-forward -n rag-platform svc/auth-service 8084:8084`, same pattern
+  for `ingestion-service`) — not yet automated here.

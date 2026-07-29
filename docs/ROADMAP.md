@@ -51,10 +51,12 @@ specifically, not just in the abstract.
 Recommended order (earlier items make later ones easier, not the other way
 around):
 
-1. ⬜ **Kubernetes: add `auth-service`'s Deployment+Service** — a gap the
-   README has tracked since ADR 0014 (the manifests predate `auth-service`
-   entirely). Do this before Tier 3's AWS/EKS item, which would otherwise
-   inherit the same gap.
+1. ✅ **Kubernetes: add `auth-service`'s Deployment+Service** — closed. A gap
+   the README tracked since ADR 0014 (the manifests predated `auth-service`
+   entirely); see ADR 0014's "Update" section for what changed and how it
+   was verified against a real `kind` cluster (all 7 pods `Running`/`Ready`,
+   zero restarts; a real register → upload → ask round trip through the
+   in-cluster `auth-service`).
 2. ⬜ **Security Phase 7 — Supply-chain security**
    (`docs/SECURITY-HARDENING-ROADMAP.md`; secret scanning, Dependabot,
    CodeQL) — isolated, low-effort, no dependency on anything else, high
