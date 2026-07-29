@@ -344,6 +344,14 @@ genuinely low-effort and high-value for a portfolio project specifically
 (a technical interviewer is likely to look for exactly this), and none of it
 depends on any other phase above.
 
+> **Not the same thing as SonarQube** — CodeQL/Dependabot below are
+> security-focused (vulnerable dependencies, insecure code patterns);
+> code-quality/maintainability/test-coverage analysis (SonarQube/SonarCloud)
+> is tracked separately in
+> [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md)'s
+> Phase 14, to avoid the same tooling gap being tracked (and potentially
+> implemented) twice in two different roadmap files.
+
 - **Secret scanning** on the GitHub repo (GitHub's own built-in secret
   scanning, or `gitleaks` as a pre-commit hook / CI step) — catches an
   accidentally-committed API key or credential before or shortly after it

@@ -416,13 +416,16 @@ half-built modules. What's next:
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment. Being replaced as part of the
   security hardening rollout above.
-- **Multi-LLM orchestrator** — an "Automático" model selector is done (ADR 0025);
-  real cloud providers (beyond Ollama/LM Studio/Groq) as parallel `AIProvider`s, a
-  planner/reflection agent pair, MCP tools, and LLM-specific observability
-  (LangFuse/OpenTelemetry) are a much larger, explicitly staged initiative — see
+- **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
+  model selector is done (ADR 0025); real cloud providers, a planner/reflection
+  agent pair, native tool calling, MCP tools, RAG chunking-strategy/evaluation-metric
+  upgrades, event-driven architecture, an AWS deployment target, a Python/LangGraph
+  agent layer, and LLM-specific observability (LangFuse/OpenTelemetry) are a much
+  larger, explicitly staged initiative — see
   [docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md).
-  Each phase past the selector is blocked on a real decision (which paid API(s), is
-  Redis actually justified, which MCP tools) before any code gets written.
+  Every phase past the selector is blocked on a real decision (which paid API(s), is
+  Redis/Kafka actually justified, which MCP tools, whether a second language is
+  worth it) before any code gets written for it.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
