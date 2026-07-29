@@ -11,7 +11,7 @@
 > user pasted a full AI-Engineer-hiring-checklist and asked whether this file
 > (plus the security roadmap) already covered it. It didn't, fully — see
 > "Gap-check against the AI Engineer checklist" below for exactly what was
-> missing and Phases 8-14 for what got added as a result. The filename stays
+> missing and Phases 8-15 for what got added as a result. The filename stays
 > as-is (renaming would break existing links from the README and ADR 0025),
 > but this is now the living roadmap for "everything that makes this project
 > match a senior AI-engineer job description," not just multi-LLM routing.
@@ -35,6 +35,7 @@
 | 12 | AWS deployment target (ECS/EKS/Lambda/Bedrock/OpenSearch/...) | ⬜ Not started | An AWS account + explicit real-cost acceptance |
 | 13 | Python + LangGraph AI layer | ⬜ Not started | User confirming they want a second language in this portfolio project |
 | 14 | Software engineering polish (SonarQube, `docs/architecture.md` refresh) | ⬜ Not started | **Nothing — can start now** |
+| 15 | Go-based API Gateway / BFF | ⬜ Not started | A scope decision (routing + JWT pass-through only, or also rate limiting) |
 
 **On "done" claims in this file**: don't trust a ✅ here on faith — re-verify
 with `git log`, `ls`, and a fresh `./mvnw clean verify` before relying on a
@@ -123,9 +124,9 @@ cover):
 | LangChain / LangGraph | **No** | Added — Phase 13. Structurally a Python-ecosystem concern; this project is 100% Java/Spring AI today |
 | LangFuse | Yes, planned | Phase 7 |
 | Python | **No** | Added — Phase 13 (the single biggest structural gap — a genuinely new service in a new language, not a library swap) |
-| Go | **No** | Not planned as its own phase — no concrete use case identified yet for this specific project (Go's usual fit — infra tooling, high-concurrency APIs — doesn't map to an obvious gap here the way Python/LangGraph does for the agent layer). Flagged, not scheduled. |
+| Go | **No** (was; now yes) | Originally flagged with no concrete use case. One emerged from a follow-up question about performance/memory: a lightweight API Gateway/BFF at the edge — Go's actual strength (tiny memory footprint, no JIT warm-up, cheap concurrency) against a real, already-experienced constraint this project hit (ADR 0020's OOM kill on a memory-limited free tier) — and it fills the still-unaddressed "API Gateway" microservices pattern from this same checklist. Added — Phase 15. |
 | AWS (ECS/EKS/Lambda/API Gateway/SQS/SNS/EventBridge/DynamoDB/S3/Bedrock/OpenSearch/CloudWatch/IAM) | **No** | Added — Phase 12. Today's deployment targets are local `kind` (Kubernetes) and Render/Netlify/Neon (the free public demo) — no AWS target exists |
-| Microservices patterns (API Gateway, Circuit Breaker, Retry, Saga, CQRS, Event Sourcing) | Partially | Circuit Breaker/Retry already done (ADR 0009); API Gateway, a real Saga implementation (vs. just being example *content* in the demo's seeded documents), CQRS, and Event Sourcing are not implemented anywhere — not separately scheduled here, since none of them has a concrete driving use case yet in this project; revisit if one emerges |
+| Microservices patterns (API Gateway, Circuit Breaker, Retry, Saga, CQRS, Event Sourcing) | Partially | Circuit Breaker/Retry already done (ADR 0009); API Gateway now planned (Phase 15, Go); a real Saga implementation (vs. just being example *content* in the demo's seeded documents), CQRS, and Event Sourcing are still not implemented anywhere and not separately scheduled, since none of them has a concrete driving use case yet in this project; revisit if one emerges |
 | Event-driven (Kafka/RabbitMQ, producer/topic/consumer/DLQ/outbox pattern) | **No** | Added — Phase 11. Present in the user's original "Enterprise Knowledge Platform" vision message but hadn't made it into this roadmap until now |
 | Software engineering practices (GitHub Actions, SonarQube, Clean Architecture/SOLID/DDD, structured logs, Docker, Kubernetes) | Mostly yes, one gap | CI/tests/structured logs/Docker/K8s all already done; SonarQube is **not** present — added to Phase 14, alongside refreshing `docs/architecture.md` (confirmed stale — it still only documents `ingestion-service`+`rag-service`, predating both `auth-service` and `chat-service` entirely) |
 | Supply-chain security (secret scanning, dependency/CVE scanning) | Yes, planned | `docs/SECURITY-HARDENING-ROADMAP.md` Phase 7 (a different roadmap file, security-specific) |
@@ -258,8 +259,7 @@ token usage in LangFuse, and a single request's trace is visible end-to-end
 across at least two services in whatever tracing backend OpenTelemetry is
 configured to export to.
 
-## Phase 8 — RAG quality deep-dive: chunking strategies + formal evaluation
-## metrics ⬜
+## Phase 8 — RAG quality deep-dive (chunking strategies + evaluation metrics) ⬜
 
 **Not started — nothing blocks this, can start now.** Two related gaps found
 during the checklist gap-check, both strengthening the existing RAG pipeline
@@ -434,6 +434,16 @@ Python service becomes another client of the same APIs, not a parallel stack.
 LangFuse (Phase 7) instruments this service too, for the same reason it
 instruments the Java side — the two aren't separate observability problems.
 
+**This phase is deliberately not framed as a performance/memory decision,
+unlike Phase 15 (Go) below** — asked directly, the honest answer is that
+Python doesn't make requests faster or lighter than the existing Java
+services; a Python process doing real agent-orchestration work (especially
+once any ML/NLP library is involved) has its own real memory footprint. The
+reason for Python here is purely that LangGraph/LangChain/LlamaIndex/CrewAI/
+DSPy are Python-first tools with no real Java equivalent — "the tools I need
+only exist here," which is a legitimate reason on its own, just a different
+one than Phase 15's.
+
 **Done when**: a real question answered by the Python/LangGraph service
 demonstrably called at least one of the existing Java services' real HTTP
 APIs (confirmed via that service's own access logs, not assumed), and the
@@ -468,3 +478,47 @@ items found during the gap-check:
 **Done when**: `docs/architecture.md` accurately describes all 4 services and
 matches the README's diagram; a SonarQube/SonarCloud badge is visible in the
 README and reflects a real, current analysis run, not a stale one-time scan.
+
+## Phase 15 — Go-based API Gateway / BFF ⬜
+
+**Not started.** Added after a direct follow-up question about where Go,
+Java, and Python each genuinely help with performance/memory — not from the
+original pasted vision, which didn't mention Go at all (the checklist's own
+"what's next" text only flagged Go as a general market-relevant skill, with
+no concrete fit for this project identified at the time). The concrete fit
+that emerged: a lightweight API Gateway/BFF sitting in front of the four Java
+services, which does two real things at once —
+
+- **Fills a genuine, still-open gap**: "API Gateway" is one of the
+  microservices patterns the checklist names that nothing in this project
+  implements today (Circuit Breaker/Retry are done, ADR 0009; API Gateway
+  is not).
+- **Is an honest performance/memory choice, not a speculative one**: this
+  project has *already* hit a real memory-footprint wall from the JVM on
+  constrained infra (ADR 0020 — an OOM kill on Render's 512MB free tier,
+  JVM baseline plus a local embedding model together). A Go binary's
+  baseline memory footprint (single-digit-to-low-double-digit MB) is
+  roughly a tenth of a JVM's before either does any real work, with
+  near-instant cold start (no JIT warm-up) and cheap per-connection
+  concurrency via goroutines — exactly the profile that matters for
+  something sitting in front of every request into the platform, and
+  exactly the kind of constraint this project has real, lived experience
+  with, not a hypothetical one.
+
+**Scope to decide before starting** (keep it narrow for a first version):
+routing + JWT validation pass-through only (verify the bearer token against
+`auth-service`'s JWKS, same as every Java service already does via
+`platform-common`'s `ResourceServerSecurityConfig`, then proxy to the right
+backend), versus also taking over Security Phase 2's rate limiting at the
+edge instead of (or alongside) per-service Java filters — the latter is
+arguably the more natural home for rate limiting architecturally (one place,
+not four), but changes Security Phase 2's own design if decided before that
+phase starts, so this decision should happen before both, not independently.
+
+**Done when**: a real request to any of the four backend services can be
+routed through the Go gateway instead of hitting the service directly, with
+JWT validation happening at the gateway (confirmed by sending a request with
+no/invalid token and getting rejected at the gateway, before it ever reaches
+the Java service); the gateway's own memory footprint is measured and
+documented against the Java services' for a real, side-by-side comparison —
+not asserted from general knowledge about Go vs. JVM footprints.

@@ -1,0 +1,170 @@
+# Roadmap — execution order across every pending initiative
+
+> This file doesn't replace
+> [`docs/SECURITY-HARDENING-ROADMAP.md`](SECURITY-HARDENING-ROADMAP.md) or
+> [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md)
+> — those two still own all the implementation detail, "done when" criteria,
+> and per-phase context for their own concerns. This file is the single thing
+> to open when the question is **"what do we actually do next, in what
+> order?"** across *both* of them plus the couple of standalone items that
+> never made it into either. Update the checkboxes as items land — this is a
+> living document, same convention as the other two.
+>
+> **Deliberately no deep-links to specific `##` headings in the other two
+> files** — heading-anchor slugs for titles with emoji/backticks/em-dashes
+> are fragile across renderers (confirmed while writing this: an earlier
+> draft of this exact file had a heading accidentally split across two lines
+> in `MULTI-LLM-ORCHESTRATOR-ROADMAP.md`, which is exactly the kind of
+> mistake deep-linking makes costly to get wrong silently). Each item below
+> just names its phase number — open the file and search for "Phase N."
+
+## Why this exists
+
+Two living roadmaps now exist (security hardening; the broader AI-engineering
+skill roadmap), plus a Kubernetes gap the README has tracked on its own since
+before either roadmap existed. Twenty-one items are pending across all three
+places. They don't have to happen in roadmap-file order or phase-number
+order — several have no real dependency on anything and can start today;
+others share infrastructure in ways worth sequencing deliberately (e.g. the
+same rate-limit filter both a security phase and an AI-roadmap phase need);
+others are blocked on a decision only the user can make (a paid API key, an
+AWS account, a second language). This file sorts all of them into that shape.
+
+## Tier 1 — Ready to start now, no external blocker
+
+Recommended order (earlier items make later ones easier, not the other way
+around):
+
+1. ⬜ **Kubernetes: add `auth-service`'s Deployment+Service** — a gap the
+   README has tracked since ADR 0014 (the manifests predate `auth-service`
+   entirely). Do this before Tier 3's AWS/EKS item, which would otherwise
+   inherit the same gap.
+2. ⬜ **Security Phase 7 — Supply-chain security**
+   (`docs/SECURITY-HARDENING-ROADMAP.md`; secret scanning, Dependabot,
+   CodeQL) — isolated, low-effort, no dependency on anything else, high
+   visible payoff for a portfolio review.
+3. ⬜ **Multi-LLM Phase 14 — SonarQube + `docs/architecture.md` refresh**
+   (`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`) — same shape as #2: isolated,
+   cheap, no dependency.
+4. ⬜ **Security Phase 2 — Rate limiting** — do this before Security Phases
+   5/6 (both reuse its filter/metric) and before deciding on Tier 2's Redis
+   item — a distributed version of this same rate limiter is one of the few
+   genuinely concrete justifications for adding Redis at all; decide that
+   only after this phase exists to reference.
+5. ⬜ **Security Phase 3 — Secrets, CORS, HTTP headers**
+6. ⬜ **Multi-LLM Phase 8 — RAG quality deep-dive** (chunking strategies +
+   faithfulness/context-relevance metrics) — strengthens the actual core
+   product, no dependency on anything above.
+7. ⬜ **Multi-LLM Phase 9 — Native tool/function calling** — no dependency;
+   sets up Tier 2's Phase 10 and Phase 6 below.
+
+## Tier 2 — needs a design/infra decision first, no money
+
+Not blocked on a paid resource, but shouldn't start until a concrete decision
+is made (see each phase's own "not started" note in its home file for
+exactly what that decision is):
+
+8. ⬜ **Security Phase 5 — Audit logging** (after Tier 1 #4 — shares the
+   rate-limit-blocked metric)
+9. ⬜ **Security Phase 6 — Public demo hardening** (after Tier 1 #4 — reuses
+   its filter)
+10. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
+    distributed rate-limiting need actually justifies it, or skip until a
+    clearer justification exists.
+11. ⬜ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+    large, self-contained, no real dependency on the others; sequenced here
+    mainly by size, not a technical blocker.
+12. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
+    Tier 1 #7)
+13. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
+    its own scope cut to 1-2 concrete tools)
+14. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
+    needs a concrete driving use case (the phase's own text suggests async
+    document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
+    not a paid key.
+15. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
+    phase in either file — see "Where Go actually fits" below for the full
+    reasoning). Addresses the still-unaddressed "API Gateway" microservices
+    pattern from the AI-engineer checklist, and is a genuine, low-risk way to
+    get real Go usage into this portfolio with a concrete performance/memory
+    rationale, not a speculative "let's use Go somewhere." Scope to decide
+    before starting: does it just do routing + JWT pass-through validation,
+    or also take over Security Phase 2's rate limiting at the edge instead
+    of per-service filters?
+
+## Tier 3 — needs real money or a big commitment
+
+Nothing here starts without the user explicitly signing off on the specific
+cost/commitment named — see each phase's own text for exactly what:
+
+16. ⬜ **Multi-LLM Phase 2 — Real cloud providers** (which provider(s), real
+    paid API keys)
+17. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after #16)
+18. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #16/#17 — note this
+    multiplies paid API calls per question)
+19. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+    LangFuse account/hosting decision)
+20. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+    explicit acceptance of real, non-free-tier cost for some of what's in
+    scope, e.g. Bedrock/OpenSearch)
+21. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+    portfolio project should become polyglot before any code — see "Where
+    Python actually fits" below for why this one is *not* primarily a
+    performance decision, unlike the Go item above)
+
+## Where Go, Java, and Python actually fit (performance/memory reasoning)
+
+Asked directly: which language for which part, for real performance/memory
+reasons, not just "the checklist mentions it." Answered honestly per
+language, since two of the three aren't performance plays at all:
+
+- **Java stays the core.** All 4 existing services (`auth-service`,
+  `ingestion-service`, `rag-service`, `chat-service`) keep using it — mature
+  Spring AI ecosystem, already-built resilience/observability patterns
+  (ADR 0009/0015), no reason to rewrite working business logic for a
+  performance problem that isn't actually there at that layer. The JVM's
+  real, already-*experienced* cost in this project is memory footprint on
+  constrained infra — ADR 0020 documents a real OOM kill on Render's 512MB
+  free tier from JVM baseline + a local embedding model together. That's the
+  actual signal for where a lighter-weight language earns its place: **the
+  edge**, not the domain services.
+- **Go's genuine fit here: a lightweight API Gateway/BFF at the edge**
+  (Tier 2 #15, new). This isn't spreading Go around speculatively — it fills
+  a real, still-unaddressed gap (the checklist's "API Gateway" microservices
+  pattern, currently implemented nowhere in this project) with a language
+  that's *actually* the right tool for it: a Go binary's baseline memory
+  footprint is roughly a tenth of a JVM's (single-digit-to-low-double-digit
+  MB vs. 150MB+ before a JVM does anything), cold start is near-instant (no
+  JIT warm-up), and goroutines make high-concurrency connection handling
+  cheap — exactly the profile you want for something sitting in front of
+  every request, and exactly the constraint this project already hit for
+  real on a free-tier deployment. A rate-limiting/routing layer here would
+  also be a legitimate alternative to Security Phase 2's per-service Java
+  filters, worth deciding between when that phase starts.
+- **Python's fit here is ecosystem, not performance — say so plainly.**
+  Phase 13 exists because LangGraph/LangChain/LlamaIndex/CrewAI/DSPy are
+  Python-first tools with no real Java equivalent, not because Python is
+  faster or lighter than Java for request handling (it generally isn't — a
+  Python service doing real work has its own real memory footprint,
+  especially once any ML/NLP library is involved). Choosing Python for the
+  agent-orchestration layer is "the tools I need only exist here," which is
+  a perfectly good reason on its own — just not a performance/memory one,
+  and Phase 13's text in `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md` has been
+  updated to say this explicitly rather than implying otherwise.
+
+## How to use this file
+
+- Work top to bottom within Tier 1 first — nothing there is waiting on a
+  decision, so it's pure execution time.
+- Move to Tier 2 items whenever their specific decision has actually been
+  made (not preemptively) — check the linked phase's own "not started" text
+  for exactly what that decision is.
+- Tier 3 items stay untouched until the user explicitly greenlights the
+  named cost/commitment for that specific item — don't infer "the roadmap
+  says to do this" as approval for spending money or adding a new language.
+- After finishing any item: check its box here, update its own status in
+  whichever of the two detailed roadmap files owns it (or write it up as a
+  new phase there first, for the Go item above, which doesn't have a home
+  section yet), write its ADR if the decision was non-trivial, and follow
+  the verification pattern both of those files already define (build green,
+  container healthy, a real manual test, commit + push).

@@ -401,7 +401,10 @@ down.
 
 This is a deliberately shipped **vertical slice**: `ingestion-service`, `rag-service`,
 `chat-service` and `auth-service` are fully working end to end, rather than six
-half-built modules. What's next:
+half-built modules. What's next, in the actual order to do it:
+[docs/ROADMAP.md](docs/ROADMAP.md) sequences every pending item below across both
+detailed roadmap files (plus the Kubernetes gap), sorted into what can start today
+vs. what's blocked on a decision or resource only the user can provide.
 
 - **Kubernetes manifests second pass** — the manifests in `kubernetes/base/` (ADR 0014)
   were built before `auth-service` existed, a deliberate, documented deviation from the
