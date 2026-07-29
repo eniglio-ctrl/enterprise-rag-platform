@@ -112,3 +112,36 @@ Four scope decisions were confirmed with the user before implementing:
 - The public demo (`ag-service-demo.onrender.com`) needs `SPRING_PROFILES_ACTIVE=demo`
   redeployed with this change and its existing `MISTRAL_API_KEY` (already
   required for embeddings) reused — no new required environment variable.
+
+## Update: `llava`'s known reliability limitation (ADR 0018) also affects this
+## ephemeral path — same conclusion, no new mitigation
+
+A real user attached a real screenshot locally and got "não posso fornecer
+informações sobre a imagem" back — not a code bug: `rag-service`'s own log
+confirmed the request was received, validated, and processed
+(`"Answered question using N retrieved chunks and an attached image"`), so
+`OllamaVisionDescriptionService.describe(...)` genuinely ran and `llava` itself
+returned a refusal-shaped response instead of a real description. That
+refusal became the `[IMAGEM]` context block verbatim, and `llama3.1` correctly
+reported back that it had nothing to work with.
+
+This is the exact, already-documented limitation from
+[ADR 0018](0018-image-ingestion-via-vision-model.md)'s update section —
+*"Description quality is bounded by the vision model, not by this code ...
+No mitigation attempted here (e.g. a larger vision model, or a
+retry-with-different-prompt strategy) — flagged as a real, known limitation
+rather than silently accepted."* That decision carries over unchanged to this
+ephemeral attachment path, since it's the identical model behind the identical
+call. Confirmed during this investigation: the demo profile's Mistral Pixtral
+path answered the same class of question correctly every time it was tried,
+while local `llava` succeeded on simple synthetic test images (a plain
+two-color shape) but failed on a real screenshot — consistent with the smaller,
+quantized local model's variance already described in ADR 0018, not a new or
+different failure mode this feature introduced.
+
+**No retry-on-refusal or prompt-tuning mitigation was added**, matching ADR
+0018's explicit prior decision not to engineer around this specific model's
+unreliability. If `llava`'s failure rate on real photos becomes a bigger
+practical problem, the fix belongs at the same place ADR 0018 already pointed
+to (a larger/different local vision model), not a workaround layered on top of
+a small one.
