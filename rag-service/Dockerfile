@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
 COPY .mvn/ .mvn/
@@ -14,7 +14,7 @@ COPY platform-common/src platform-common/src
 COPY rag-service/src rag-service/src
 RUN ./mvnw -q -pl rag-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /workspace/rag-service/target/rag-service.jar app.jar
 EXPOSE 8082
