@@ -16,5 +16,6 @@ out/
 .env
 .env.secret
 kubernetes/base/.env.secret
+credenciais/
 ollama-data/
 postgres-data/
