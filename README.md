@@ -291,12 +291,18 @@ curl -X POST http://localhost:8082/api/v1/ask \
   -d '{"question": "Como funciona o padrão SAGA?", "model": "llama3.2"}'
 ```
 
-Out of the box this lists two Ollama models (the default, plus `llama3.2` — pull it
-first with `ollama pull llama3.2` to actually use it) and one
+Out of the box this lists **"Automático (recomendado)"** first (pre-selected), two
+Ollama models (the actual default it resolves to, plus `llama3.2` — pull it first
+with `ollama pull llama3.2` to actually use it), and one
 [LM Studio](https://lmstudio.ai) entry, which talks to LM Studio's local
 OpenAI-compatible server (`http://localhost:1234` by default) if it's running with a
-model loaded. An unknown/unreachable model id falls back to the default rather than
-erroring the whole question. See
+model loaded. "Automático" is a sentinel, not a real model — today it just resolves
+to the same configured default (there isn't yet a real pool of distinct providers
+worth choosing between intelligently); see
+[ADR 0025](docs/adr/0025-auto-model-selection.md) and
+[docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md)
+for where that's headed. An unknown/unreachable model id falls back to the default
+rather than erroring the whole question. See
 [ADR 0017](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md) for how two
 `ChatModel` providers coexist on the same classpath without conflict.
 
@@ -410,6 +416,13 @@ half-built modules. What's next:
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment. Being replaced as part of the
   security hardening rollout above.
+- **Multi-LLM orchestrator** — an "Automático" model selector is done (ADR 0025);
+  real cloud providers (beyond Ollama/LM Studio/Groq) as parallel `AIProvider`s, a
+  planner/reflection agent pair, MCP tools, and LLM-specific observability
+  (LangFuse/OpenTelemetry) are a much larger, explicitly staged initiative — see
+  [docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md).
+  Each phase past the selector is blocked on a real decision (which paid API(s), is
+  Redis actually justified, which MCP tools) before any code gets written.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
@@ -442,6 +455,8 @@ half-built modules. What's next:
 - [ADR 0021 — Security hardening baseline (the layered rollout this and the following ADRs are part of)](docs/adr/0021-security-hardening-baseline.md)
 - [ADR 0022 — Upload content validation via magic bytes](docs/adr/0022-upload-validation-hardening.md)
 - [ADR 0023 — Ephemeral image attachment on `/api/v1/ask`](docs/adr/0023-ephemeral-image-attachment-on-ask.md)
+- [ADR 0024 — Replace keyword-based `/api/v1/ask` routing with an LLM classification call](docs/adr/0024-llm-based-ask-routing.md)
+- [ADR 0025 — "Automático" as a sentinel entry in `rag.available-models`](docs/adr/0025-auto-model-selection.md)
 
 ## License
 

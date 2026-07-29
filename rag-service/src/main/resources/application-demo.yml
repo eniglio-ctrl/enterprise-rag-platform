@@ -85,7 +85,12 @@ spring:
         dimensions: 1024
 
 rag:
+  # See application.yml's comment on the "auto" sentinel entry (ADR 0025) — same
+  # mechanism here, just with only one real concrete entry to fall back to today.
   available-models:
+    - id: auto
+      label: "Automático (recomendado)"
+      provider: auto
     - id: ${GROQ_MODEL:llama-3.3-70b-versatile}
       label: "Groq — Llama 3.3 70B (demo público)"
       provider: lmstudio

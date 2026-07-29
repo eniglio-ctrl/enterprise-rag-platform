@@ -47,8 +47,13 @@ class RagQueryServiceTest {
 
     private RagQueryService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        List<RagProperties.AvailableModel> availableModels =
-                List.of(new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
+        // Mirrors production config (ADR 0025): "auto" is always first, resolveModel
+        // substitutes it for the first concrete entry ("ollama" here) — every existing
+        // test below that never requests a model exercises that exact substitution
+        // path, not a hypothetical one.
+        List<RagProperties.AvailableModel> availableModels = List.of(
+                new RagProperties.AvailableModel("auto", "Automático (recomendado)", "auto"),
+                new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
         // lmStudioChatClient is never exercised by these tests — every available model
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.
@@ -80,6 +85,54 @@ class RagQueryServiceTest {
         assertThat(response.citations().get(0).chunkIndex()).isEqualTo(3);
         assertThat(response.groundedness()).isNull();
         verify(llmRerankService, never()).rerank(anyString(), any(), anyInt());
+    }
+
+    /**
+     * ADR 0025: "auto" is a sentinel entry in rag.available-models, never a real
+     * callable model — resolveModel must substitute it for the first concrete
+     * (non-"auto") entry before any generation call, so the response never reports
+     * back the literal string "auto" as the model that answered.
+     */
+    @Test
+    void requestingAutoExplicitlyResolvesToTheFirstConcreteModel() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false, "auto");
+
+        assertThat(response.model()).isEqualTo("llama3.1");
+    }
+
+    @Test
+    void requestingNoModelAlsoResolvesAutoToTheFirstConcreteModel() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false, null);
+
+        assertThat(response.model()).isEqualTo("llama3.1");
     }
 
     @Test

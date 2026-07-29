@@ -302,20 +302,44 @@ public class RagQueryService {
      * Falls back to the first (default) entry in {@code rag.available-models}
      * (ADR 0017) when nothing was requested, or when the requested id isn't in that
      * list — a stale/mistyped id from a client shouldn't break the whole question.
+     * Always returns a genuinely callable model: the "auto" sentinel entry (ADR 0025)
+     * is resolved to {@link #firstConcreteModel} right here, once, so every caller —
+     * {@link #clientFor}, {@link #callLlm}, {@link #modelOptions}, and the {@code
+     * model} field returned to the client — automatically sees a real provider and
+     * id, never the literal string "auto".
      */
     private AvailableModel resolveModel(String requestedModel) {
         List<AvailableModel> available = ragProperties.availableModels();
+        AvailableModel selected;
         if (requestedModel == null || requestedModel.isBlank()) {
-            return available.get(0);
+            selected = available.get(0);
+        } else {
+            selected = available.stream()
+                    .filter(m -> m.id().equals(requestedModel))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        log.warn("Requested model '{}' is not in rag.available-models, using the default",
+                                requestedModel);
+                        return available.get(0);
+                    });
         }
+        return "auto".equals(selected.provider()) ? firstConcreteModel(available) : selected;
+    }
+
+    /**
+     * The model "auto" actually means today (ADR 0025): the first entry in
+     * {@code rag.available-models} that isn't itself the "auto" sentinel. No
+     * question-dependent logic yet — deliberately, since there's currently only
+     * one or two locally/self-hosted models configured per environment, not a real
+     * pool of providers worth choosing between intelligently. See
+     * {@code docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md} for where that would evolve.
+     */
+    private AvailableModel firstConcreteModel(List<AvailableModel> available) {
         return available.stream()
-                .filter(m -> m.id().equals(requestedModel))
+                .filter(m -> !"auto".equals(m.provider()))
                 .findFirst()
-                .orElseGet(() -> {
-                    log.warn("Requested model '{}' is not in rag.available-models, using the default",
-                            requestedModel);
-                    return available.get(0);
-                });
+                .orElseThrow(() -> new IllegalStateException(
+                        "rag.available-models has no concrete (non-auto) entry configured"));
     }
 
     /** Picks the {@code ChatClient} backing {@code model}'s provider (ADR 0017). */

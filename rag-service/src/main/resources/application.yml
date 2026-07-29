@@ -136,7 +136,16 @@ rag:
   # must already be pulled (`ollama pull <id>`); the LM Studio entry needs its local
   # server running with a model loaded. This list doesn't pull/start anything itself,
   # it only says what's allowed to be requested.
+  #
+  # The "auto" entry (ADR 0025) is a sentinel, not a real callable model —
+  # RagQueryService.resolveModel substitutes it for the first non-"auto" entry
+  # below before any ChatClient/LlmGateway call, so it's first in this list purely
+  # to become the default via the existing "first entry wins" convention, not
+  # because anything actually dispatches on provider: auto.
   available-models:
+    - id: auto
+      label: "Automático (recomendado)"
+      provider: auto
     - id: ${CHAT_MODEL:llama3.1}
       label: "Llama 3.1 (Ollama, padrão)"
       provider: ollama
