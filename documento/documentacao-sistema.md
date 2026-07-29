@@ -25,10 +25,14 @@ anexo efêmero de imagem a uma pergunta e conversas de múltiplos turnos pela AP
 | `rag-service` | Busca híbrida, geração de respostas/diagramas e citações | 8082 |
 | `chat-service` | Conversas com memória; reutiliza a busca do `rag-service` | 8083 |
 | PostgreSQL + pgvector | Vetores, metadados, usuários e conversas | 5432 |
-| Ollama | Modelos locais de embedding, chat e visão | 11434 |
+| Ollama | Modelos locais de embedding, chat padrão e visão | 11434 |
+| LM Studio | Servidor local opcional, compatível com OpenAI, para chat por modelo selecionado | 1234 (padrão) |
 | Whisper ASR | Transcrição local de áudio, quando habilitado | interno |
 
-O diagrama SVG é uma visão de alto nível. Os fluxos atualizados e detalhados estão em
+O Ollama é o runtime local padrão e mantém embeddings e visão mesmo quando outro modelo
+de chat é escolhido. O LM Studio é opcional: o `rag-service` fala com seu servidor local
+compatível com OpenAI somente quando esse modelo é selecionado na requisição. O diagrama
+SVG é uma visão de alto nível. Os fluxos atualizados e detalhados estão em
 [`docs/architecture.md`](../docs/architecture.md).
 
 ## 3. Funcionalidades

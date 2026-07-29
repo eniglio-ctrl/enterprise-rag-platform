@@ -18,7 +18,8 @@ flowchart LR
         RAG["rag-service :8082"]
         CHAT["chat-service :8083"]
         PG[("PostgreSQL 16\npgvector + application schemas")]
-        OLL["Ollama\nembeddings, chat and vision"]
+        OLL["Ollama\nembeddings, default chat and vision"]
+        LMS["LM Studio (optional)\nOpenAI-compatible chat server"]
         WHISPER["Whisper ASR\noptional audio transcription"]
     end
 
@@ -34,7 +35,8 @@ flowchart LR
     ING -- "embedding / image description" --> OLL
     ING -- "audio transcription" --> WHISPER
     RAG -- "hybrid retrieval" --> PG
-    RAG -- "embedding, intent classification, generation" --> OLL
+    RAG -- "embeddings, default chat, vision" --> OLL
+    RAG -. "optional selected-model chat" .-> LMS
     CHAT -- "conversation memory" --> PG
     CHAT -- "retrieve relevant chunks" --> RAG
     CHAT -- "conversation-aware generation" --> OLL
@@ -45,6 +47,12 @@ Spring services act as resource servers and validate those tokens using its JWKS
 endpoint. Retrieval and conversations are tenant-scoped. See
 [ADR 0016](adr/0016-auth-service-jwt-oauth2.md) and
 [ADR 0007](adr/0007-tenancy-data-contract.md).
+
+Ollama is the default local runtime and is responsible for embeddings and vision. LM
+Studio is optional: when its model is selected for a request, `rag-service` calls its
+locally running OpenAI-compatible server for chat generation, while embeddings remain
+on Ollama. See [ADR 0017](adr/0017-selectable-chat-model-ollama-lmstudio.md) and
+[ADR 0025](adr/0025-auto-model-selection.md).
 
 `platform-common` contains shared CORS, OpenAPI, error-handling, resilience and
 resource-server security code. PostgreSQL deliberately remains shared while the system

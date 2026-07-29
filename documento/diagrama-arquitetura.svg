@@ -9,7 +9,7 @@
     <path d="M500 100V136"/><path d="M390 188H216V260"/><path d="M500 188V260"/><path d="M610 188H784V260"/>
     <path d="M170 330V494"/><path d="M500 330V494"/><path d="M830 330V494"/>
     <path d="M286 295H422"/><path d="M578 295H714"/><path d="M500 360V394"/>
-    <path d="M430 545H300"/><path d="M570 545H700"/><path d="M500 576V625"/>
+    <path d="M430 545H300"/><path d="M570 545H700"/><path d="M500 576V625"/><path d="M580 429H855V429"/>
   </g>
 
   <rect x="400" y="55" width="200" height="45" rx="8" fill="#fff" stroke="#2f5fda" stroke-width="2"/>
@@ -26,7 +26,9 @@
   <text x="230" y="527" text-anchor="middle" font-size="15" font-weight="600" fill="#1a2233">PostgreSQL</text><text x="230" y="548" text-anchor="middle" font-size="13" fill="#1a2233">pgvector + dados</text>
   <rect x="700" y="494" width="140" height="82" rx="8" fill="#fff4e5" stroke="#f59e0b" stroke-width="2"/>
   <text x="770" y="527" text-anchor="middle" font-size="15" font-weight="600" fill="#1a2233">Ollama</text><text x="770" y="548" text-anchor="middle" font-size="13" fill="#1a2233">chat / embedding / visão</text>
+  <rect x="855" y="394" width="125" height="70" rx="8" fill="#fff4e5" stroke="#f59e0b" stroke-width="2"/>
+  <text x="917" y="423" text-anchor="middle" font-size="15" font-weight="600" fill="#1a2233">LM Studio</text><text x="917" y="444" text-anchor="middle" font-size="12" fill="#1a2233">chat opcional</text>
   <rect x="420" y="625" width="160" height="50" rx="8" fill="#fff4e5" stroke="#f59e0b" stroke-width="2"/>
   <text x="500" y="655" text-anchor="middle" font-size="15" font-weight="600" fill="#1a2233">Whisper ASR (áudio)</text>
-  <text x="500" y="704" text-anchor="middle" font-size="12" fill="#4a5568">JWT é validado por ingestion, RAG e chat; chat-service consulta o rag-service para recuperação.</text>
+  <text x="500" y="704" text-anchor="middle" font-size="12" fill="#4a5568">JWT é validado por ingestion, RAG e chat; LM Studio é opcional; chat-service consulta o rag-service para recuperação.</text>
 </svg>
