@@ -1,0 +1,58 @@
+version: 2
+updates:
+  # Multi-module Maven reactor — Dependabot only reads the pom.xml in each
+  # directory it's told about, it doesn't recurse into submodules on its own,
+  # so each module (plus the parent) gets its own entry.
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/platform-common"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/auth-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/ingestion-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/rag-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "maven"
+    directory: "/chat-service"
+    schedule:
+      interval: "weekly"
+
+  # Docker base images — one entry per directory with its own Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/auth-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/ingestion-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/rag-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/chat-service"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "docker"
+    directory: "/web-ui"
+    schedule:
+      interval: "weekly"
+
+  # .github/workflows/*.yml — keeps pinned action versions (actions/checkout,
+  # actions/setup-java, etc.) current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
