@@ -241,10 +241,13 @@ LLM call. Add `"rerank": true` on top for an LLM-as-judge pass over a wider cand
 pool before answering; like `grounded`, it's a full extra Ollama call so it's opt-in.
 See [ADR 0012](docs/adr/0012-hybrid-search-rrf-llm-rerank.md).
 
-Routing is a plain keyword check on the question (mentions of "diagram", "draw", "flow",
-"architecture", etc.) rather than an extra LLM call, so it's fast and predictable. The
-underlying single-purpose endpoints (`/api/v1/chat`, `/api/v1/diagrams`) still exist too,
-useful when a caller already knows which one it wants:
+Routing is a real classification call (temperature 0, single-word answer) against the
+already-resolved chat model, not a keyword match — a keyword list originally handled this
+but broke on a genuine false positive ("O que tem nessa imagem?" contains "imagem", which
+used to be a diagram-trigger word), so it was replaced with actual intent interpretation.
+See [ADR 0024](docs/adr/0024-llm-based-ask-routing.md). The underlying single-purpose
+endpoints (`/api/v1/chat`, `/api/v1/diagrams`) still exist too, useful when a caller
+already knows which one it wants:
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/chat \
