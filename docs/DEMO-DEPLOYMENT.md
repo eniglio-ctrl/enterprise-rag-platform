@@ -14,8 +14,12 @@ scratch, and what's intentionally out of scope.
 | API (`rag-service`) | https://ag-service-demo.onrender.com | Render (free) |
 | Database | (private Neon connection string) | Neon (free) |
 
-No login. A fixed set of 3 seeded documents (about this project itself) is all
-that's searchable — see [Scope and limitations](#scope-and-limitations) below.
+No login. A fixed, read-only corpus is all that's searchable — see
+[Scope and limitations](#scope-and-limitations) below. As of 2026-07-28 this is
+the project's own real documentation (25 documents: `README.md`,
+`docs/architecture.md`, and all 22 ADRs under `docs/adr/`, plus the internal
+development log) — not the 3 short synthetic paragraphs originally seeded at
+launch.
 
 ## Architecture: what's different from local
 
@@ -129,9 +133,9 @@ blocks everything.
 
 ## Seeding the database
 
-The demo's 3 documents were indexed by running `ingestion-service` **locally**,
-once, with `SPRING_PROFILES_ACTIVE=demo` pointed at the real Neon connection
-string — `ingestion-service` is never itself deployed publicly.
+The demo's documents are indexed by running `ingestion-service` **locally**,
+once per document, with `SPRING_PROFILES_ACTIVE=demo` pointed at the real Neon
+connection string — `ingestion-service` is never itself deployed publicly.
 
 ```bash
 ./mvnw -q -pl ingestion-service -am package -DskipTests
@@ -147,8 +151,22 @@ MISTRAL_API_KEY="<your-mistral-key>" \
 curl -X POST http://localhost:8091/api/v1/documents -F "file=@/path/to/doc.txt;type=text/plain"
 ```
 
-To re-seed from scratch (e.g. after a schema change), drop and let Flyway
-recreate:
+**As of 2026-07-28**, the seeded corpus is the project's own real documentation,
+25 files total — `README.md`, `docs/architecture.md`, every ADR under
+`docs/adr/*.md`, and the internal development log
+(`01-O-QUE-FOI-FEITO.md`) — replacing the 3 short synthetic paragraphs seeded at
+initial launch. Uploaded with a loop over each file (any content type works;
+`text/markdown` was used for all of them, `.md` extension included):
+
+```bash
+for f in README.md docs/architecture.md docs/adr/*.md /path/to/01-O-QUE-FOI-FEITO.md; do
+  curl -s -o /dev/null -w "%{http_code} $f\n" -X POST http://localhost:8091/api/v1/documents \
+    -F "file=@${f};type=text/markdown"
+done
+```
+
+To re-seed from scratch (e.g. after a schema change, or to replace the corpus
+again), drop and let Flyway recreate:
 
 ```sql
 DROP TABLE IF EXISTS vector_store;
@@ -157,14 +175,19 @@ DROP TABLE IF EXISTS flyway_schema_history;
 
 then rerun `ingestion-service` as above — `db/migration-demo`'s `V1`/`V2` recreate
 the 1024-dimension schema (matching `mistral-embed`'s output size) from an empty
-database.
+database. **Watch out for double-submitting a file** if a seeding script errors
+out partway through and gets rerun from the top — check
+`SELECT metadata->>'source', count(DISTINCT metadata->>'documentId') FROM
+vector_store GROUP BY 1 HAVING count(DISTINCT metadata->>'documentId') > 1;`
+afterwards to catch any source that ended up with more than one `documentId`,
+and delete the older `documentId`'s rows if so.
 
 ## How to test the demo
 
 **Browser** (the real user-facing path): open
 [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app), type a question about
-this project's architecture/features/observability (the 3 seeded documents' actual
-topics), click Ask.
+this project's architecture, ADRs, or development history (the seeded
+documents' actual topics), click Ask.
 
 **API directly**:
 
@@ -179,14 +202,17 @@ curl -s -X POST https://ag-service-demo.onrender.com/api/v1/ask \
 No `Authorization` header needed or accepted — every request is treated as the
 same fixed demo tenant.
 
-**Known-good test questions** (match the seeded content):
+**Known-good test questions** (match the seeded content — verified for real
+against the live demo on 2026-07-28):
 - "What are the four microservices in this platform?"
 - "How does hybrid search work?"
 - "How is data isolated between tenants?"
-- "What metrics does this platform expose?"
+- "What is ADR 0022 about?"
+- "What bugs were found and fixed during the auth-service implementation?"
+- "How does the RAG quality benchmark work?"
 - "Can this platform ingest images or audio?"
 
-A question about anything *not* covered by the 3 seeded documents will correctly
+A question about anything *not* covered by the seeded documents will correctly
 get "not enough information" — that's the retrieval working as intended, not a
 bug (the same well-understood behavior as ADR 0007's tenant isolation).
 
