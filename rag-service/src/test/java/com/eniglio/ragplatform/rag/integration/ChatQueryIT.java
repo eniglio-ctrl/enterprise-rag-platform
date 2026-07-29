@@ -17,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -34,6 +35,7 @@ import java.util.Random;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -242,6 +244,43 @@ class ChatQueryIT {
                         .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.groundedness").doesNotExist());
+    }
+
+    @Test
+    void askWithAnAttachedImageAnswersSuccessfully() throws Exception {
+        MockMultipartFile image = new MockMultipartFile("image", "diagram.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0});
+
+        mockMvc.perform(multipart("/api/v1/ask")
+                        .file(image)
+                        .param("question", "O que aparece no anexo enviado?")
+                        .with(jwtFor("default")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.answer").exists());
+    }
+
+    @Test
+    void askRejectsAnAttachedFileWithAnUnsupportedContentType() throws Exception {
+        MockMultipartFile notAnImage = new MockMultipartFile("image", "notes.txt", "text/plain",
+                "just some text".getBytes());
+
+        mockMvc.perform(multipart("/api/v1/ask")
+                        .file(notAnImage)
+                        .param("question", "O que esse arquivo mostra?")
+                        .with(jwtFor("default")))
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void askRejectsAnAttachedImageWhoseBytesDoNotMatchItsDeclaredType() throws Exception {
+        MockMultipartFile fakeImage = new MockMultipartFile("image", "fake.png", "image/png",
+                "not actually a png".getBytes());
+
+        mockMvc.perform(multipart("/api/v1/ask")
+                        .file(fakeImage)
+                        .param("question", "O que essa imagem mostra?")
+                        .with(jwtFor("default")))
+                .andExpect(status().isUnprocessableEntity());
     }
 
     private static float[] fixedVector() {

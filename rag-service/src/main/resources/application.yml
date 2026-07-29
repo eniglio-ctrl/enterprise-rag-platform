@@ -5,6 +5,14 @@ spring:
   application:
     name: rag-service
 
+  # First multipart endpoint in this service (the image-attachment form of
+  # /api/v1/ask) — a single ephemeral image, not a document, so a much smaller cap
+  # than ingestion-service's 25MB document limit.
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   # OpenAiEmbeddingAutoConfiguration is excluded (ADR 0017): with both the Ollama and
   # OpenAI-compatible (LM Studio) starters on the classpath, Spring AI would otherwise
   # also auto-configure an OpenAiEmbeddingModel bean, competing with Ollama's for
@@ -144,6 +152,11 @@ rag:
     # over a minute — 180s gives real responses headroom without hanging forever on a
     # genuinely stuck model.
     read-timeout: 180s
+  vision:
+    # Same VISION_MODEL env var ingestion-service already uses for image documents
+    # (ADR 0018) — one setting governs "what vision model to use" locally, whether the
+    # image is a permanently-ingested document or an ephemeral question attachment.
+    ollama-model: ${VISION_MODEL:llava}
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

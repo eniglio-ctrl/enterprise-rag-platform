@@ -21,6 +21,7 @@ import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.util.MimeType;
 
 import java.text.Normalizer;
 import java.util.List;
@@ -81,6 +82,21 @@ public class RagQueryService {
             {context}
             """;
 
+    // Prepended to SYSTEM_TEMPLATE/DIAGRAM_SYSTEM_TEMPLATE only when a question has an
+    // attached image (never included otherwise, to avoid cluttering the common path).
+    // The "[IMAGEM]" block is deliberately NOT one of the numbered "[1]", "[2]"...
+    // context entries buildContext() produces from retrieved chunks — those numbers
+    // must line up 1:1 with the citations array returned to the caller, and an image
+    // description has no corresponding Citation. Telling the model explicitly not to
+    // cite it with a bracket number avoids it inventing a citation index that doesn't
+    // exist in the response.
+    private static final String IMAGE_CONTEXT_INSTRUCTIONS = """
+            Uma imagem foi anexada à pergunta e descrita automaticamente por um modelo de visão — \
+            essa descrição aparece no CONTEXTO como "[IMAGEM]", não é uma fonte numerada como as \
+            demais e não deve ser citada com colchetes numéricos.
+
+            """;
+
     private static final String EMPTY_DIAGRAM = "flowchart LR\n    A[Dados insuficientes para gerar um diagrama]";
 
     private static final Pattern BRACKET_LABEL = Pattern.compile("\\[([^\\[\\]]*)]");
@@ -98,6 +114,7 @@ public class RagQueryService {
     private final ChatClient lmStudioChatClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
+    private final VisionDescriptionService visionDescriptionService;
     private final Counter answersGeneratedCounter;
     private final Counter diagramsGeneratedCounter;
     private final Timer answerTimer;
@@ -107,6 +124,7 @@ public class RagQueryService {
                             @Qualifier("ollama") ChatClient ollamaChatClient,
                             @Qualifier("lmstudio") ChatClient lmStudioChatClient,
                             LlmGateway llmGateway, RagProperties ragProperties,
+                            VisionDescriptionService visionDescriptionService,
                             MeterRegistry meterRegistry) {
         this.hybridSearchService = hybridSearchService;
         this.llmRerankService = llmRerankService;
@@ -114,6 +132,7 @@ public class RagQueryService {
         this.lmStudioChatClient = lmStudioChatClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
+        this.visionDescriptionService = visionDescriptionService;
         this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
                 .description("Number of text answers generated")
                 .register(meterRegistry);
@@ -136,12 +155,29 @@ public class RagQueryService {
      * fast and predictable.
      */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
+        return ask(question, tenantId, grounded, rerank, model, null, null);
+    }
+
+    /**
+     * Same routing as the 5-arg {@link #ask(String, String, boolean, boolean, String)},
+     * plus an optional image attached to this single question (never indexed —
+     * described once via {@link VisionDescriptionService} and folded into whichever
+     * path ({@link #answer}/{@link #diagram}) the question routes to). {@code
+     * imageBytes}/{@code imageMimeType} are both null when no image was attached.
+     */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                            byte[] imageBytes, MimeType imageMimeType) {
+        String imageDescription = describeImage(imageBytes, imageMimeType);
         if (wantsDiagram(question)) {
-            DiagramResponse diagram = diagram(question, tenantId, model);
+            DiagramResponse diagram = diagram(question, tenantId, model, imageDescription);
             return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model());
         }
-        ChatResponse chat = answer(question, tenantId, grounded, rerank, model);
+        ChatResponse chat = answer(question, tenantId, grounded, rerank, model, imageDescription);
         return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model());
+    }
+
+    private String describeImage(byte[] imageBytes, MimeType imageMimeType) {
+        return imageBytes == null ? null : visionDescriptionService.describe(imageBytes, imageMimeType);
     }
 
     private boolean wantsDiagram(String question) {
@@ -160,19 +196,29 @@ public class RagQueryService {
     }
 
     public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
-        ChatResponse response = answerTimer.record(() -> doAnswer(question, tenantId, grounded, rerank, model));
+        return answer(question, tenantId, grounded, rerank, model, null);
+    }
+
+    private ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                                 String imageDescription) {
+        ChatResponse response = answerTimer.record(
+                () -> doAnswer(question, tenantId, grounded, rerank, model, imageDescription));
         answersGeneratedCounter.increment();
         return response;
     }
 
-    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
+    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                                   String imageDescription) {
         int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
         List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
         if (rerank) {
             retrieved = llmRerankService.rerank(question, retrieved, ragProperties.topK());
         }
 
-        if (retrieved.isEmpty()) {
+        // An attached image can fully answer the question on its own (e.g. "what does
+        // this diagram show?") even with zero relevant chunks in the knowledge base —
+        // only short-circuit to "not enough information" when there's neither.
+        if (retrieved.isEmpty() && imageDescription == null) {
             log.info("No relevant chunks found for question");
             return new ChatResponse(
                     "Não encontrei informação suficiente na base de conhecimento para responder a essa pergunta.",
@@ -180,10 +226,17 @@ public class RagQueryService {
         }
 
         String context = buildContext(retrieved);
+        String systemTemplate = SYSTEM_TEMPLATE;
+        if (imageDescription != null) {
+            context = withImageContext(context, imageDescription);
+            systemTemplate = IMAGE_CONTEXT_INSTRUCTIONS + SYSTEM_TEMPLATE;
+        }
+        String finalContext = context;
+        String finalSystemTemplate = systemTemplate;
         AvailableModel resolvedModel = resolveModel(model);
 
         String answer = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
-                .system(spec -> spec.text(SYSTEM_TEMPLATE).param("context", context))
+                .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
                 .user(question)
                 .options(modelOptions(resolvedModel, null))
                 .call()
@@ -192,9 +245,21 @@ public class RagQueryService {
         List<Citation> citations = buildCitations(retrieved);
         Groundedness groundedness = grounded ? checkGroundedness(context, answer, resolvedModel) : null;
 
-        log.info("Answered question using {} retrieved chunks", retrieved.size());
+        log.info("Answered question using {} retrieved chunks{}", retrieved.size(),
+                imageDescription != null ? " and an attached image" : "");
 
         return new ChatResponse(answer, citations, groundedness, resolvedModel.id());
+    }
+
+    /**
+     * Prepends the image's description as a distinct, non-numbered "[IMAGEM]" block
+     * ahead of the numbered retrieved-chunk context — see
+     * {@link #IMAGE_CONTEXT_INSTRUCTIONS} for why it must never share numbering with
+     * the citations array.
+     */
+    private String withImageContext(String context, String imageDescription) {
+        String imageBlock = "[IMAGEM] " + imageDescription;
+        return context.isBlank() ? imageBlock : imageBlock + "\n\n" + context;
     }
 
     /**
@@ -304,27 +369,41 @@ public class RagQueryService {
     }
 
     public DiagramResponse diagram(String question, String tenantId, String model) {
-        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId, model));
+        return diagram(question, tenantId, model, null);
+    }
+
+    private DiagramResponse diagram(String question, String tenantId, String model, String imageDescription) {
+        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId, model, imageDescription));
         diagramsGeneratedCounter.increment();
         return response;
     }
 
-    private DiagramResponse doDiagram(String question, String tenantId, String model) {
+    private DiagramResponse doDiagram(String question, String tenantId, String model, String imageDescription) {
         List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
 
-        if (retrieved.isEmpty()) {
+        // Same reasoning as doAnswer: an attached image (e.g. a screenshot of an
+        // architecture) can supply everything needed to draw a diagram even with zero
+        // matching chunks in the knowledge base.
+        if (retrieved.isEmpty() && imageDescription == null) {
             log.info("No relevant chunks found for diagram question");
             return new DiagramResponse(EMPTY_DIAGRAM, List.of(), null);
         }
 
         String context = buildContext(retrieved);
+        String systemTemplate = DIAGRAM_SYSTEM_TEMPLATE;
+        if (imageDescription != null) {
+            context = withImageContext(context, imageDescription);
+            systemTemplate = IMAGE_CONTEXT_INSTRUCTIONS + DIAGRAM_SYSTEM_TEMPLATE;
+        }
+        String finalContext = context;
+        String finalSystemTemplate = systemTemplate;
         AvailableModel resolvedModel = resolveModel(model);
 
         String mermaid;
         String usedModel = resolvedModel.id();
         try {
             String raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
-                    .system(spec -> spec.text(DIAGRAM_SYSTEM_TEMPLATE).param("context", context))
+                    .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
                     .user(question)
                     .options(modelOptions(resolvedModel, 0.0))
                     .call()
@@ -338,7 +417,8 @@ public class RagQueryService {
 
         List<Citation> citations = buildCitations(retrieved);
 
-        log.info("Generated diagram using {} retrieved chunks", retrieved.size());
+        log.info("Generated diagram using {} retrieved chunks{}", retrieved.size(),
+                imageDescription != null ? " and an attached image" : "");
 
         return new DiagramResponse(mermaid, citations, usedModel);
     }

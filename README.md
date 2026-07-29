@@ -258,6 +258,23 @@ curl -X POST http://localhost:8082/api/v1/diagrams \
   -d '{"question": "Draw the disaster recovery architecture described"}'
 ```
 
+You can also attach an image (PNG/JPEG/GIF/WebP) directly to a single question — the
+📎 icon in the web UI's ask box, or `multipart/form-data` against the same
+`/api/v1/ask` endpoint:
+
+```bash
+curl -X POST http://localhost:8082/api/v1/ask \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "question=What does this diagram show?" \
+  -F "image=@/path/to/screenshot.png;type=image/png"
+```
+
+A vision model (Ollama's `llava` locally, Mistral's Pixtral on the public demo —
+Groq, the demo's text-chat provider, has no vision model) describes the image once
+and folds that description into just this question's context — the image itself is
+never stored or indexed, unlike an uploaded image *document* (ADR 0018). See
+[ADR 0023](docs/adr/0023-ephemeral-image-attachment-on-ask.md).
+
 ### Picking a chat model (Ollama + LM Studio)
 
 `GET /api/v1/models` lists the chat models configured in `rag.available-models`
@@ -423,6 +440,7 @@ half-built modules. What's next:
 - [ADR 0020 — Free public demo deployment (Groq + Mistral AI embeddings + Render + Neon)](docs/adr/0020-public-demo-deployment.md)
 - [ADR 0021 — Security hardening baseline (the layered rollout this and the following ADRs are part of)](docs/adr/0021-security-hardening-baseline.md)
 - [ADR 0022 — Upload content validation via magic bytes](docs/adr/0022-upload-validation-hardening.md)
+- [ADR 0023 — Ephemeral image attachment on `/api/v1/ask`](docs/adr/0023-ephemeral-image-attachment-on-ask.md)
 
 ## License
 

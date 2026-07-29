@@ -179,6 +179,11 @@ const answerCard = document.getElementById("answer-card");
 const answerText = document.getElementById("answer-text");
 const citationsList = document.getElementById("citations-list");
 
+const imageInput = document.getElementById("image-input");
+const imageAttachmentPreview = document.getElementById("image-attachment-preview");
+const imageAttachmentName = document.getElementById("image-attachment-name");
+const imageAttachmentClear = document.getElementById("image-attachment-clear");
+
 const diagramCard = document.getElementById("diagram-card");
 const diagramOutput = document.getElementById("diagram-output");
 const diagramCitations = document.getElementById("diagram-citations");
@@ -227,6 +232,17 @@ dropzone.addEventListener("drop", (event) => {
 });
 
 fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+
+imageInput.addEventListener("change", () => {
+  const image = imageInput.files[0];
+  imageAttachmentName.textContent = image ? image.name : "";
+  imageAttachmentPreview.hidden = !image;
+});
+
+imageAttachmentClear.addEventListener("click", () => {
+  imageInput.value = "";
+  imageAttachmentPreview.hidden = true;
+});
 
 uploadForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -285,17 +301,40 @@ askForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  const attachedImage = imageInput.files[0];
+
   askButton.disabled = true;
   answerCard.hidden = true;
   diagramCard.hidden = true;
-  setStatus(askStatus, "Retrieving context and generating a response...");
+  setStatus(askStatus, attachedImage
+    ? "Describing the attached image and generating a response..."
+    : "Retrieving context and generating a response...");
 
   try {
-    const response = await fetch(`${RAG_BASE}/api/v1/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeader() },
-      body: JSON.stringify({ question, model: modelSelect.value || undefined }),
-    });
+    let response;
+    if (attachedImage) {
+      // Multipart, not JSON: this is rag-service's only multipart endpoint (the
+      // image-attachment form of /api/v1/ask) — the browser sets the multipart
+      // boundary itself, so Content-Type must NOT be set explicitly here, same as
+      // the document-upload form above.
+      const formData = new FormData();
+      formData.append("question", question);
+      if (modelSelect.value) {
+        formData.append("model", modelSelect.value);
+      }
+      formData.append("image", attachedImage);
+      response = await fetch(`${RAG_BASE}/api/v1/ask`, {
+        method: "POST",
+        headers: authHeader(),
+        body: formData,
+      });
+    } else {
+      response = await fetch(`${RAG_BASE}/api/v1/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ question, model: modelSelect.value || undefined }),
+      });
+    }
 
     if (response.status === 401) {
       clearAuth("Your session expired. Please log in again.");
@@ -319,6 +358,9 @@ askForm.addEventListener("submit", async (event) => {
       setStatus(askStatus, "");
       renderAnswer(body);
     }
+
+    imageInput.value = "";
+    imageAttachmentPreview.hidden = true;
   } catch (error) {
     setStatus(askStatus, error.message ?? "Something went wrong.", "error");
   } finally {

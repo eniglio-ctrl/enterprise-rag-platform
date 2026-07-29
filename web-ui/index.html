@@ -12,8 +12,9 @@
     <h1>Enterprise RAG Platform</h1>
     <p>Upload documents, they're embedded and indexed automatically, then ask questions grounded in what you uploaded.</p>
     <p id="demo-banner" class="demo-banner" hidden>Public demo — a fixed set of documents is already
-      indexed below; there's no login and no upload here (see the README for how to run the full stack
-      locally with your own files).</p>
+      indexed below; there's no login and no permanent document upload here (see the README for how to
+      run the full stack locally with your own files). You can still attach an image to a single
+      question using the 📎 button below.</p>
     <div id="auth-bar" class="auth-bar" hidden>
       <span id="auth-summary"></span>
       <button id="logout-button" type="button">Log out</button>
@@ -71,10 +72,22 @@
       <h2 id="ask-heading">2. Ask</h2>
       <p class="hint">Ask a question about what you uploaded, or ask for a diagram/drawing/flow of an
         architecture or process described in it — the same box handles both, based on what you ask.
-        Running on a local model with no GPU, so a diagram can take a minute or two.</p>
+        Running on a local model with no GPU, so a diagram can take a minute or two. You can also attach
+        an image (PNG/JPEG/GIF/WebP) to a single question — it's described by a vision model to help
+        answer just that question, never stored or indexed.</p>
 
       <form id="ask-form">
-        <textarea id="question-input" placeholder="e.g. What are the two SAGA models? or Draw the disaster recovery architecture described" rows="3" required></textarea>
+        <div class="ask-input-row">
+          <textarea id="question-input" placeholder="e.g. What are the two SAGA models? or Draw the disaster recovery architecture described" rows="3" required></textarea>
+          <label class="attach-button" for="image-input" title="Attach an image to this question">
+            📎
+            <input type="file" id="image-input" name="image" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+          </label>
+        </div>
+        <div id="image-attachment-preview" class="attachment-preview" hidden>
+          <span id="image-attachment-name"></span>
+          <button type="button" id="image-attachment-clear" aria-label="Remove attached image">&times;</button>
+        </div>
         <label for="model-select" class="model-label">Model</label>
         <select id="model-select"></select>
         <button type="submit" id="ask-button">Ask</button>

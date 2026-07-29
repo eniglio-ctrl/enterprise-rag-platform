@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,9 @@ class RagQueryServiceTest {
     @Mock
     private ChatModel chatModel;
 
+    @Mock
+    private VisionDescriptionService visionDescriptionService;
+
     private RagQueryService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         List<RagProperties.AvailableModel> availableModels =
@@ -49,7 +53,7 @@ class RagQueryServiceTest {
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.
         return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, new LlmGateway(),
-                new RagProperties(5, 0.5, 15, availableModels), new SimpleMeterRegistry());
+                new RagProperties(5, 0.5, 15, availableModels), visionDescriptionService, new SimpleMeterRegistry());
     }
 
     @Test
@@ -309,5 +313,67 @@ class RagQueryServiceTest {
         AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false, false, null);
 
         assertThat(response.type()).isEqualTo("diagram");
+    }
+
+    @Test
+    void askWithAnAttachedImageAnswersEvenWithNoRetrievedChunks() {
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(visionDescriptionService.describe(any(byte[].class), any()))
+                .willReturn("Um diagrama mostrando um cliente chamando uma API através de um API Gateway.");
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("A imagem mostra um API Gateway."))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        byte[] imageBytes = {1, 2, 3};
+        AskResponse response = service.ask("O que aparece no anexo enviado?", "default", false, false, null,
+                imageBytes, org.springframework.util.MimeType.valueOf("image/png"));
+
+        assertThat(response.type()).isEqualTo("answer");
+        assertThat(response.answer()).contains("API Gateway");
+        verify(visionDescriptionService).describe(eq(imageBytes), eq(org.springframework.util.MimeType.valueOf("image/png")));
+    }
+
+    @Test
+    void askWithAnAttachedImageFoldsItsDescriptionIntoTheSystemPromptAsANonNumberedBlock() {
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(visionDescriptionService.describe(any(byte[].class), any()))
+                .willReturn("Uma captura de tela de um dashboard do Grafana.");
+
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String systemText = prompt.getSystemMessage().getText();
+            String content = systemText.contains("[IMAGEM]") && systemText.contains("dashboard do Grafana")
+                    ? "Resposta usando a imagem."
+                    : "Resposta sem a imagem — algo deu errado.";
+            return new org.springframework.ai.chat.model.ChatResponse(List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        RagQueryService service = newService();
+        AskResponse response = service.ask("O que aparece no anexo enviado?", "default", false, false, null,
+                new byte[]{9, 9, 9}, org.springframework.util.MimeType.valueOf("image/png"));
+
+        assertThat(response.answer()).isEqualTo("Resposta usando a imagem.");
+    }
+
+    @Test
+    void askWithoutAnImageNeverCallsTheVisionDescriptionService() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        service.ask("Como funciona o SAGA?", "default", false, false, null);
+
+        verify(visionDescriptionService, never()).describe(any(), any());
     }
 }

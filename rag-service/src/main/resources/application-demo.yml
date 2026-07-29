@@ -17,13 +17,23 @@ spring:
   # way in ingestion-service's own application-demo.yml (an earlier version only
   # listed OllamaEmbeddingAutoConfiguration here, which silently un-excluded
   # MistralAiChatAutoConfiguration and let it create a second, competing ChatModel
-  # bean alongside the openai-provider one Groq uses). All four excludes need to be
+  # bean alongside the openai-provider one Groq uses). Every exclude needs to be
   # spelled out again here, not just the one this profile actually changes.
+  #
+  # MistralAiChatAutoConfiguration is deliberately NOT excluded here (unlike the base
+  # application.yml, which still excludes it) — this profile needs a real Mistral
+  # ChatModel bean for image-attachment vision (ChatClientConfig's "mistralVision"
+  # ChatClient, MistralVisionDescriptionService): Groq has no vision model wired into
+  # this app, and there's no Ollama reachable from the demo deployment at all. Safe to
+  # add as a third ChatModel bean here (alongside "ollamaChatModel"/"openAiChatModel")
+  # because nothing in this app injects ChatModel unqualified — every consumer picks
+  # a bean by @Qualifier (ADR 0017), so Spring AI's own single-candidate
+  # ChatClient.Builder auto-configuration (which would otherwise back off with >1
+  # ChatModel bean) was never relied on to begin with.
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
-      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
       - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
 
   ai:
@@ -48,6 +58,11 @@ spring:
       embedding:
         options:
           model: mistral-embed
+      # Only used for image-attachment vision (MistralVisionDescriptionService) — text
+      # chat still goes through Groq (the "openai" provider block above), unaffected.
+      chat:
+        options:
+          model: pixtral-12b-2409
     ollama:
       # A real, confirmed bug, not a hypothetical one: Spring AI's OllamaChatModel
       # eagerly calls GET /api/tags against Ollama *at bean-construction time*

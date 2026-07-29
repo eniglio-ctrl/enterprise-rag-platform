@@ -9,6 +9,7 @@ import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -38,6 +39,19 @@ public class ChatClientConfig {
     @Bean
     @Qualifier("lmstudio")
     public ChatClient lmStudioChatClient(@Qualifier("openAiChatModel") ChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
+    // Only the "demo" profile un-excludes MistralAiChatAutoConfiguration
+    // (application-demo.yml) to get this "mistralAiChatModel" bean at all — the
+    // default/local profile keeps it excluded (application.yml), since local image
+    // attachments use Ollama's vision model instead (OllamaVisionDescriptionService)
+    // and have no need for a Mistral chat model. @Profile("demo") here means this
+    // bean method itself is skipped entirely outside that profile, matching that.
+    @Bean
+    @Profile("demo")
+    @Qualifier("mistralVision")
+    public ChatClient mistralVisionChatClient(@Qualifier("mistralAiChatModel") ChatModel chatModel) {
         return ChatClient.builder(chatModel).build();
     }
 

@@ -157,6 +157,64 @@ select {
   margin-bottom: 0.3rem;
 }
 
+.ask-input-row {
+  position: relative;
+}
+
+.ask-input-row textarea {
+  padding-right: 3rem;
+}
+
+.attach-button {
+  position: absolute;
+  right: 0.5rem;
+  top: 0.5rem;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--color-muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.attach-button:hover {
+  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  color: var(--color-primary);
+}
+
+.attachment-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.attachment-preview button {
+  margin: 0;
+  background: none;
+  color: var(--color-muted);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.3rem;
+}
+
+.attachment-preview button:hover {
+  color: var(--color-error);
+  background: none;
+}
+
 .auth-bar {
   margin-top: 0.75rem;
   display: flex;

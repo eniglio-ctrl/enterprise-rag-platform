@@ -117,6 +117,7 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       CHAT_MODEL: llama3.1
+      VISION_MODEL: llava
       # host.docker.internal, not localhost: rag-service runs inside this container's
       # own network namespace, so "localhost" would mean the container itself, not the
       # Mac running LM Studio. host.docker.internal is Docker Desktop's route back to
