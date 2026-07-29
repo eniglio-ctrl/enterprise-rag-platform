@@ -259,8 +259,9 @@ curl -X POST http://localhost:8082/api/v1/diagrams \
 ```
 
 You can also attach an image (PNG/JPEG/GIF/WebP) directly to a single question — the
-📎 icon in the web UI's ask box, or `multipart/form-data` against the same
-`/api/v1/ask` endpoint:
+📎 icon in the web UI's ask box (or just paste a screenshot with Cmd/Ctrl+V straight
+into the question box), or `multipart/form-data` against the same `/api/v1/ask`
+endpoint:
 
 ```bash
 curl -X POST http://localhost:8082/api/v1/ask \

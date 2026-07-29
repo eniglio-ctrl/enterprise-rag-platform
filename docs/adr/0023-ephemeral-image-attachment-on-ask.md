@@ -70,6 +70,12 @@ Four scope decisions were confirmed with the user before implementing:
   image has no corresponding entry in the `citations` array returned to the
   caller, so letting the model invent a citation index for it would produce a
   citation the response doesn't actually have.
+- **`web-ui`'s question box also accepts a pasted screenshot directly**
+  (Cmd/Ctrl+V), not just the 📎 file picker — a `paste` listener on the
+  textarea checks `event.clipboardData.items` for an image, and if found,
+  turns it into a `File` the exact same way the file input already does
+  (`setAttachedImage`, shared by both paths), so the preview chip and the
+  multipart submit logic are identical regardless of how the image arrived.
 - **An attached image can answer a question even with zero retrieved chunks.**
   Both `doAnswer` and `doDiagram` previously short-circuited to "not enough
   information"/an empty diagram whenever retrieval came back empty. That's

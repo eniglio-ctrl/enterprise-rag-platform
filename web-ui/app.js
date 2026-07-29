@@ -233,15 +233,32 @@ dropzone.addEventListener("drop", (event) => {
 
 fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
 
-imageInput.addEventListener("change", () => {
-  const image = imageInput.files[0];
-  imageAttachmentName.textContent = image ? image.name : "";
-  imageAttachmentPreview.hidden = !image;
-});
+function setAttachedImage(file) {
+  imageInput.files = createFileList(file);
+  imageAttachmentName.textContent = file ? file.name : "";
+  imageAttachmentPreview.hidden = !file;
+}
 
-imageAttachmentClear.addEventListener("click", () => {
-  imageInput.value = "";
-  imageAttachmentPreview.hidden = true;
+imageInput.addEventListener("change", () => setAttachedImage(imageInput.files[0]));
+
+imageAttachmentClear.addEventListener("click", () => setAttachedImage(null));
+
+// Lets a screenshot be pasted straight into the question box (Cmd/Ctrl+V) instead of
+// requiring "save to disk, then click 📎, then pick the file" — the clipboard item
+// becomes a File exactly like one chosen through the file picker, so everything
+// downstream (the preview chip, the multipart submit below) is unaffected either way.
+questionInput.addEventListener("paste", (event) => {
+  const items = event.clipboardData?.items ?? [];
+  const imageItem = Array.from(items).find((item) => item.type.startsWith("image/"));
+  if (!imageItem) {
+    return;
+  }
+  event.preventDefault();
+  const file = imageItem.getAsFile();
+  if (file) {
+    setAttachedImage(file);
+    setStatus(askStatus, `Image pasted from clipboard: ${file.name || file.type}`, "success");
+  }
 });
 
 uploadForm.addEventListener("submit", async (event) => {
@@ -359,8 +376,7 @@ askForm.addEventListener("submit", async (event) => {
       renderAnswer(body);
     }
 
-    imageInput.value = "";
-    imageAttachmentPreview.hidden = true;
+    setAttachedImage(null);
   } catch (error) {
     setStatus(askStatus, error.message ?? "Something went wrong.", "error");
   } finally {
