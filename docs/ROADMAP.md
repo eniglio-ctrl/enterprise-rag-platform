@@ -30,6 +30,22 @@ same rate-limit filter both a security phase and an AI-roadmap phase need);
 others are blocked on a decision only the user can make (a paid API key, an
 AWS account, a second language). This file sorts all of them into that shape.
 
+## Portfolio-ready stopping point
+
+**Tiers 1 and 2 alone already make this a complete, deliverable portfolio
+project.** Nothing in either tier costs real, ongoing money — everything is
+either free/self-hosted or a one-time dev-time investment. Tier 3 is
+explicitly optional: real cloud LLM providers, LangFuse, AWS, and a second
+language are each a genuine, *recurring* cost (a paid API bill, an AWS bill,
+an ongoing second-codebase maintenance burden) — not a checkbox to clear for
+its own sake. Do a Tier 3 item later, if and only if it's genuinely wanted
+for its own reason (a real job requirement calling for AWS specifically, a
+real desire to learn LangGraph hands-on) — not because "the roadmap says
+there are 21 items and only 15 are done." A smaller, fully-defensible project
+beats a longer one with rushed, shallow corners — see each roadmap file's own
+"corrected premises" sections for why that discipline matters here
+specifically, not just in the abstract.
+
 ## Tier 1 — Ready to start now, no external blocker
 
 Recommended order (earlier items make later ones easier, not the other way
@@ -92,10 +108,13 @@ exactly what that decision is):
     or also take over Security Phase 2's rate limiting at the edge instead
     of per-service filters?
 
-## Tier 3 — needs real money or a big commitment
+## Tier 3 (optional) — real, ongoing cost or a big commitment
 
-Nothing here starts without the user explicitly signing off on the specific
-cost/commitment named — see each phase's own text for exactly what:
+**Not required for a good, deliverable portfolio** — see "Portfolio-ready
+stopping point" above. Nothing here starts without the user explicitly
+signing off on the specific cost/commitment named, *and* wanting that
+specific item for its own sake, not just to advance the list — see each
+phase's own text for exactly what the cost/commitment is:
 
 16. ⬜ **Multi-LLM Phase 2 — Real cloud providers** (which provider(s), real
     paid API keys)
@@ -159,9 +178,12 @@ language, since two of the three aren't performance plays at all:
 - Move to Tier 2 items whenever their specific decision has actually been
   made (not preemptively) — check the linked phase's own "not started" text
   for exactly what that decision is.
-- Tier 3 items stay untouched until the user explicitly greenlights the
-  named cost/commitment for that specific item — don't infer "the roadmap
-  says to do this" as approval for spending money or adding a new language.
+- **Treat finishing Tier 2 as the actual finish line for this project's
+  portfolio purpose** (confirmed 2026-07-29) — not Tier 3. Tier 3 items stay
+  untouched indefinitely unless the user explicitly greenlights *both* the
+  named cost/commitment *and* a real reason to want that specific item, not
+  "the list isn't done yet." Don't infer this file's mere existence as
+  standing approval to spend money or add a new language later.
 - After finishing any item: check its box here, update its own status in
   whichever of the two detailed roadmap files owns it (or write it up as a
   new phase there first, for the Go item above, which doesn't have a home
