@@ -34,3 +34,20 @@ extra failure mode. The original single-purpose endpoints (`/api/v1/chat`,
 - Roadmap: if false-positive routing becomes a real problem, replace the keyword check
   with a cheap classification prompt (or a small local classifier) — the `ask()` method
   is the single place that would need to change.
+
+## Update: the predicted false positive became a real one — replaced with an actual
+## LLM classification call
+
+Exactly the failure mode this ADR's "Consequences" section predicted did happen, found
+by a real user, not hypothetically: ADR 0023 added the ability to attach an image to a
+question, and the single most natural question to ask about an attached photo —
+"O que tem nessa imagem?" ("what's in this image?") — contains "imagem", which was one
+of this ADR's own keywords. Every such question silently misrouted to diagram
+generation instead of using the vision description to actually answer.
+
+The keyword list is gone. `RagQueryService.ask()` now makes a real, temperature-0,
+single-word-output classification call before routing — see
+[ADR 0024](0024-llm-based-ask-routing.md) for the detail. `/api/v1/ask` now costs one
+more LLM call than before on every request; the original single-purpose endpoints
+(`/api/v1/chat`, `/api/v1/diagrams`) are completely unaffected, since neither ever
+routed through `ask()`'s keyword check to begin with.

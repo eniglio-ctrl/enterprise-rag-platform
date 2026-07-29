@@ -246,6 +246,24 @@ class RagQueryServiceTest {
         assertThat(response.citations()).isEmpty();
     }
 
+    /**
+     * Routing is a real LLM classification call now (found broken as a fixed keyword
+     * list by a real user report — see the regression test below), so every test
+     * exercising {@code ask(...)} must mock two distinct calls: the routing
+     * classification (system prompt contains the marker text below) and whatever
+     * generation call follows. {@link #ROUTING_MARKER} matches
+     * {@code RagQueryService.ROUTING_SYSTEM_TEMPLATE}'s distinguishing text.
+     */
+    private static final String ROUTING_MARKER = "Classifique a intenção";
+
+    private static org.springframework.ai.chat.model.ChatResponse routeThenRespond(
+            Prompt prompt, String routingVerdict, String otherwiseContent) {
+        String content = prompt.getSystemMessage().getText().contains(ROUTING_MARKER)
+                ? routingVerdict
+                : otherwiseContent;
+        return new org.springframework.ai.chat.model.ChatResponse(List.of(new Generation(new AssistantMessage(content))));
+    }
+
     @Test
     void askRoutesToDiagramWhenQuestionAsksForOne() {
         Document document = Document.builder()
@@ -257,10 +275,8 @@ class RagQueryServiceTest {
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
-        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
-                new org.springframework.ai.chat.model.ChatResponse(
-                        List.of(new Generation(new AssistantMessage(rawMermaid))));
-        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation ->
+                routeThenRespond(invocation.getArgument(0), "DIAGRAMA", rawMermaid));
 
         RagQueryService service = newService();
         AskResponse response = service.ask("Desenhe o fluxo descrito", "default", false, false, null);
@@ -280,10 +296,8 @@ class RagQueryServiceTest {
 
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
-        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
-                new org.springframework.ai.chat.model.ChatResponse(
-                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
-        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> routeThenRespond(invocation.getArgument(0),
+                "RESPOSTA", "O padrão SAGA é usado para transações distribuídas [1]"));
 
         RagQueryService service = newService();
         AskResponse response = service.ask("Como funciona o SAGA?", "default", false, false, null);
@@ -294,7 +308,7 @@ class RagQueryServiceTest {
     }
 
     @Test
-    void askRoutesToDiagramForAccentedGraficoKeyword() {
+    void askRoutesToDiagramWhenTheClassifierSaysSoEvenWithoutAnObviousKeyword() {
         Document document = Document.builder()
                 .text("O cliente envia dados para o Amazon S3, que aciona uma AWS Lambda.")
                 .metadata(Map.of("source", "aws-arquitetura.md", "chunkIndex", 0))
@@ -304,10 +318,8 @@ class RagQueryServiceTest {
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
-        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
-                new org.springframework.ai.chat.model.ChatResponse(
-                        List.of(new Generation(new AssistantMessage(rawMermaid))));
-        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation ->
+                routeThenRespond(invocation.getArgument(0), "DIAGRAMA", rawMermaid));
 
         RagQueryService service = newService();
         AskResponse response = service.ask("Faça um gráfico do funcionamento da AWS", "default", false, false, null);
@@ -321,10 +333,8 @@ class RagQueryServiceTest {
         given(visionDescriptionService.describe(any(byte[].class), any()))
                 .willReturn("Um diagrama mostrando um cliente chamando uma API através de um API Gateway.");
 
-        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
-                new org.springframework.ai.chat.model.ChatResponse(
-                        List.of(new Generation(new AssistantMessage("A imagem mostra um API Gateway."))));
-        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> routeThenRespond(invocation.getArgument(0),
+                "RESPOSTA", "A imagem mostra um API Gateway."));
 
         RagQueryService service = newService();
         byte[] imageBytes = {1, 2, 3};
@@ -336,6 +346,33 @@ class RagQueryServiceTest {
         verify(visionDescriptionService).describe(eq(imageBytes), eq(org.springframework.util.MimeType.valueOf("image/png")));
     }
 
+    /**
+     * Regression test for a real bug a user hit: "imagem"/"picture" used to be in a
+     * fixed DIAGRAM_KEYWORDS list, so "O que tem nessa imagem?" — the single most
+     * natural question to ask about an attached photo — always misrouted to diagram
+     * generation instead of using the vision description to answer normally. Routing
+     * is now a real classification call (not a keyword list), so this asserts the
+     * classifier itself is asked and its "RESPOSTA" verdict is honored — not that a
+     * word happens to be missing from a list.
+     */
+    @Test
+    void askingWhatIsInTheAttachedImageRoutesToAnswerNotDiagram() {
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(visionDescriptionService.describe(any(byte[].class), any()))
+                .willReturn("Um quadrado vermelho centralizado em um fundo azul.");
+
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> routeThenRespond(invocation.getArgument(0),
+                "RESPOSTA", "A imagem mostra um quadrado vermelho sobre fundo azul."));
+
+        RagQueryService service = newService();
+        AskResponse response = service.ask("O que tem nessa imagem?", "default", false, false, null,
+                new byte[]{1, 2, 3}, org.springframework.util.MimeType.valueOf("image/png"));
+
+        assertThat(response.type()).isEqualTo("answer");
+        assertThat(response.mermaid()).isNull();
+        assertThat(response.answer()).contains("quadrado vermelho");
+    }
+
     @Test
     void askWithAnAttachedImageFoldsItsDescriptionIntoTheSystemPromptAsANonNumberedBlock() {
         given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
@@ -344,6 +381,9 @@ class RagQueryServiceTest {
 
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
+            if (prompt.getSystemMessage().getText().contains(ROUTING_MARKER)) {
+                return routeThenRespond(prompt, "RESPOSTA", "RESPOSTA");
+            }
             String systemText = prompt.getSystemMessage().getText();
             String content = systemText.contains("[IMAGEM]") && systemText.contains("dashboard do Grafana")
                     ? "Resposta usando a imagem."

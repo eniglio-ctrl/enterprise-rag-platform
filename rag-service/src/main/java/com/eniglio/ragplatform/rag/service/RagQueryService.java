@@ -103,10 +103,31 @@ public class RagQueryService {
 
     private static final Pattern MALFORMED_EDGE_LABEL = Pattern.compile("\\|([^|\\n]*)\\|>");
 
-    private static final List<String> DIAGRAM_KEYWORDS = List.of(
-            "diagrama", "diagram", "desenh", "draw", "fluxo", "flow", "arquitetura", "architecture",
-            "imagem", "picture", "esquema", "flowchart", "grafico", "chart", "grafo", "mapa mental",
-            "mindmap", "ilustra");
+    /**
+     * Replaced a fixed keyword list (found broken by a real user report — "O que tem
+     * nessa imagem?" contains "imagem", which used to be a diagram-trigger keyword, so
+     * every such question about an attached photo silently misrouted to diagram
+     * generation instead of actually describing the image). A word appearing in a
+     * question says nothing reliable about intent — "imagem" can mean "describe this
+     * photo" or "draw me a picture of X" depending entirely on context a fixed list
+     * can't capture. This costs one extra, cheap, temperature-0 LLM call per question
+     * (previously routing was free), traded deliberately for actually understanding
+     * what's being asked instead of pattern-matching words.
+     */
+    private static final String ROUTING_SYSTEM_TEMPLATE = """
+            Classifique a intenção por trás da pergunta do usuário abaixo em exatamente uma palavra:
+            "DIAGRAMA" ou "RESPOSTA". Não escreva mais nada além dessa palavra.
+
+            Responda "DIAGRAMA" apenas quando o usuário pedir explicitamente para desenhar, gerar,
+            montar ou visualizar um diagrama, fluxograma, mapa mental, ou a arquitetura/fluxo de um
+            processo em formato de diagrama.
+
+            Responda "RESPOSTA" em todos os outros casos — incluindo perguntas sobre o conteúdo de
+            uma imagem ou anexo (ex.: "o que tem nessa imagem?", "descreva essa captura de tela",
+            "o que esse anexo mostra?"), mesmo que a pergunta contenha palavras como "imagem",
+            "diagrama" ou "arquitetura" de forma incidental. O que importa é a intenção real por
+            trás da pergunta, nunca a simples presença de uma palavra específica.
+            """;
 
     private final HybridSearchService hybridSearchService;
     private final LlmRerankService llmRerankService;
@@ -149,10 +170,10 @@ public class RagQueryService {
 
     /**
      * Single entry point for the UI: routes to {@link #diagram(String, String, String)}
-     * when the question itself asks for a diagram/drawing/flow, otherwise to
-     * {@link #answer(String, String, boolean, boolean, String)}. Routing is a plain
-     * keyword check on the question text rather than an extra LLM call, keeping it
-     * fast and predictable.
+     * when the question's actual intent is to get a diagram, otherwise to
+     * {@link #answer(String, String, boolean, boolean, String)}. Routing is a real,
+     * cheap (temperature 0, single-word output) LLM classification call — see
+     * {@link #ROUTING_SYSTEM_TEMPLATE} for why a keyword check isn't reliable enough.
      */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
         return ask(question, tenantId, grounded, rerank, model, null, null);
@@ -168,7 +189,8 @@ public class RagQueryService {
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
                             byte[] imageBytes, MimeType imageMimeType) {
         String imageDescription = describeImage(imageBytes, imageMimeType);
-        if (wantsDiagram(question)) {
+        AvailableModel resolvedModel = resolveModel(model);
+        if (wantsDiagram(question, imageDescription, resolvedModel)) {
             DiagramResponse diagram = diagram(question, tenantId, model, imageDescription);
             return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model());
         }
@@ -180,9 +202,23 @@ public class RagQueryService {
         return imageBytes == null ? null : visionDescriptionService.describe(imageBytes, imageMimeType);
     }
 
-    private boolean wantsDiagram(String question) {
-        String normalized = stripAccents(question.toLowerCase(Locale.ROOT));
-        return DIAGRAM_KEYWORDS.stream().anyMatch(normalized::contains);
+    /**
+     * A real classification call, not a keyword match (see {@link #ROUTING_SYSTEM_TEMPLATE}).
+     * When an image is attached, the model only learns that one was attached — not its
+     * description — since the routing decision only needs to know an image exists, and
+     * keeping this prompt minimal keeps the call fast.
+     */
+    private boolean wantsDiagram(String question, String imageDescription, AvailableModel resolvedModel) {
+        String userMessage = imageDescription == null
+                ? question
+                : question + "\n\n[Uma imagem foi anexada a esta pergunta.]";
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(ROUTING_SYSTEM_TEMPLATE)
+                .user(userMessage)
+                .options(modelOptions(resolvedModel, 0.0))
+                .call()
+                .content());
+        return stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT)).contains("DIAGRAMA");
     }
 
     /**
