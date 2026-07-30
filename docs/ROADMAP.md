@@ -57,10 +57,10 @@ around):
    was verified against a real `kind` cluster (all 7 pods `Running`/`Ready`,
    zero restarts; a real register → upload → ask round trip through the
    in-cluster `auth-service`).
-2. ⬜ **Security Phase 7 — Supply-chain security**
-   (`docs/SECURITY-HARDENING-ROADMAP.md`; secret scanning, Dependabot,
-   CodeQL) — isolated, low-effort, no dependency on anything else, high
-   visible payoff for a portfolio review.
+2. ✅ **Security Phase 7 — Supply-chain security** — closed. Dependabot +
+   CodeQL live on the repo (see [ADR 0026](adr/0026-supply-chain-security-phase7.md));
+   secret scanning was already on by GitHub default. 15 real dependency PRs
+   merged, 14 real major-version breaks closed and suppressed.
 3. ⬜ **Multi-LLM Phase 14 — SonarQube + `docs/architecture.md` refresh**
    (`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`) — same shape as #2: isolated,
    cheap, no dependency.

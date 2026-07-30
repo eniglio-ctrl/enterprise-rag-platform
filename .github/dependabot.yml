@@ -1,34 +1,35 @@
 version: 2
 updates:
-  # Multi-module Maven reactor — Dependabot only reads the pom.xml in each
-  # directory it's told about, it doesn't recurse into submodules on its own,
-  # so each module (plus the parent) gets its own entry.
+  # Multi-module Maven reactor: every version (spring-boot.version,
+  # spring-ai-bom, resilience4j-bom, springdoc, maven-surefire-plugin, ...) is
+  # declared exactly once in the root pom.xml's <properties>/dependencyManagement/
+  # pluginManagement and inherited by every module via <parent> — none of the
+  # module poms redeclare their own version. A single directory: "/" entry is
+  # therefore enough: confirmed by evidence, not assumption — an earlier
+  # version of this file had one entry per module directory, and every
+  # "per-module" PR Dependabot opened turned out to be an empty diff against
+  # the exact same root pom.xml line the "/" entry had already bumped.
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
       interval: "weekly"
-  - package-ecosystem: "maven"
-    directory: "/platform-common"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "maven"
-    directory: "/auth-service"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "maven"
-    directory: "/ingestion-service"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "maven"
-    directory: "/rag-service"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "maven"
-    directory: "/chat-service"
-    schedule:
-      interval: "weekly"
+    ignore:
+      # Real major-version jumps found and closed the first time this ran
+      # (Spring Boot 3.5.3->4.1.0, Spring AI 1.0.0->2.0.0, springdoc
+      # 2.8.6->3.0.3) — all three broke the build for real (CI failure, not
+      # guessed). A framework major-version migration is a deliberate,
+      # planned piece of work, not something to propose weekly until someone
+      # accidentally merges it. Patch/minor updates for these three are still
+      # welcome.
+      - dependency-name: "org.springframework.boot:spring-boot-dependencies"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.springframework.ai:spring-ai-bom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "org.springdoc:springdoc-openapi-starter-webmvc-ui"
+        update-types: ["version-update:semver-major"]
 
-  # Docker base images — one entry per directory with its own Dockerfile.
+  # Docker base images — one entry per directory with its own Dockerfile
+  # (these genuinely are separate files, unlike the Maven case above).
   - package-ecosystem: "docker"
     directory: "/auth-service"
     schedule:

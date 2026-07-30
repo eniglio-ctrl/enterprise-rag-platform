@@ -414,9 +414,10 @@ vs. what's blocked on a decision or resource only the user can provide.
   initContainers wait on it the same way they wait on each other, mirroring
   `docker-compose.yml`'s dependency chain. Verified against a real `kind` cluster.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
-  content validation is done (ADR 0022); rate limiting, secrets/CORS/headers,
-  a real tenant/invitation model with a persistent JWT signing key, security
-  audit logging, and public-demo hardening are next. Full phase-by-phase status:
+  content validation (ADR 0022) and supply-chain security — Dependabot + CodeQL,
+  ADR 0026 — are done; rate limiting, secrets/CORS/headers, a real tenant/invitation
+  model with a persistent JWT signing key, security audit logging, and public-demo
+  hardening are next. Full phase-by-phase status:
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
@@ -466,6 +467,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0023 — Ephemeral image attachment on `/api/v1/ask`](docs/adr/0023-ephemeral-image-attachment-on-ask.md)
 - [ADR 0024 — Replace keyword-based `/api/v1/ask` routing with an LLM classification call](docs/adr/0024-llm-based-ask-routing.md)
 - [ADR 0025 — "Automático" as a sentinel entry in `rag.available-models`](docs/adr/0025-auto-model-selection.md)
+- [ADR 0026 — Supply-chain security: Dependabot + CodeQL](docs/adr/0026-supply-chain-security-phase7.md)
 
 ## License
 

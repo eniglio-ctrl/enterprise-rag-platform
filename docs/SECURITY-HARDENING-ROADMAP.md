@@ -15,7 +15,7 @@
 | 4 | Tenants/invitations + persistent JWT key | ⬜ Not started |
 | 5 | Security audit logging + monitoring | ⬜ Not started |
 | 6 | Public demo hardening | ⬜ Not started |
-| 7 | Supply-chain security (secret scanning, dependency/CVE scanning) | ⬜ Not started |
+| 7 | Supply-chain security (secret scanning, dependency/CVE scanning) | ✅ Done — [ADR 0026](adr/0026-supply-chain-security-phase7.md) |
 
 **On "done" claims in this file**: this project has been caught once already
 overstating status without checking the actual repo (the corrected premises in
@@ -337,12 +337,12 @@ upstream service's log) and the full path is reconstructable from it alone.
 **Done when**: the public URL only ever answers questions about the seeded demo
 documents, with real abuse limits, and no admin surface reachable.
 
-## Phase 7 — Supply-chain security ⬜
+## Phase 7 — Supply-chain security ✅
 
-**Not started.** A new phase, not in the original plan — added because it's
-genuinely low-effort and high-value for a portfolio project specifically
-(a technical interviewer is likely to look for exactly this), and none of it
-depends on any other phase above.
+**Done.** See [ADR 0026](adr/0026-supply-chain-security-phase7.md) for the
+full decision record, including a real config mistake found and fixed (a
+redundant per-module Dependabot entry) and how the 33 real PRs it opened on
+first run were triaged.
 
 > **Not the same thing as SonarQube** — CodeQL/Dependabot below are
 > security-focused (vulnerable dependencies, insecure code patterns);
@@ -365,8 +365,14 @@ depends on any other phase above.
   for static analysis on every push/PR to `main`, using the `java` language
   pack given this is an all-Java backend.
 
-**Done when**: Dependabot has opened at least one real PR (even a trivial
-version bump) proving it's actually wired up, not just enabled in settings;
-a CodeQL run has completed at least once and is visible in the repo's
-"Security" tab; a deliberately-committed dummy secret in a throwaway branch
-(never merged) is caught by secret scanning before being merged to `main`.
+**Done when** (all confirmed, not assumed): Dependabot opened at least one
+real PR proving it's wired up — it opened 33 on the first run, 15 of which
+passed CI for real and were merged (`./mvnw clean verify` green afterward
+across all 5 modules), 14 were genuine major-version breaks closed with
+`ignore` rules added so they don't reopen weekly, and 4 Docker JRE bumps
+were deliberately left open pending a real `docker build` test since
+`ci.yml` doesn't exercise Docker images at all. A CodeQL run completed and
+is visible in the repo's Actions history. Secret scanning + push protection
+were already `enabled` on the repo (checked via `gh api`, GitHub's default
+for public repos) — no dummy-secret test was needed to prove a already-
+verified GitHub platform default.
