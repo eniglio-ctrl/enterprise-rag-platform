@@ -468,6 +468,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0024 — Replace keyword-based `/api/v1/ask` routing with an LLM classification call](docs/adr/0024-llm-based-ask-routing.md)
 - [ADR 0025 — "Automático" as a sentinel entry in `rag.available-models`](docs/adr/0025-auto-model-selection.md)
 - [ADR 0026 — Supply-chain security: Dependabot + CodeQL](docs/adr/0026-supply-chain-security-phase7.md)
+- [ADR 0027 — Code quality analysis via SonarCloud + JaCoCo](docs/adr/0027-sonarcloud-jacoco-code-quality.md)
 
 ## License
 

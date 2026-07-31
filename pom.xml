@@ -30,6 +30,18 @@
         <springdoc.version>2.8.6</springdoc.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <jacoco.version>0.8.12</jacoco.version>
+        <!--
+            SonarCloud org/project key follow its default convention
+            (GitHub org, and <github-org>_<repo-name>) - verify both match
+            exactly what SonarCloud shows once the project is imported there;
+            adjust here if it picked different slugs.
+        -->
+        <sonar.organization>eniglio-ctrl</sonar.organization>
+        <sonar.projectKey>eniglio-ctrl_enterprise-rag-platform</sonar.projectKey>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <!-- Aggregates each module's own target/site/jacoco/jacoco.xml (bound below). -->
+        <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
     </properties>
 
     <dependencyManagement>
@@ -124,6 +136,38 @@
                                     <include>**/*IT.java</include>
                                 </includes>
                             </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!--
+                        Not a default-lifecycle-bound plugin like Surefire, so each
+                        service module's own pom.xml still needs a bare <plugin> entry
+                        referencing this one to actually invoke it - this block only
+                        supplies the shared version/executions.
+                    -->
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.version}</version>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <!--
+                                Bound to verify, not test, so it runs after both Surefire
+                                executions (unit AND the *IT integration-tests execution
+                                above) - coverage should reflect everything that actually
+                                ran, not just unit tests.
+                            -->
+                            <id>report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
                         </execution>
                     </executions>
                 </plugin>

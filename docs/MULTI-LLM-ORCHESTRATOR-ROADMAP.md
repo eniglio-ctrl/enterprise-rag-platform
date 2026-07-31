@@ -38,7 +38,7 @@
 | 11 | Event-driven architecture (Kafka/RabbitMQ, outbox pattern) | ⬜ Not started | A provisioning decision (new infra, no paid key needed) |
 | 12 | AWS deployment target (ECS/EKS/Lambda/Bedrock/OpenSearch/...) | ⬜ Not started | An AWS account + explicit real-cost acceptance |
 | 13 | Python + LangGraph AI layer | ⬜ Not started | User confirming they want a second language in this portfolio project |
-| 14 | Software engineering polish (SonarQube, `docs/architecture.md` refresh) | ⬜ Not started | **Nothing — can start now** |
+| 14 | Software engineering polish (SonarQube, `docs/architecture.md` refresh) | 🟡 Mostly done — [ADR 0027](adr/0027-sonarcloud-jacoco-code-quality.md) | Waiting on the user to create the SonarCloud project + token |
 | 15 | Go-based API Gateway / BFF | ⬜ Not started | A scope decision (routing + JWT pass-through only, or also rate limiting) |
 
 **On "done" claims in this file**: don't trust a ✅ here on faith — re-verify
@@ -562,34 +562,39 @@ APIs (confirmed via that service's own access logs, not assumed), and the
 whole interaction shows up in whatever observability this phase is verified
 against (LangFuse and/or the existing Prometheus/Grafana stack).
 
-## Phase 14 — Software engineering polish (SonarQube, architecture docs) ⬜
+## Phase 14 — Software engineering polish (SonarQube, architecture docs) 🟡
 
-**Not started — nothing blocks this, can start now.** Two concrete, unblocked
-items found during the gap-check:
+**`docs/architecture.md` refresh: done** — turned out to already have
+happened in an earlier, unrelated commit (found, not written, while starting
+this phase) — it now covers all 4 services and matches the README's diagram.
 
-- **SonarQube** (code quality/maintainability/test-coverage analysis) is
-  genuinely absent — distinct from Phase 7 of
-  `docs/SECURITY-HARDENING-ROADMAP.md`'s CodeQL (security-focused static
-  analysis) and Dependabot (dependency vulnerabilities) — those two don't
-  cover code quality/duplication/maintainability metrics at all. Either
-  SonarCloud (free for public repos, matching this project's already-public
-  GitHub repo) or a self-hosted SonarQube instance, wired into
-  `.github/workflows/ci.yml` as an additional step.
-- **`docs/architecture.md` is stale** — confirmed during this gap-check's
-  research: it still documents only `ingestion-service` + `rag-service`,
-  predating both `auth-service` and `chat-service` entirely. The README's own
-  architecture diagram (`README.md` lines ~33-53) is the actually up-to-date
-  one. This phase should refresh `docs/architecture.md` to match — including
-  explicitly calling out where Clean Architecture/DDD/SOLID ideas already
-  show up in the existing design (e.g. `platform-common`'s extraction, ADR
-  0010; the `ValidatedUpload`/`DocumentKind` value-object pattern, ADR 0022)
-  rather than writing new architecture from scratch — this project already
-  practices a fair amount of this, it's just not documented as such anywhere
-  a reviewer would look first.
+**SonarCloud + JaCoCo: code done, waiting on one external step only the user
+can do.** See [ADR 0027](adr/0027-sonarcloud-jacoco-code-quality.md) for the
+full decision record. What's actually in place:
+
+- JaCoCo wired into all 4 tested modules (`auth-service`, `ingestion-service`,
+  `rag-service`, `chat-service`) — real coverage confirmed by running
+  `./mvnw -B verify` and reading the generated `jacoco.xml`, not guessed:
+  91.2%, 90.7%, 84.8%, 93.7% instruction coverage respectively.
+- `.github/workflows/ci.yml` has a guarded SonarCloud analysis step
+  (`if: secrets.SONAR_TOKEN != ''`) — it stays a no-op, keeping CI green,
+  until the token exists as a repo secret.
+- `pom.xml` has `sonar.organization`/`sonar.projectKey` set to SonarCloud's
+  default naming guess (`eniglio-ctrl` / `eniglio-ctrl_enterprise-rag-platform`)
+  — verify these against whatever SonarCloud actually assigns once the
+  project is imported.
+
+**What's left, and it's not something this assistant can do**: creating a
+SonarCloud account (via GitHub OAuth), importing this repo as a project, and
+generating a token — account creation and granting OAuth access are both
+outside what an assistant does on a user's behalf. Once `SONAR_TOKEN` exists
+as a GitHub repo secret, the guarded CI step activates on the next push with
+no further code change needed.
 
 **Done when**: `docs/architecture.md` accurately describes all 4 services and
-matches the README's diagram; a SonarQube/SonarCloud badge is visible in the
-README and reflects a real, current analysis run, not a stale one-time scan.
+matches the README's diagram (✅ already true); a SonarQube/SonarCloud badge
+is visible in the README and reflects a real, current analysis run — this
+last part is what's still open.
 
 ## Phase 15 — Go-based API Gateway / BFF ⬜
 

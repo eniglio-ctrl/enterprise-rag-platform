@@ -11,6 +11,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history, not the default shallow clone - SonarCloud's new-code
+          # analysis (below) needs it to diff against a real base, not a
+          # single commit.
+          fetch-depth: 0
 
       - uses: actions/setup-java@v5
         with:
@@ -20,3 +25,21 @@ jobs:
 
       - name: Run tests
         run: ./mvnw -B clean verify
+
+      - name: Cache SonarCloud packages
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: SonarCloud analysis
+        # Guarded on the secret existing so CI stays green (this step just
+        # doesn't run) until SONAR_TOKEN is actually added as a repo secret -
+        # see docs/adr/0027-sonarcloud-jacoco-code-quality.md.
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: ./mvnw -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar
