@@ -64,13 +64,14 @@ around):
    CodeQL live on the repo (see [ADR 0026](adr/0026-supply-chain-security-phase7.md));
    secret scanning was already on by GitHub default. 15 real dependency PRs
    merged, 14 real major-version breaks closed and suppressed.
-3. 🟡 **Multi-LLM Phase 14 — SonarQube + `docs/architecture.md` refresh** —
-   `docs/architecture.md` was already current; JaCoCo + a guarded SonarCloud
-   CI step are done and verified (real coverage: 91.2%/90.7%/84.8%/93.7%
-   across the 4 services, see [ADR 0027](adr/0027-sonarcloud-jacoco-code-quality.md)).
-   What's left needs the user: create the SonarCloud project (GitHub OAuth)
-   and add `SONAR_TOKEN` as a repo secret — not something this assistant
-   can do on their behalf.
+3. ✅ **Multi-LLM Phase 14 — SonarQube + `docs/architecture.md` refresh** —
+   closed. `docs/architecture.md` was already current; JaCoCo + a real
+   SonarCloud CI analysis are live (see [ADR 0027](adr/0027-sonarcloud-jacoco-code-quality.md)).
+   The first real run found 5 real bugs and 4 real vulnerabilities — each
+   triaged on its own merits (2 fixed, 1 log-injection fix, 6 marked false
+   positive/won't-fix with real justification, not blanket-dismissed) —
+   and the quality gate went from `ERROR` to `OK` by closing an actual
+   `new_coverage` gap across 3 short iterations, never by disabling a check.
 4. ⬜ **Security Phase 2 — Rate limiting** — do this before Security Phases
    5/6 (both reuse its filter/metric) and before deciding on Tier 2's Redis
    item — a distributed version of this same rate limiter is one of the few
