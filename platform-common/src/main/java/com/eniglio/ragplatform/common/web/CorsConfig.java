@@ -16,6 +16,10 @@ public class CorsConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOrigins(allowedOrigin)
                 .allowedMethods("GET", "POST")
-                .allowedHeaders("*");
+                // Security Phase 3: only the two headers any real client here ever
+                // sends - a wildcard let any header through, wider than anything
+                // this API actually needs (origin and methods were already this
+                // narrow before this phase).
+                .allowedHeaders("Authorization", "Content-Type");
     }
 }

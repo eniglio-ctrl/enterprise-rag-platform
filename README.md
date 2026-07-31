@@ -107,8 +107,14 @@ Requirements: Docker and Docker Compose. Nothing else — no API keys, no local 
 needed, models are pulled automatically on first boot.
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+The `.env` copy is required, not optional (Security Phase 3, ADR 0021/0029) —
+`docker-compose.yml` no longer falls back to a real-looking hardcoded default if it's
+missing, it fails fast with a clear message instead. The example values are fine to
+keep as-is for local/portfolio use.
 
 First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `llama3.1`
 (a few GB). Once healthy:
@@ -417,11 +423,10 @@ vs. what's blocked on a decision or resource only the user can provide.
   `docker-compose.yml`'s dependency chain. Verified against a real `kind` cluster.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
   content validation (ADR 0022), supply-chain security (Dependabot + CodeQL, ADR
-  0026), and rate limiting (ADR 0028, Bucket4j) are done; secrets/CORS/headers, a
-  real tenant/invitation model with a persistent JWT signing key, security audit
-  logging, and public-demo
-  hardening are next. Full phase-by-phase status:
-  [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
+  0026), rate limiting (ADR 0028, Bucket4j), and secrets/CORS/HTTP headers (ADR
+  0029) are done; a real tenant/invitation model with a persistent JWT signing key,
+  security audit logging, and public-demo hardening are next. Full phase-by-phase
+  status: [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
   every restart (ADR 0016); tokens issued before a restart stop validating after one.
   Fine for a demo, not for a real deployment. Being replaced as part of the
@@ -473,6 +478,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0026 — Supply-chain security: Dependabot + CodeQL](docs/adr/0026-supply-chain-security-phase7.md)
 - [ADR 0027 — Code quality analysis via SonarCloud + JaCoCo](docs/adr/0027-sonarcloud-jacoco-code-quality.md)
 - [ADR 0028 — Rate limiting and abuse prevention (Bucket4j)](docs/adr/0028-rate-limiting.md)
+- [ADR 0029 — Secrets, CORS, and HTTP security headers](docs/adr/0029-secrets-cors-http-headers.md)
 
 ## License
 

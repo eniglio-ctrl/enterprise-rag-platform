@@ -80,7 +80,13 @@ around):
    5/6 to reuse, and its in-memory, non-distributed design is one of the
    few genuinely concrete justifications for Tier 2's Redis item — decide
    that only now that this phase actually exists to reference.
-5. ⬜ **Security Phase 3 — Secrets, CORS, HTTP headers**
+5. ✅ **Security Phase 3 — Secrets, CORS, HTTP headers** — closed. No more
+   real-looking default DB/Grafana credentials in `docker-compose.yml`
+   (requires `.env`, fails clearly without it), CORS headers narrowed to
+   what `web-ui` actually sends, and a real CSP on `web-ui`'s nginx —
+   verified against the actual diagram feature (Mermaid's inline styles) in
+   a live browser, not just `curl -I` (see
+   [ADR 0029](adr/0029-secrets-cors-http-headers.md)).
 6. ⬜ **Multi-LLM Phase 8 — RAG quality deep-dive** (chunking strategies +
    faithfulness/context-relevance metrics) — strengthens the actual core
    product, no dependency on anything above.

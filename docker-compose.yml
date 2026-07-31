@@ -2,16 +2,16 @@ services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_DB: ${DB_NAME:-ragplatform}
-      POSTGRES_USER: ${DB_USER:-ragplatform}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      POSTGRES_DB: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      POSTGRES_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ragplatform} -d ${DB_NAME:-ragplatform}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)} -d ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -54,9 +54,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-ragplatform}
-      DB_USER: ${DB_USER:-ragplatform}
-      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       WEB_UI_ORIGIN: http://localhost:3000
     depends_on:
       postgres:
@@ -77,9 +77,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-ragplatform}
-      DB_USER: ${DB_USER:-ragplatform}
-      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       VISION_MODEL: llava
@@ -111,9 +111,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-ragplatform}
-      DB_USER: ${DB_USER:-ragplatform}
-      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: nomic-embed-text
       CHAT_MODEL: llama3.1
@@ -154,9 +154,9 @@ services:
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: ${DB_NAME:-ragplatform}
-      DB_USER: ${DB_USER:-ragplatform}
-      DB_PASSWORD: ${DB_PASSWORD:-ragplatform}
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       OLLAMA_BASE_URL: http://ollama:11434
       CHAT_MODEL: llama3.1
       RAG_SERVICE_BASE_URL: http://rag-service:8082
@@ -219,9 +219,12 @@ services:
     ports:
       - "3001:3000"
     environment:
+      # Anonymous Viewer access stays on for local/dev convenience (ADR 0015) -
+      # only the admin password (which anonymous access can't touch anyway)
+      # needed to stop being a real-looking hardcoded default.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro

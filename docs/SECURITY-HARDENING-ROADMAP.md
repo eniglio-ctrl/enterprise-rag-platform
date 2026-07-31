@@ -11,7 +11,7 @@
 | 0 | Baseline ADR | ✅ Done — [ADR 0021](adr/0021-security-hardening-baseline.md) |
 | 1 | Upload content validation (magic bytes) | ✅ Done, one known gap open — [ADR 0022](adr/0022-upload-validation-hardening.md) |
 | 2 | Rate limiting / abuse prevention | ✅ Done — [ADR 0028](adr/0028-rate-limiting.md) |
-| 3 | Secrets, CORS, HTTP security headers | ⬜ Not started |
+| 3 | Secrets, CORS, HTTP security headers | ✅ Done — [ADR 0029](adr/0029-secrets-cors-http-headers.md) |
 | 4 | Tenants/invitations + persistent JWT key | ⬜ Not started |
 | 5 | Security audit logging + monitoring | ⬜ Not started |
 | 6 | Public demo hardening | ⬜ Not started |
@@ -211,9 +211,12 @@ on which limit bucket a request lands in.
 
 </details>
 
-## Phase 3 — Secrets, CORS, HTTP security headers ⬜
+## Phase 3 — Secrets, CORS, HTTP security headers ✅
 
-**Not started.** Plan:
+**Done.** See [ADR 0029](adr/0029-secrets-cors-http-headers.md) — verified
+for real, including a live browser test of the diagram feature against the
+new CSP (the exact risk this phase's original plan below called out).
+Kept for the record:
 
 - `docker-compose.yml`: remove the real default credentials
   (`ragplatform`/`ragplatform` DB creds repeated across 5 services; a literal
