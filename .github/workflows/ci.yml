@@ -9,6 +9,12 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # `secrets` can't be referenced directly in a step's `if:` (GitHub
+      # Actions rejects the whole workflow file as invalid if you try) -
+      # this job-level env is the documented workaround, checked via
+      # `env.SONAR_TOKEN` below instead.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -27,7 +33,7 @@ jobs:
         run: ./mvnw -B clean verify
 
       - name: Cache SonarCloud packages
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         uses: actions/cache@v4
         with:
           path: ~/.sonar/cache
@@ -38,7 +44,7 @@ jobs:
         # Guarded on the secret existing so CI stays green (this step just
         # doesn't run) until SONAR_TOKEN is actually added as a repo secret -
         # see docs/adr/0027-sonarcloud-jacoco-code-quality.md.
-        if: ${{ secrets.SONAR_TOKEN != '' }}
+        if: ${{ env.SONAR_TOKEN != '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
