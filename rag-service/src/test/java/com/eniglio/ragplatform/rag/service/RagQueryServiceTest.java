@@ -135,6 +135,35 @@ class RagQueryServiceTest {
         assertThat(response.model()).isEqualTo("llama3.1");
     }
 
+    /**
+     * An unrecognized model id falls back to the first configured model instead of
+     * erroring the whole question (existing behavior). The id here also carries a
+     * newline, which the warning log strips before writing it (log injection,
+     * CWE-117) — the log statement itself isn't asserted on, but a passing test
+     * proves the sanitization line executes without throwing.
+     */
+    @Test
+    void unknownModelIdFallsBackToTheFirstConcreteModel() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O padrão SAGA é usado para transações distribuídas [1]"))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer(
+                "Como funciona o SAGA?", "default", false, false, "gpt-9-does-not-exist\nFAKE LOG LINE");
+
+        assertThat(response.model()).isEqualTo("llama3.1");
+    }
+
     @Test
     void rerankRequestPassesHybridResultsThroughTheReranker() {
         Document original = Document.builder()
