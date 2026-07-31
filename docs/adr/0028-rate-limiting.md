@@ -103,16 +103,46 @@ single caller exhausting Ollama/Whisper/Postgres capacity for every tenant.
   bucket had partially refilled — confirming legitimate use isn't
   collaterally broken.
 - **`platform-common` has its first tests ever**
-  (`RateLimitFilterTest`, 7 cases) — the module had zero test dependencies
-  before this (no `spring-boot-starter-test` at all), added alongside them.
-  Covers both roadmap "done when" criteria at the unit level: N+1 requests
-  from the same key get 429, and a forged `X-Forwarded-For` has zero effect
-  when no proxy hop is trusted — plus independent buckets per IP/tenant, the
-  no-match-means-no-limit path, and the global `enabled: false` off-switch.
+  (`RateLimitFilterTest` 7 cases, `ClientIpResolverTest` 6, `RateLimitConfigTest`
+  1) — the module had zero test dependencies before this (no
+  `spring-boot-starter-test` at all), added alongside them. Covers both
+  roadmap "done when" criteria at the unit level: N+1 requests from the same
+  key get 429, and a forged `X-Forwarded-For` has zero effect when no proxy
+  hop is trusted — plus independent buckets per IP/tenant, tenant-vs-IP
+  keying, multi-hop `X-Forwarded-For` parsing, the no-match-means-no-limit
+  path, and the global `enabled: false` off-switch.
 - **`./mvnw clean verify` green across all 5 modules** both before and
   after adding the filter to every `SecurityFilterChain` — no existing test
   needed behavior changes beyond the new `enabled: false` test-profile
   overrides above.
+- **Real gate check via SonarCloud (ADR 0027) caught a real gap this ADR's
+  own first commit introduced**: `platform-common`'s `pom.xml` never had a
+  `jacoco-maven-plugin` reference (it had zero tests before this phase, so
+  it was never needed) — without it, no `jacoco.xml` was ever produced for
+  this module, so SonarCloud reported **0% new-code coverage on
+  `RateLimitFilter`** despite `RateLimitFilterTest`'s real content. Fixed by
+  adding the bare `<plugin>` reference (root `pom.xml`'s `pluginManagement`
+  already supplied the version/executions, same pattern the 4 service
+  modules already used). `ClientIpResolver` — the actual trusted-proxy-hop
+  parsing, the single most security-sensitive piece of logic in this ADR —
+  also had no direct test at all before this pass; added 6 cases including
+  the multi-hop and malformed/too-short-header fallback paths. Gate went
+  `ERROR` (0% new coverage) → **`OK` (89.1%)** with these two real fixes,
+  same discipline as ADR 0027 — no check disabled, no threshold lowered.
+- **One known, accepted coverage-attribution gap, not hidden**: the ~6 new
+  lines across `AuthSecurityConfig`/`ResourceServerSecurityConfig`/
+  `DemoSecurityConfig` (each just gaining one `.addFilterAfter(...)` call
+  and a new bean-method parameter) show as uncovered in JaCoCo's per-module
+  reports, even though they genuinely execute on every context boot of
+  `AuthIT`, `DocumentIngestionIT`, `ChatQueryIT`, and `ConversationIT` — a
+  real, observed Spring `@Configuration`-bean-method instrumentation
+  quirk (confirmed by checking `auth-service`'s own `jacoco.xml` directly:
+  `AuthSecurityConfig` shows 0/9 lines covered despite `AuthService` itself,
+  exercised by the exact same test, showing 17/17), not something specific
+  to this change. Left as-is rather than chased further: these are two-line
+  wiring calls with no branching logic to get wrong, already proven correct
+  by every IT test's mere ability to boot a working filter chain at all, and
+  the overall gate cleared `OK` regardless.
 - **A request-body-size cap on the question/chat text itself and a
   per-tenant concurrent-in-flight-call limit** (both mentioned in the
   roadmap's original plan, alongside rate limiting) are deliberately **not**
