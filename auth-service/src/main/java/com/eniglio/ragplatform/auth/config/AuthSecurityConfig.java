@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.auth.config;
 
+import com.eniglio.ragplatform.common.security.RateLimitFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
@@ -9,6 +10,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
  * auth-service's own filter chain: everything it exposes is meant to be reachable
@@ -22,12 +24,16 @@ import org.springframework.security.web.SecurityFilterChain;
 public class AuthSecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimitFilter rateLimitFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                // Security Phase 2: register/login are unauthenticated by design (ADR
+                // 0016) - application.yml's rules key these by IP, the only signal
+                // available before a JWT exists at all.
+                .addFilterAfter(rateLimitFilter, AuthorizationFilter.class);
         return http.build();
     }
 

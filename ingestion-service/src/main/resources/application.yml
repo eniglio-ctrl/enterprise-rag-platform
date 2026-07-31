@@ -177,3 +177,14 @@ ingestion:
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    rules:
+      - name: ingestion-upload
+        path-pattern: /api/v1/documents
+        key-by-ip: false
+        capacity: 20
+        refill-period: 1m

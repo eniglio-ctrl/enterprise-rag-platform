@@ -37,5 +37,25 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
         </dependency>
+        <dependency>
+            <!-- Security Phase 2: per-key (IP/tenant) inbound rate limiting. -->
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+        </dependency>
+        <dependency>
+            <!-- RateLimitFilter emits the security.rate_limit.blocked counter;
+                 each service already brings spring-boot-starter-actuator at
+                 runtime, this is just the compile-time API. -->
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+        <dependency>
+            <!-- First tests this module has ever had (RateLimitFilterTest,
+                 Security Phase 2) - platform-common had zero test dependencies
+                 before this. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>

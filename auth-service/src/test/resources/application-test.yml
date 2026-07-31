@@ -1,12 +1,6 @@
-spring:
-  ai:
-    ollama:
-      init:
-        pull-model-strategy: never
-
 security:
   rate-limit:
-    # DocumentIngestionIT uploads several documents in a row against the same
+    # AuthIT fires several register/login calls in a row from the same
     # MockMvc "client" - disabled here so test volume never trips it. Real
     # rate limiting is exercised by RateLimitFilterTest in platform-common
     # and by the manual curl-loop verification in ADR 0028.

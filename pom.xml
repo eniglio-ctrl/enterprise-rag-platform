@@ -30,6 +30,15 @@
         <springdoc.version>2.8.6</springdoc.version>
         <resilience4j.version>2.4.0</resilience4j.version>
         <testcontainers.version>2.0.5</testcontainers.version>
+        <!--
+            Not Resilience4j's own RateLimiter: that primitive protects a single
+            outbound call site with one shared limiter, not many independent
+            per-key (per-IP/per-tenant) inbound buckets, which is what Security
+            Phase 2's rate limiting actually needs - Bucket4j is built for exactly
+            that shape. jdk17-core, not the relocated plain "bucket4j-core"
+            (Maven Central redirected it starting with the 8.x line).
+        -->
+        <bucket4j.version>8.19.0</bucket4j.version>
         <jacoco.version>0.8.12</jacoco.version>
         <!--
             SonarCloud org/project key follow its default convention
@@ -84,6 +93,11 @@
                 <version>${resilience4j.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.bucket4j</groupId>
+                <artifactId>bucket4j_jdk17-core</artifactId>
+                <version>${bucket4j.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

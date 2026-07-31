@@ -18,6 +18,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.context.SecurityContextHolderFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -39,13 +40,19 @@ public class DemoSecurityConfig {
     public static final String DEMO_TENANT_ID = "demo";
 
     @Bean
-    public SecurityFilterChain demoSecurityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain demoSecurityFilterChain(HttpSecurity http, RateLimitFilter rateLimitFilter)
+            throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-                .addFilterAfter(new DemoTenantFilter(), SecurityContextHolderFilter.class);
+                .addFilterAfter(new DemoTenantFilter(), SecurityContextHolderFilter.class)
+                // Every demo request authenticates as the same synthetic DEMO_TENANT_ID
+                // (above) - a tenant-keyed rule here would let one aggressive visitor
+                // exhaust the bucket for every other visitor. application-demo.yml's
+                // rules key by IP instead, precisely because of this.
+                .addFilterAfter(rateLimitFilter, AuthorizationFilter.class);
         return http.build();
     }
 

@@ -9,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 
 /**
  * Shared JWT resource-server config for every service except auth-service itself
@@ -29,7 +30,7 @@ import org.springframework.security.web.SecurityFilterChain;
 public class ResourceServerSecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimitFilter rateLimitFilter) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -39,7 +40,11 @@ public class ResourceServerSecurityConfig {
                         .requestMatchers("/actuator/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**")
                         .permitAll()
                         .anyRequest().authenticated())
-                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()));
+                .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                // After authentication AND authorization both run (Security Phase 2):
+                // a request keyed by tenant always sees the real JwtAuthenticationToken
+                // already resolved, never races it.
+                .addFilterAfter(rateLimitFilter, AuthorizationFilter.class);
         return http.build();
     }
 }

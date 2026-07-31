@@ -416,9 +416,10 @@ vs. what's blocked on a decision or resource only the user can provide.
   initContainers wait on it the same way they wait on each other, mirroring
   `docker-compose.yml`'s dependency chain. Verified against a real `kind` cluster.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
-  content validation (ADR 0022) and supply-chain security — Dependabot + CodeQL,
-  ADR 0026 — are done; rate limiting, secrets/CORS/headers, a real tenant/invitation
-  model with a persistent JWT signing key, security audit logging, and public-demo
+  content validation (ADR 0022), supply-chain security (Dependabot + CodeQL, ADR
+  0026), and rate limiting (ADR 0028, Bucket4j) are done; secrets/CORS/headers, a
+  real tenant/invitation model with a persistent JWT signing key, security audit
+  logging, and public-demo
   hardening are next. Full phase-by-phase status:
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
@@ -471,6 +472,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0025 — "Automático" as a sentinel entry in `rag.available-models`](docs/adr/0025-auto-model-selection.md)
 - [ADR 0026 — Supply-chain security: Dependabot + CodeQL](docs/adr/0026-supply-chain-security-phase7.md)
 - [ADR 0027 — Code quality analysis via SonarCloud + JaCoCo](docs/adr/0027-sonarcloud-jacoco-code-quality.md)
+- [ADR 0028 — Rate limiting and abuse prevention (Bucket4j)](docs/adr/0028-rate-limiting.md)
 
 ## License
 

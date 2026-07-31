@@ -170,6 +170,34 @@ rag:
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
 
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    # All three share the "rag-query" name on purpose: the bucket key only uses the
+    # rule name, not the pattern, so a tenant asking questions across /ask, /chat and
+    # /diagrams draws from one combined budget instead of getting 3x the effective
+    # rate by spreading requests across the equivalent endpoints. /api/v1/retrieve is
+    # deliberately not listed - it's only ever called server-to-server by
+    # chat-service (ADR 0013), already bounded by chat-service's own conversations
+    # limit; rate-limiting it here too would double-count the same user action.
+    rules:
+      - name: rag-query
+        path-pattern: /api/v1/ask
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/chat
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/diagrams
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+
 resilience4j:
   retry:
     instances:

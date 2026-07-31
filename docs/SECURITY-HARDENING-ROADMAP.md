@@ -10,7 +10,7 @@
 |---|---|---|
 | 0 | Baseline ADR | ✅ Done — [ADR 0021](adr/0021-security-hardening-baseline.md) |
 | 1 | Upload content validation (magic bytes) | ✅ Done, one known gap open — [ADR 0022](adr/0022-upload-validation-hardening.md) |
-| 2 | Rate limiting / abuse prevention | ⬜ Not started |
+| 2 | Rate limiting / abuse prevention | ✅ Done — [ADR 0028](adr/0028-rate-limiting.md) |
 | 3 | Secrets, CORS, HTTP security headers | ⬜ Not started |
 | 4 | Tenants/invitations + persistent JWT key | ⬜ Not started |
 | 5 | Security audit logging + monitoring | ⬜ Not started |
@@ -148,9 +148,21 @@ Files touched: `UploadValidationService.java`, `ValidatedUpload.java`,
 (all modified) — all under
 `ingestion-service/src/main/java/com/eniglio/ragplatform/ingestion/`.
 
-## Phase 2 — Rate limiting and abuse prevention ⬜
+## Phase 2 — Rate limiting and abuse prevention ✅
 
-**Not started.** Plan:
+**Done.** See [ADR 0028](adr/0028-rate-limiting.md) for the full decision
+record — Bucket4j (not Resilience4j's own `RateLimiter`, wrong shape for
+per-key buckets), a shared `RateLimitFilter` in `platform-common`, and a
+real verification against the running stack (11 login attempts, the 11th
+`429`; a forged `X-Forwarded-For` confirmed to have zero effect). The
+original plan below is kept for the record; two of its bullets (request
+body size cap, per-tenant concurrent-in-flight cap) were deliberately
+scoped out of ADR 0028 as a separate follow-up, not part of "done when".
+
+<details>
+<summary>Original plan (kept for the record)</summary>
+
+
 
 - New `platform-common/src/main/java/com/eniglio/ragplatform/common/security/RateLimitFilter.java`
   + `RateLimitProperties.java` — shared across `auth-service`,
@@ -196,6 +208,8 @@ same IP/user confirms the block; a real `for i in {1..N}; do curl ...; done`
 against the running stack shows the same thing; a forged
 `X-Forwarded-For` header from a test client is confirmed to have zero effect
 on which limit bucket a request lands in.
+
+</details>
 
 ## Phase 3 — Secrets, CORS, HTTP security headers ⬜
 

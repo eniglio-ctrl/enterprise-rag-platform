@@ -84,6 +84,35 @@ spring:
         # instance, so there's no existing-data mismatch to reconcile.
         dimensions: 1024
 
+# A profile-specific list REPLACES the base application.yml's list entirely, same
+# gotcha as the spring.autoconfigure.exclude comment above — every demo query rule
+# needs restating here, not just the one value this profile actually changes
+# (key-by-ip). Every demo request authenticates as the same synthetic "demo" tenant
+# (DemoSecurityConfig) - a tenant-keyed rule here would let one visitor's traffic
+# exhaust the bucket for every other concurrent visitor, so this profile keys by IP
+# instead. trusted-proxy-hops still isn't set for real here (see the base file's
+# comment) - Security Phase 6 (public demo hardening, not yet done) is where
+# Render's actual edge hop count needs to be confirmed before this can safely
+# change from 0.
+security:
+  rate-limit:
+    rules:
+      - name: rag-query
+        path-pattern: /api/v1/ask
+        key-by-ip: true
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/chat
+        key-by-ip: true
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/diagrams
+        key-by-ip: true
+        capacity: 30
+        refill-period: 1m
+
 rag:
   # See application.yml's comment on the "auto" sentinel entry (ADR 0025) — same
   # mechanism here, just with only one real concrete entry to fall back to today.

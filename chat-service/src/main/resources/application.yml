@@ -110,3 +110,23 @@ resilience4j:
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    # Two entries, not one: AntPathMatcher's "/**" is not guaranteed to also match
+    # the bare prefix with no trailing segment (POST /api/v1/conversations itself,
+    # not just its children) - listed explicitly rather than assumed. Same name on
+    # both, so creating a conversation and posting messages to it share one budget.
+    rules:
+      - name: chat-conversations
+        path-pattern: /api/v1/conversations
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: chat-conversations
+        path-pattern: /api/v1/conversations/**
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m

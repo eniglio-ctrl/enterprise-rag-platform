@@ -72,11 +72,14 @@ around):
    positive/won't-fix with real justification, not blanket-dismissed) —
    and the quality gate went from `ERROR` to `OK` by closing an actual
    `new_coverage` gap across 3 short iterations, never by disabling a check.
-4. ⬜ **Security Phase 2 — Rate limiting** — do this before Security Phases
-   5/6 (both reuse its filter/metric) and before deciding on Tier 2's Redis
-   item — a distributed version of this same rate limiter is one of the few
-   genuinely concrete justifications for adding Redis at all; decide that
-   only after this phase exists to reference.
+4. ✅ **Security Phase 2 — Rate limiting** — closed. Bucket4j-based
+   `RateLimitFilter` shared across all 4 services (see
+   [ADR 0028](adr/0028-rate-limiting.md)), verified against the running
+   stack (11 login attempts, 11th `429`; forged `X-Forwarded-For` confirmed
+   to have zero effect). Its filter/metric are ready for Security Phases
+   5/6 to reuse, and its in-memory, non-distributed design is one of the
+   few genuinely concrete justifications for Tier 2's Redis item — decide
+   that only now that this phase actually exists to reference.
 5. ⬜ **Security Phase 3 — Secrets, CORS, HTTP headers**
 6. ⬜ **Multi-LLM Phase 8 — RAG quality deep-dive** (chunking strategies +
    faithfulness/context-relevance metrics) — strengthens the actual core

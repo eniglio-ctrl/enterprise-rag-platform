@@ -56,3 +56,19 @@ auth:
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    # 0 = never trust X-Forwarded-For, always use the socket's real peer address.
+    # Safe default for local/docker-compose, where nothing legitimate proxies this
+    # service. See ADR 0028 for why the public demo (Security Phase 6, not yet
+    # done) can't safely set a real value here without first confirming exactly
+    # how many hops Render's edge actually adds.
+    trusted-proxy-hops: 0
+    rules:
+      - name: auth
+        path-pattern: /api/v1/auth/*
+        key-by-ip: true
+        capacity: 10
+        refill-period: 1m
