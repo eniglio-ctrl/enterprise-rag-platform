@@ -15,6 +15,21 @@
     <description>Shared web/exception-handling building blocks used by every service (CORS, OpenAPI metadata, error responses)</description>
     <packaging>jar</packaging>
 
+    <build>
+        <plugins>
+            <!-- Root pom.xml's pluginManagement supplies version/executions; this
+                 module needs the bare reference too, same as the 4 service modules
+                 - JaCoCo isn't a default-lifecycle-bound plugin. Added along with
+                 this module's first-ever tests (RateLimitFilterTest); without it,
+                 SonarCloud reports 0% coverage here regardless of real test content,
+                 since no jacoco.xml is ever produced to read. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
