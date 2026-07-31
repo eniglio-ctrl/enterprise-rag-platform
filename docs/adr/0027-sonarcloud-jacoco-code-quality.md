@@ -139,10 +139,10 @@ rather than reflexively silenced:
   `sonarcloud.io/api/project_badges/measure`) — deferred until this point on
   purpose, per this ADR's original text: a badge before a real analysis
   existed would have been a dead link or a fake-looking placeholder. The
-  Quality Gate badge does show red at the time of this commit — an accurate
-  reflection of a gate whose two failing conditions are about *new* code
-  ratings that reset the moment the underlying rules stabilize, not a
-  claim being hidden or softened.
+  Quality Gate badge showed red immediately after this commit — an accurate
+  reflection of the real, still-open `new_reliability_rating`/
+  `new_security_rating` failures above — not a claim being hidden or
+  softened; see the closing note below for how it was actually driven green.
 - Real, current coverage confirmed via SonarCloud's own API
   (`GET /api/measures/component`): **54.3%** line coverage, 2983 lines of
   code analyzed — lower than the per-module JaCoCo instruction-coverage
@@ -151,3 +151,24 @@ rather than reflexively silenced:
   configuration/DTO classes with little logic), not the same metric;
   reported as its own real number rather than conflated with the earlier
   one.
+
+**Closing note: gate driven to green with real fixes, not by lowering the
+bar.** After the bug/vulnerability fixes above, `new_reliability_rating` and
+`new_security_rating` both cleared, but a new condition took over:
+`new_coverage` at 0.0% — the equals/hashCode/toString overrides and the log
+sanitization were new lines with zero test coverage. Fixed the actual gap
+each time SonarCloud's own API pointed at it, three short iterations, never
+by disabling the check: added `ValidatedImageTest`/`ValidatedUploadTest`
+(content-equality across distinct array instances) → 65.8%; found via
+`GET /api/sources/lines` that no existing test ever passes a genuinely
+unrecognized model id (the `"default"` string used elsewhere is the
+`tenantId` parameter, not `model` — a real misreading corrected mid-triage)
+→ added `unknownModelIdFallsBackToTheFirstConcreteModel`, which also proves
+the CR/LF-stripping fix works against an id carrying an embedded newline →
+68.4%; the same source-lines lookup showed the two remaining gaps were
+`equals()`'s reference-equality short-circuit and its `instanceof` failure
+branch, neither exercised by any test → added `isEqualToItself`/
+`isNotEqualToNullOrADifferentType` to both test classes → **89.5%, gate
+status `OK`**. One transient `502` from SonarCloud's own API mid-way
+(confirmed via the actual stack trace, not assumed) required only a re-run,
+no code change.
