@@ -22,8 +22,11 @@
 
 Two living roadmaps now exist (security hardening; the broader AI-engineering
 skill roadmap), plus a Kubernetes gap the README has tracked on its own since
-before either roadmap existed. Twenty-one items are pending across all three
-places. They don't have to happen in roadmap-file order or phase-number
+before either roadmap existed. Twenty-five items are pending across all three
+places (up from twenty-one — the Multi-LLM public-fallback design, discussed
+directly with the user, split what was one blocked Tier-3 item into five
+sequential Tier-1 sub-phases once two of its three provider keys were
+actually obtained). They don't have to happen in roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
 same rate-limit filter both a security phase and an AI-roadmap phase need);
@@ -75,6 +78,29 @@ around):
    product, no dependency on anything above.
 7. ⬜ **Multi-LLM Phase 9 — Native tool/function calling** — no dependency;
    sets up Tier 2's Phase 10 and Phase 6 below.
+8. ⬜ **Multi-LLM Phase 2a — Fallback provider wiring: OpenAI + Gemini**
+   (`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`) — unblocked: both keys real,
+   verified, already in `credenciais/multi-llm-fallback.env`. Confirmed
+   design: not a dropdown option, a confirmed, non-grounded fallback for
+   when the local path fails or finds nothing — see Phase 2's full writeup
+   for why this is a deliberate, visible exception to ADR 0004, not a
+   silent one.
+9. ⬜ **Multi-LLM Phase 2b — Fallback trigger detection** (after #8) —
+   structural detection (retrieval score threshold / circuit breaker state),
+   not keyword matching in the answer text — same principle ADR 0024
+   already established for routing.
+10. ⬜ **Multi-LLM Phase 2c — Confirmation gate + non-grounded response
+    contract** (after #9) — the two-step API flow (offer → explicit confirm
+    → call) and the response shape that keeps a public-LLM answer from ever
+    looking like a grounded one.
+11. ⬜ **Multi-LLM Phase 2d — `web-ui`: confirmation dialog + provenance
+    badge** (after #10) — the one-screen dialog naming both the cost and the
+    "not from your documents" warning together, plus a visibly distinct
+    badge on the answer itself.
+12. ⬜ **Multi-LLM Phase 2e — Fallback provider wiring: Anthropic** (same
+    shape as #8, once #8-#11 exist) — deliberately deferred: the user will
+    generate `ANTHROPIC_API_KEY` specifically when this item starts, not
+    before, unlike OpenAI/Gemini's keys which were obtained ahead of time.
 
 ## Tier 2 — needs a design/infra decision first, no money
 
@@ -82,25 +108,25 @@ Not blocked on a paid resource, but shouldn't start until a concrete decision
 is made (see each phase's own "not started" note in its home file for
 exactly what that decision is):
 
-8. ⬜ **Security Phase 5 — Audit logging** (after Tier 1 #4 — shares the
-   rate-limit-blocked metric)
-9. ⬜ **Security Phase 6 — Public demo hardening** (after Tier 1 #4 — reuses
-   its filter)
-10. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
+13. ⬜ **Security Phase 5 — Audit logging** (after Tier 1 #4 — shares the
+    rate-limit-blocked metric)
+14. ⬜ **Security Phase 6 — Public demo hardening** (after Tier 1 #4 — reuses
+    its filter)
+15. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists.
-11. ⬜ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+16. ⬜ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
     large, self-contained, no real dependency on the others; sequenced here
     mainly by size, not a technical blocker.
-12. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
+17. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
-13. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
+18. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
     its own scope cut to 1-2 concrete tools)
-14. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
+19. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
     needs a concrete driving use case (the phase's own text suggests async
     document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
     not a paid key.
-15. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
+20. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
     phase in either file — see "Where Go actually fits" below for the full
     reasoning). Addresses the still-unaddressed "API Gateway" microservices
     pattern from the AI-engineer checklist, and is a genuine, low-risk way to
@@ -118,17 +144,18 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-16. ⬜ **Multi-LLM Phase 2 — Real cloud providers** (which provider(s), real
-    paid API keys)
-17. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after #16)
-18. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #16/#17 — note this
+21. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+    this assumes genuinely selectable multiple providers, which the Phase 2
+    fallback design deliberately does *not* provide; may need its own
+    provider wiring)
+22. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #21 — note this
     multiplies paid API calls per question)
-19. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+23. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision)
-20. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+24. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-21. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+25. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
@@ -150,7 +177,7 @@ language, since two of the three aren't performance plays at all:
   actual signal for where a lighter-weight language earns its place: **the
   edge**, not the domain services.
 - **Go's genuine fit here: a lightweight API Gateway/BFF at the edge**
-  (Tier 2 #15, new). This isn't spreading Go around speculatively — it fills
+  (Tier 2 #20, new). This isn't spreading Go around speculatively — it fills
   a real, still-unaddressed gap (the checklist's "API Gateway" microservices
   pattern, currently implemented nowhere in this project) with a language
   that's *actually* the right tool for it: a Go binary's baseline memory

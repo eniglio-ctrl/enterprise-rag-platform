@@ -22,7 +22,11 @@
 |---|---|---|---|
 | 0 | "Automático" model selector | ✅ Done — [ADR 0025](adr/0025-auto-model-selection.md) | — |
 | 1 | Single LLM + RAG | ✅ Already done (with Ollama, not literally OpenAI) | — |
-| 2 | Real cloud providers as a shared `AIProvider` abstraction | ⬜ Not started | Real, paid API keys the user must supply |
+| 2a | Fallback provider wiring: OpenAI + Gemini | ⬜ Not started | **Unblocked** — both keys already in `credenciais/multi-llm-fallback.env` |
+| 2b | Fallback trigger detection (local failed / insufficient) | ⬜ Not started | Depends on 2a |
+| 2c | Confirmation gate + non-grounded response contract | ⬜ Not started | Depends on 2b |
+| 2d | `web-ui`: confirmation dialog + provenance badge | ⬜ Not started | Depends on 2c |
+| 2e | Fallback provider wiring: Anthropic | ⬜ Not started | Same pattern as 2a — do when the Anthropic key is provided |
 | 3 | `PlannerAgent` (decides which specialist handles a request) | ⬜ Not started | Phase 2 |
 | 4 | `ReflectionAgent` (compares/merges multiple models' answers) | ⬜ Not started | Phase 2/3 |
 | 5 | Long-term memory beyond pgvector (Redis) | ⬜ Not started | A concrete "what does Redis add" answer |
@@ -161,42 +165,150 @@ description named OpenAI specifically; the actual implementation uses Ollama
 API, a deliberate choice made earlier in this project (ADR 0003), not an
 oversight relative to the pasted vision.
 
-## Phase 2 — Real cloud providers as a shared `AIProvider` abstraction ⬜
+## Phase 2 — Public-LLM fallback for the AUTO selector ⬜
 
-**Blocked — do not start without an explicit decision from the user first**:
-which provider(s) (OpenAI, Anthropic, Google, or some subset), and
-confirmation of the real, ongoing API cost this introduces (unlike Ollama/LM
-Studio, these are paid, metered APIs). No code should be written before that.
+**Redesigned from the original plan, before any code was written** — worth
+recording why. The original text above (still visible in git history)
+imagined cloud providers as just more entries in the same dropdown,
+selectable like Ollama or LM Studio. A real conversation with the user
+produced a materially different, better-scoped design: cloud providers are
+**not** a manually-selectable alternative — they're an explicit,
+user-confirmed **fallback** for when the local path (Ollama/LM Studio) fails
+or the retrieved context is insufficient, and the answer they produce is
+**never grounded in this tenant's documents** (no company content is sent to
+them at all — only the user's raw question), so it must be visibly and
+explicitly distinguished from a normal, cited answer.
 
-Once unblocked, the implementation follows the exact pattern ADR 0017 already
-established for adding a provider — not a new design:
+**Unblocked for 2 of 3 providers**: `OPENAI_API_KEY` and `GEMINI_API_KEY` are
+real, verified working keys (`GET /v1/models` / `GET /v1beta/models` both
+returned `200` with real model lists), already in
+`credenciais/multi-llm-fallback.env`. `ANTHROPIC_API_KEY` is deliberately
+deferred — the user will generate it "na hora de implementar" (when 2e
+actually starts), not before. Explicitly confirmed: free/cheapest tiers only,
+portfolio use, not production — a real spending cap should be set on the
+OpenAI and Anthropic consoles before 2a/2e ship (Gemini's tier is free with no
+card, no cap needed).
 
-- A new `spring-ai-starter-model-*` dependency per provider (`openai` is
-  already present and can be pointed at `api.openai.com` directly for real
-  ChatGPT access — a new, separate `ChatModel`/`ChatClient` bean pair from the
-  existing LM-Studio-pointed one, since they're different base
-  URLs/keys/models, not a shared bean; `anthropic` and a Google/Vertex AI
-  starter would be genuinely new dependencies for Claude/Gemini).
-- A new qualified `ChatClient` bean per provider in `ChatClientConfig`
-  (`@Qualifier`-named, built from a `@Qualifier`-named `ChatModel` — the same
-  reason two beans already exist: Spring AI's auto-configured single-candidate
-  `ChatClient.Builder` backs off once more than one `ChatModel` bean exists).
-- A new method per provider on `LlmGateway`, each with its own Resilience4j
-  `@CircuitBreaker`/`@Retry` instance name — an outage in one provider must
-  never trip another's breaker (ADR 0009's established reasoning).
-- A new entry per provider in `rag.available-models` — nothing in
-  `ModelsController`/`web-ui` needs to change, exactly like Phase 0.
-- Only *then* would a shared `AIProvider` interface (`com.eniglio.ragplatform
-  .common.ai` or similar, in `platform-common`) be worth introducing — as a
-  refactor of the by-then-real `clientFor`/`callLlm`/`modelOptions` dispatch,
-  not speculative scaffolding built before there's more than one real
-  provider to abstract over.
+### Why this is a deliberate exception to ADR 0004, not a violation of it
 
-**Done when**: at least one real cloud provider (not Ollama/LM Studio/Groq)
-is selectable in the dropdown and answers a real question end-to-end, with
-its own circuit breaker confirmed independent of the others (e.g. a
-deliberately invalid API key for one provider doesn't affect another's
-requests).
+ADR 0004 ("citations from retrieval, never from the LLM") assumes every
+answer is grounded in this tenant's own indexed content. The fallback path
+breaks that assumption on purpose: it exists specifically for when grounding
+already failed. The design keeps the exception honest by making it
+impossible to confuse with a normal answer — no citations array pretending to
+be empty-by-coincidence, a distinct response field, and a visible UI badge
+(Phase 2d). This must never become the default or silent path.
+
+### Phase 2a — Fallback provider wiring: OpenAI + Gemini ⬜
+
+**Not started, no blocker.** Follows the exact bean/gateway/breaker pattern
+ADR 0017 already established — not a new design:
+
+- `spring-ai-starter-model-openai` is already on the classpath (used today
+  for LM Studio); a **second**, separate `ChatModel`/`ChatClient` bean pair
+  pointed at real `api.openai.com` (own base-url/key/model — LM Studio and
+  real OpenAI are different providers under the same starter, so they need
+  distinct `@Qualifier`-named beans, not a shared one).
+- A new `spring-ai-starter-model-vertex-ai-gemini` (or the plain Gemini
+  REST/Google GenAI starter, whichever Spring AI's current version ships as
+  the non-Vertex, plain-API-key path — confirm at implementation time)
+  dependency for Gemini, same qualified-bean treatment.
+- Two new methods on `LlmGateway` (`callOpenAiFallback`, `callGeminiFallback`),
+  each its own Resilience4j `@CircuitBreaker`/`@Retry` instance name,
+  independent from `ollama`, `lm-studio`, and from each other — an outage or
+  bad key on one must never trip another's breaker (ADR 0009).
+- **Deliberately NOT added to `rag.available-models`** — unlike every prior
+  provider (Phase 0/ADR 0017/ADR 0020), these must not be manually selectable
+  from the normal dropdown, since picking one that way would silently skip
+  the confirmation gate (Phase 2c) that makes this design honest. They get
+  their own config section instead (e.g. `rag.fallback-providers`).
+
+**Done when**: a direct, isolated call to each of `callOpenAiFallback` and
+`callGeminiFallback` (a temporary test path is fine) returns a real answer
+from the real API, and a deliberately invalid key for one doesn't affect the
+other's circuit breaker state.
+
+### Phase 2b — Fallback trigger detection ⬜
+
+**Not started.** Depends on 2a existing (nothing to fall back *to* otherwise).
+Defines, precisely and structurally — **not** via keyword/string matching in
+the answer text, the exact mistake ADR 0024 already replaced once — when the
+local path counts as "failed or insufficient":
+
+- **Local infra failure**: the Ollama/LM Studio circuit breaker is already
+  `OPEN`, or the call throws/times out.
+- **Content insufficiency**: no citation's retrieval score clears a
+  threshold (reuse the existing `score` already on every citation — no new
+  LLM call needed to detect this).
+- Both conditions produce the same downstream behavior (Phase 2c) — the
+  reason for triggering doesn't change what the fallback does, only whether
+  it's offered at all.
+
+**Done when**: a unit test simulating each of the two trigger conditions
+independently confirms the fallback gate is offered, and a normal
+successful/grounded answer confirms it is *not* offered.
+
+### Phase 2c — Confirmation gate + non-grounded response contract ⬜
+
+**Not started.** Depends on 2b. The API-level shape of the two-step flow:
+
+- First request, local insufficient (2b triggered): response carries a new
+  field (e.g. `fallbackAvailable: true`) **instead of** silently calling a
+  public LLM — the caller must confirm before any external call happens.
+- A follow-up request with an explicit confirm flag (e.g.
+  `useFallback: true`) is what actually calls the public provider (2a) —
+  **only the user's question is sent, never any retrieved chunk or document
+  content** (this is what keeps company data from ever reaching a public
+  API in this path).
+- That response is shaped differently from a normal answer: no `citations`
+  array (or an explicit, distinctly-named absence of one), a new field
+  marking provenance (e.g. `source: "public-llm"` alongside which provider
+  answered), so `web-ui` (2d) never has to guess from content whether an
+  answer is grounded.
+
+**Done when**: a real `curl` sequence — ask a question with no good local
+context, get `fallbackAvailable: true` back, confirm, get a real answer from
+OpenAI or Gemini with the distinct non-grounded shape — works end-to-end
+against the running stack.
+
+### Phase 2d — `web-ui`: confirmation dialog + provenance badge ⬜
+
+**Not started.** Depends on 2c. Two pieces of UI, both carrying the two
+warnings from the same screen (cost + provenance), not staged separately:
+
+- A confirmation prompt shown when `fallbackAvailable: true` comes back:
+  something like "Não encontrei uma resposta nos seus documentos. Buscar em
+  um modelo de IA público (OpenAI/Gemini)? A resposta não será baseada nos
+  seus documentos, e isso usa uma API paga/com limite de uso."
+- A visible, distinct badge/color on any answer whose `source` marks it as
+  `public-llm` — e.g. "⚠️ Resposta de IA pública, não verificada com seus
+  documentos" — different enough from the normal citation UI that it can't
+  be mistaken for a grounded answer at a glance.
+
+**Done when**: tested for real in the browser — a question with no local
+match shows the confirmation prompt, confirming it shows a visibly
+different-looking answer with no citations.
+
+### Phase 2e — Fallback provider wiring: Anthropic ⬜
+
+**Not started, deferred on purpose** — the user will generate
+`ANTHROPIC_API_KEY` specifically when this sub-phase starts, not before
+(unlike OpenAI/Gemini, already provisioned ahead of time in 2a). Otherwise
+identical in shape to 2a: `spring-ai-starter-model-anthropic`, a qualified
+bean pair, `callAnthropicFallback` with its own breaker, plumbed into the same
+2b/2c/2d machinery already built by then — no new design work, just one more
+provider.
+
+**Done when**: same criterion as 2a, for Anthropic specifically.
+
+### What changes elsewhere once Phase 2 exists
+
+Phases 3 (`PlannerAgent`) and 4 (`ReflectionAgent`) still assume genuinely
+*selectable*, always-available multiple providers — this fallback design
+doesn't give them that (the public providers here are single-purpose,
+gated, non-grounded). Whether 3/4 build on top of this fallback machinery or
+need their own, separate provider wiring is an open question for whenever
+those phases actually start, not decided here.
 
 ## Phase 3 — `PlannerAgent` ⬜
 
