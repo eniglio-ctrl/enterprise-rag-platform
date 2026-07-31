@@ -17,6 +17,21 @@ class ValidatedImageTest {
     }
 
     @Test
+    void isEqualToItself() {
+        ValidatedImage a = new ValidatedImage(new byte[] {1, 2, 3}, MimeType.valueOf("image/png"));
+
+        assertThat(a).isEqualTo(a);
+    }
+
+    @Test
+    void isNotEqualToNullOrADifferentType() {
+        ValidatedImage a = new ValidatedImage(new byte[] {1, 2, 3}, MimeType.valueOf("image/png"));
+
+        assertThat(a).isNotEqualTo(null);
+        assertThat(a).isNotEqualTo("not a ValidatedImage");
+    }
+
+    @Test
     void differentBytesAreNotEqual() {
         ValidatedImage a = new ValidatedImage(new byte[] {1, 2, 3}, MimeType.valueOf("image/png"));
         ValidatedImage b = new ValidatedImage(new byte[] {4, 5, 6}, MimeType.valueOf("image/png"));
