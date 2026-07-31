@@ -318,8 +318,12 @@ public class RagQueryService {
                     .filter(m -> m.id().equals(requestedModel))
                     .findFirst()
                     .orElseGet(() -> {
+                        // Strip CR/LF before logging: requestedModel comes straight from the
+                        // request body (ADR 0017), so a value crafted with newlines could
+                        // otherwise forge fake-looking extra log lines (log injection, CWE-117).
+                        String sanitized = requestedModel.replaceAll("[\r\n]", "_");
                         log.warn("Requested model '{}' is not in rag.available-models, using the default",
-                                requestedModel);
+                                sanitized);
                         return available.get(0);
                     });
         }

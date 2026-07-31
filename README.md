@@ -1,6 +1,8 @@
 # enterprise-rag-platform
 
 [![CI](https://github.com/eniglio-ctrl/enterprise-rag-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/eniglio-ctrl/enterprise-rag-platform/actions/workflows/ci.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=eniglio-ctrl_enterprise-rag-platform&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=eniglio-ctrl_enterprise-rag-platform)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=eniglio-ctrl_enterprise-rag-platform&metric=coverage)](https://sonarcloud.io/summary/new_code?id=eniglio-ctrl_enterprise-rag-platform)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Java 21](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/projects/jdk/21/)
 [![Spring Boot 3.5](https://img.shields.io/badge/Spring%20Boot-3.5-brightgreen.svg)](https://spring.io/projects/spring-boot)
