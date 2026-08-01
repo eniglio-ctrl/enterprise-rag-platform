@@ -479,6 +479,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0027 — Code quality analysis via SonarCloud + JaCoCo](docs/adr/0027-sonarcloud-jacoco-code-quality.md)
 - [ADR 0028 — Rate limiting and abuse prevention (Bucket4j)](docs/adr/0028-rate-limiting.md)
 - [ADR 0029 — Secrets, CORS, and HTTP security headers](docs/adr/0029-secrets-cors-http-headers.md)
+- [ADR 0030 — Re-seed the public demo with project docs plus original technical write-ups (not copied official docs)](docs/adr/0030-demo-reseed-project-docs-plus-original-writeups.md)
 
 ## License
 
