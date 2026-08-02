@@ -2,7 +2,11 @@ package com.eniglio.ragplatform.auth.exception;
 
 import com.eniglio.ragplatform.common.web.ErrorResponse;
 import com.eniglio.ragplatform.common.web.GlobalExceptionHandlerSupport;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -12,15 +16,31 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
 
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    private final MeterRegistry meterRegistry;
+
+    public GlobalExceptionHandler(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
     @ExceptionHandler(EmailAlreadyExistsException.class)
     public ResponseEntity<ErrorResponse> handleEmailAlreadyExists(EmailAlreadyExistsException ex,
             HttpServletRequest request) {
+        log.warn("Registration rejected: {}", ex.getMessage());
         return build(HttpStatus.CONFLICT, ex.getMessage(), request);
     }
 
+    // Security Phase 5: the one new metric this phase adds for auth-service. No
+    // "reason" tag - InvalidCredentialsException never distinguishes unknown-email
+    // from wrong-password (same message, same handling) specifically so a failed
+    // login can't be used to enumerate which emails are registered; tagging the
+    // metric by reason would leak that same distinction through a side channel.
     @ExceptionHandler(InvalidCredentialsException.class)
     public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex,
             HttpServletRequest request) {
+        log.warn("Login failed for email={} from {}", ex.email(), request.getRemoteAddr());
+        Counter.builder("security.authentication.failed").register(meterRegistry).increment();
         return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request);
     }
 

@@ -9,6 +9,8 @@ import com.eniglio.ragplatform.auth.repository.Invitation;
 import com.eniglio.ragplatform.auth.repository.TenantRepository;
 import com.eniglio.ragplatform.auth.repository.User;
 import com.eniglio.ragplatform.auth.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -21,9 +23,17 @@ import java.util.UUID;
  * there is no way to join an existing tenant by typing its name anymore. Registering
  * with a token redeems it via {@link InvitationService}, which enforces single-use,
  * expiry, and an exact email match before handing back the tenant to join.
+ * <p>
+ * Success audit events (Security Phase 5) are logged here, at the one place both
+ * paths converge - never the password, only email/tenantId/userId. Failures are
+ * logged where they're thrown/handled ({@link
+ * com.eniglio.ragplatform.auth.exception.GlobalExceptionHandler}) since that's where
+ * the exception (and the metric it drives) already exists.
  */
 @Service
 public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
 
     private final UserRepository userRepository;
     private final TenantRepository tenantRepository;
@@ -55,15 +65,17 @@ public class AuthService {
         }
 
         User user = userRepository.create(tenantId, request.email(), passwordEncoder.encode(request.password()));
+        log.info("Registered user email={} tenantId={} userId={}", request.email(), tenantId, user.id());
         return toAuthResponse(user);
     }
 
     public AuthResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(InvalidCredentialsException::new);
+                .orElseThrow(() -> new InvalidCredentialsException(request.email()));
         if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
-            throw new InvalidCredentialsException();
+            throw new InvalidCredentialsException(request.email());
         }
+        log.info("Logged in user email={} tenantId={} userId={}", request.email(), user.tenantId(), user.id());
         return toAuthResponse(user);
     }
 

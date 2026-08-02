@@ -3,6 +3,10 @@ package com.eniglio.ragplatform.ingestion.service;
 import com.eniglio.ragplatform.ingestion.config.IngestionProperties;
 import com.eniglio.ragplatform.ingestion.exception.InvalidUploadException;
 import com.eniglio.ragplatform.ingestion.exception.UnsupportedDocumentTypeException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeType;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -29,6 +34,8 @@ import java.util.function.Predicate;
  */
 @Service
 public class UploadValidationService {
+
+    private static final Logger log = LoggerFactory.getLogger(UploadValidationService.class);
 
     private record FormatSpec(DocumentKind kind, MimeType mimeType, Predicate<byte[]> signature) {
     }
@@ -69,14 +76,16 @@ public class UploadValidationService {
     );
 
     private final IngestionProperties ingestionProperties;
+    private final MeterRegistry meterRegistry;
 
-    public UploadValidationService(IngestionProperties ingestionProperties) {
+    public UploadValidationService(IngestionProperties ingestionProperties, MeterRegistry meterRegistry) {
         this.ingestionProperties = ingestionProperties;
+        this.meterRegistry = meterRegistry;
     }
 
     public ValidatedUpload validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
-            throw new InvalidUploadException("Uploaded file is empty");
+            throw reject("empty_file", null, "Uploaded file is empty", InvalidUploadException::new);
         }
 
         String filename = normalize(file.getOriginalFilename());
@@ -84,25 +93,43 @@ public class UploadValidationService {
                 .filter(entry -> filename.endsWith(entry.getKey()))
                 .map(Map.Entry::getValue)
                 .findFirst()
-                .orElseThrow(() -> new UnsupportedDocumentTypeException("Unsupported file type: " + filename));
+                .orElseThrow(() -> reject("unsupported_extension", filename,
+                        "Unsupported file type: " + filename, UnsupportedDocumentTypeException::new));
 
         String declaredContentType = file.getContentType();
         if (declaredContentType == null
                 || !ingestionProperties.allowedContentTypes().contains(declaredContentType)) {
-            throw new UnsupportedDocumentTypeException(
-                    "Unsupported content type '" + declaredContentType + "' for file " + filename);
+            throw reject("unsupported_content_type", filename,
+                    "Unsupported content type '" + declaredContentType + "' for file " + filename,
+                    UnsupportedDocumentTypeException::new);
         }
         if (kindOf(declaredContentType) != spec.kind()) {
-            throw new InvalidUploadException(
-                    "Declared content type '" + declaredContentType + "' does not match file extension: " + filename);
+            throw reject("content_type_mismatch", filename,
+                    "Declared content type '" + declaredContentType + "' does not match file extension: "
+                            + filename, InvalidUploadException::new);
         }
 
         byte[] bytes = readBytes(file);
         if (!spec.signature().test(bytes)) {
-            throw new InvalidUploadException("File content does not match its declared type: " + filename);
+            throw reject("signature_mismatch", filename, "File content does not match its declared type: "
+                    + filename, InvalidUploadException::new);
         }
 
+        log.info("Upload accepted: filename={} kind={}", filename, spec.kind());
         return new ValidatedUpload(bytes, filename, spec.mimeType(), spec.kind());
+    }
+
+    /**
+     * Every rejection path converges here (Security Phase 5): one structured audit
+     * log line and one {@code security.upload.rejected} increment per reason, before
+     * building whichever of the two exception types the caller actually throws.
+     * Never logs file content, only the filename and the specific reason.
+     */
+    private RuntimeException reject(String reason, String filename, String message,
+            Function<String, RuntimeException> exceptionFactory) {
+        log.warn("Upload rejected: reason={} filename={}", reason, filename);
+        Counter.builder("security.upload.rejected").tag("reason", reason).register(meterRegistry).increment();
+        return exceptionFactory.apply(message);
     }
 
     private static DocumentKind kindOf(String contentType) {

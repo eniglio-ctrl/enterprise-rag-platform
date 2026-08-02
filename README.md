@@ -431,10 +431,12 @@ vs. what's blocked on a decision or resource only the user can provide.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
   content validation (ADR 0022), supply-chain security (Dependabot + CodeQL, ADR
   0026), rate limiting (ADR 0028, Bucket4j), secrets/CORS/HTTP headers (ADR 0029),
-  and a real tenant/invitation model with a persistent JWT signing key (ADR 0031,
+  a real tenant/invitation model with a persistent JWT signing key (ADR 0031,
   replacing free-text `tenantId` registration and the in-memory-only signing key
-  from ADR 0016) are done; security audit logging and public-demo hardening are
-  next. Full phase-by-phase status:
+  from ADR 0016), and audit logging with a shared correlation ID across every
+  service (ADR 0032 — its own audit logging caught a real bug: `auth-service`'s
+  Prometheus scrape endpoint had been silently unreachable since Phase 4) are done;
+  public-demo hardening is next. Full phase-by-phase status:
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
   model selector is done (ADR 0025); real cloud providers, a planner/reflection
@@ -486,6 +488,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0029 — Secrets, CORS, and HTTP security headers](docs/adr/0029-secrets-cors-http-headers.md)
 - [ADR 0030 — Re-seed the public demo with project docs plus original technical write-ups (not copied official docs)](docs/adr/0030-demo-reseed-project-docs-plus-original-writeups.md)
 - [ADR 0031 — Tenant invitations and a persisted JWT signing key (supersedes ADR 0016's simplifications)](docs/adr/0031-tenant-invitations-and-persistent-jwt-key.md)
+- [ADR 0032 — Security audit logging and monitoring (correlation ID, audit events, found and fixed a real Prometheus scrape bug)](docs/adr/0032-security-audit-logging-and-monitoring.md)
 
 ## License
 

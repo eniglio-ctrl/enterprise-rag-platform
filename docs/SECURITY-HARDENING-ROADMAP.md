@@ -293,32 +293,51 @@ zero orphaned users against 7 real pre-existing tenant IDs from earlier local
 testing. Full account, including a browser-tooling caching gotcha hit while
 verifying the new web-ui panel, in ADR 0031's Consequences section.
 
-## Phase 5 — Security audit logging and monitoring ⬜
+## Phase 5 — Security audit logging and monitoring ✅
 
-**Not started.** Plan:
+**Done.** See [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md). Kept
+for the record:
 
-- Structured audit events (never logging passwords/tokens/document content):
-  login success/failure, registration, upload accepted/rejected, rate limit
-  triggered, access denied.
-- **Every audit event carries a request/correlation ID**, generated once per
-  inbound request (a filter early in the chain, reused across services the
-  same request touches, e.g. via a propagated header) and included in every
-  structured log line and audit event for that request. This is what turns
-  "we log security events" into "we can actually reconstruct what happened
-  during an incident" — without it, correlating a rate-limit block in one
-  service with the login failure that preceded it means grepping timestamps
-  and hoping, which doesn't hold up under any real investigation.
-- New Micrometer metrics: `security.authentication.failed`,
-  `security.upload.rejected`, `security.rate_limit.blocked` (the last one
-  shared with Phase 2).
-- New Grafana "Security" panel in
-  `observability/grafana/dashboards/rag-platform-overview.json`.
+- A new `CorrelationIdFilter` (`platform-common`), registered at the servlet
+  container's highest precedence (not via `HttpSecurity`) so it runs before
+  Spring Security entirely — every log line across every service now carries
+  a `correlationId` field automatically via MDC, including ones Spring
+  Security itself produces before this project's code runs. Propagated on
+  the one inter-service HTTP call in the codebase (chat-service →
+  rag-service's `/api/v1/retrieve`).
+- New `AuditingAuthenticationEntryPoint`/`AuditingAccessDeniedHandler`:
+  Spring Security's previously-silent default 401/403 now logs a structured
+  audit line each (client IP via `ClientIpResolver`, made `public` for this).
+- Login/registration success (email/tenantId/userId, never the password) and
+  login failure (`security.authentication.failed`, deliberately untagged —
+  a "reason" tag would leak the same unknown-email-vs-wrong-password
+  distinction the response body already hides to resist enumeration) are
+  logged in `auth-service`. Upload accept/reject (`security.upload.rejected`,
+  tagged by reason) is logged in `ingestion-service`'s
+  `UploadValidationService`.
+- New "Segurança" row in the Grafana dashboard (3 panels: rate-limit-blocked
+  by rule reusing Phase 2's existing metric, failed logins, rejected uploads
+  by reason).
 
-**Done when**: the Grafana dashboard can show blocked attempts, invalid
-uploads, and failed logins for a real demo/screenshot; a single request ID
-can be grepped across at least two services' logs for one real, deliberately
-triggered failure (e.g. a blocked rate-limit request that also shows up in an
-upstream service's log) and the full path is reconstructable from it alone.
+**A real, pre-existing bug found by this phase's own audit logging**:
+`auth-service`'s allowlist from Phase 4 only covered `/actuator/health`, not
+`/actuator/prometheus` — Prometheus had been silently failing to scrape
+`auth-service` since Phase 4 shipped (confirmed via Prometheus's own
+`/api/v1/targets` showing that target `down` with a 401). Invisible before
+this phase because a rejected scrape logged nothing at all; the new
+`AuditingAuthenticationEntryPoint` logging every 401 for real is what
+surfaced it. Fixed by widening the allowlist to `/actuator/**`.
+
+**Verified against the real docker-compose stack**: a real login failure and
+a real rejected upload both produced non-zero counters at
+`/actuator/prometheus`; the same `correlationId` appeared in both
+chat-service's and rag-service's logs for one real chat message (crossing
+the actual inter-service call in this codebase — the roadmap's own suggested
+example, a cross-service rate-limit block, turned out not to be reproducible
+since `/api/v1/retrieve` is deliberately excluded from rate limiting, already
+documented in `rag-service`'s config); Grafana's dashboard renders the new
+panels against real data, confirmed via a direct Prometheus query, not just
+schema-correct JSON.
 
 ## Phase 6 — Public demo hardening ⬜
 

@@ -119,6 +119,43 @@
           "legendFormat": "chat message"
         }
       ]
+    },
+    { "type": "row", "title": "Segurança", "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }, "id": 12 },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Rate limit blocked (rate) by rule",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 28 },
+      "targets": [
+        {
+          "expr": "sum(rate(security_rate_limit_blocked_total[5m])) by (rule)",
+          "legendFormat": "{{rule}}"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Failed logins (rate)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 28 },
+      "targets": [
+        {
+          "expr": "sum(rate(security_authentication_failed_total[5m]))",
+          "legendFormat": "failed logins/s"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Uploads rejected (rate) by reason",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 28 },
+      "targets": [
+        {
+          "expr": "sum(rate(security_upload_rejected_total[5m])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
     }
   ]
 }

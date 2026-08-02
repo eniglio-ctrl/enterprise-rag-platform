@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.ingestion.service;
 import com.eniglio.ragplatform.ingestion.config.IngestionProperties;
 import com.eniglio.ragplatform.ingestion.exception.InvalidUploadException;
 import com.eniglio.ragplatform.ingestion.exception.UnsupportedDocumentTypeException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -32,7 +33,8 @@ class UploadValidationServiceTest {
             "audio/flac",
             "audio/webm"));
 
-    private final UploadValidationService service = new UploadValidationService(PROPERTIES);
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+    private final UploadValidationService service = new UploadValidationService(PROPERTIES, meterRegistry);
 
     // --- rejections ---
 
@@ -113,6 +115,38 @@ class UploadValidationServiceTest {
 
         assertThatThrownBy(() -> service.validate(file))
                 .isInstanceOf(InvalidUploadException.class);
+    }
+
+    // --- Security Phase 5: security.upload.rejected metric ---
+
+    @Test
+    void incrementsTheRejectedMetricTaggedByReasonForAnUnsupportedExtension() {
+        MockMultipartFile file = new MockMultipartFile("file", "archive.zip", "application/zip", new byte[]{1, 2, 3});
+
+        assertThatThrownBy(() -> service.validate(file)).isInstanceOf(UnsupportedDocumentTypeException.class);
+
+        assertThat(meterRegistry.get("security.upload.rejected").tag("reason", "unsupported_extension")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void incrementsTheRejectedMetricTaggedByReasonForASignatureMismatch() {
+        MockMultipartFile file = new MockMultipartFile("file", "fake.pdf", "application/pdf",
+                "this is not a pdf".getBytes(StandardCharsets.UTF_8));
+
+        assertThatThrownBy(() -> service.validate(file)).isInstanceOf(InvalidUploadException.class);
+
+        assertThat(meterRegistry.get("security.upload.rejected").tag("reason", "signature_mismatch")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void doesNotIncrementTheRejectedMetricForAnAcceptedUpload() {
+        MockMultipartFile file = new MockMultipartFile("file", "doc.pdf", "application/pdf", pdfBytes());
+
+        service.validate(file);
+
+        assertThat(meterRegistry.find("security.upload.rejected").counter()).isNull();
     }
 
     // --- acceptances ---

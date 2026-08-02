@@ -17,12 +17,12 @@ import jakarta.servlet.http.HttpServletRequest;
  * client can prepend as many forged entries as it wants at the left; that only pushes
  * their fake IPs further from the position this resolver actually reads.
  */
-final class ClientIpResolver {
+public final class ClientIpResolver {
 
     private ClientIpResolver() {
     }
 
-    static String resolve(HttpServletRequest request, int trustedProxyHops) {
+    public static String resolve(HttpServletRequest request, int trustedProxyHops) {
         if (trustedProxyHops <= 0) {
             return request.getRemoteAddr();
         }

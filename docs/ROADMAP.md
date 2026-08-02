@@ -122,8 +122,14 @@ Not blocked on a paid resource, but shouldn't start until a concrete decision
 is made (see each phase's own "not started" note in its home file for
 exactly what that decision is):
 
-13. ⬜ **Security Phase 5 — Audit logging** (after Tier 1 #4 — shares the
-    rate-limit-blocked metric)
+13. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
+    across every service (a servlet filter registered ahead of Spring
+    Security entirely), structured audit events for login/registration/
+    upload/access-denied, two new metrics, and a Grafana "Segurança" row.
+    Found and fixed a real pre-existing bug in the process: `auth-service`'s
+    own `/actuator/prometheus` had been silently unreachable by Prometheus
+    since Security Phase 4 (see
+    [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md)).
 14. ⬜ **Security Phase 6 — Public demo hardening** (after Tier 1 #4 — reuses
     its filter)
 15. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's

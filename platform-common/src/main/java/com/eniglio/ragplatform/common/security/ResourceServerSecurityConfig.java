@@ -30,7 +30,9 @@ import org.springframework.security.web.access.intercept.AuthorizationFilter;
 public class ResourceServerSecurityConfig {
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimitFilter rateLimitFilter) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, RateLimitFilter rateLimitFilter,
+            AuditingAuthenticationEntryPoint authenticationEntryPoint,
+            AuditingAccessDeniedHandler accessDeniedHandler) throws Exception {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(Customizer.withDefaults())
@@ -41,6 +43,11 @@ public class ResourceServerSecurityConfig {
                         .permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
+                // Security Phase 5: every rejected request gets a structured audit log
+                // line instead of Spring Security's silent default 401/403.
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler))
                 // After authentication AND authorization both run (Security Phase 2):
                 // a request keyed by tenant always sees the real JwtAuthenticationToken
                 // already resolved, never races it.
