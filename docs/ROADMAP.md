@@ -130,8 +130,15 @@ exactly what that decision is):
     own `/actuator/prometheus` had been silently unreachable by Prometheus
     since Security Phase 4 (see
     [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md)).
-14. ⬜ **Security Phase 6 — Public demo hardening** (after Tier 1 #4 — reuses
-    its filter)
+14. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
+    in the whole security hardening rollout. Found real public exposure on
+    the live demo first (`curl` showed `/actuator/prometheus`,
+    `/actuator/metrics`, `/v3/api-docs`, and Swagger UI all reachable) and
+    locked all of it down to `/actuator/health` only; tightened the demo's
+    rate limit to 10/min per IP; gave the demo its own Netlify-native CSP
+    (`web-ui/_headers`); researched (not guessed) Render's real
+    `X-Forwarded-For` behavior and documented why `trusted-proxy-hops`
+    deliberately stays `0` (see [ADR 0033](adr/0033-public-demo-hardening.md)).
 15. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists.

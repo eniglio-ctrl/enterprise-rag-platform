@@ -40,6 +40,8 @@ to seed the demo database (see [Seeding the database](#seeding-the-database)).
 | Database | Local Postgres container | Neon (serverless Postgres) |
 | Auth | Real JWT via `auth-service` | None — `DemoSecurityConfig` treats every request as one fixed `demo` tenant |
 | Upload | Yes, via `ingestion-service` | No — read-only, pre-seeded |
+| Rate limit | 30 requests/min per tenant | 10 requests/min per IP (Security Phase 6, ADR 0033 — a public, unauthenticated URL paying real per-question API cost gets a tighter ceiling) |
+| Actuator / API docs | Full (`health, info, prometheus, metrics`, Swagger UI, OpenAPI JSON) | `health` only — everything else disabled (Security Phase 6) |
 
 All of this is controlled by Spring's `demo` profile
 (`SPRING_PROFILES_ACTIVE=demo`), which is purely additive configuration —
@@ -237,6 +239,35 @@ bug (the same well-understood behavior as ADR 0007's tenant isolation).
 inactivity. The first request after a gap can take 30–60 seconds while it wakes
 up — expected, not a hang.
 
+## Security hardening (Phase 6, ADR 0033)
+
+Verified against the live URLs before hardening this deployment — every one of
+these was really, publicly reachable and unauthenticated:
+
+```
+GET /actuator/health      -> 200  (kept - Render's own health check needs it)
+GET /actuator/prometheus  -> 200  (now disabled)
+GET /actuator/metrics     -> 200  (now disabled)
+GET /v3/api-docs          -> 200  (now disabled)
+GET /swagger-ui.html      -> 302 -> /swagger-ui/index.html -> 200  (now disabled)
+```
+
+Re-verify the same five requests after any future redeploy — `/actuator/health`
+should still return `200`, the other four should not.
+
+`web-ui/_headers` (Netlify's native header-injection file, since Netlify never
+runs `web-ui/nginx.conf` — that file only applies to the docker-compose build)
+gives the demo its own CSP, tighter than the docker-compose one: `connect-src`
+lists only `https://ag-service-demo.onrender.com`, not the local dev ports, and
+there's no `auth-service`/`ingestion-service` origin at all since this deployment
+never calls either.
+
+`trusted-proxy-hops` stays `0` — researched, not assumed: Render's own community
+has an open, unresolved report of inconsistent `X-Forwarded-For` behavior on their
+platform, so trusting a specific hop count there would be a worse foundation for
+the rate limiter's IP resolution than the conservative default already in place.
+See ADR 0033 for the full reasoning.
+
 ## Scope and limitations (by design, not oversight)
 
 - **No upload, no login** — a fixed, small document set. This demonstrates
@@ -253,13 +284,8 @@ up — expected, not a hang.
 
 ## What's left in the broader roadmap
 
-Everything else in the original 8-phase roadmap is done. Two items remain,
-independent of this deployment:
-
-- **Fase 7c — RAG quality benchmark**: a `RagQualityBenchmark` test class (opt-in,
-  `-Dbenchmark=true`, not part of `verify`) comparing generated answers against a
-  small set of expected Q&A pairs via cosine similarity, using the already-injected
-  `EmbeddingModel` — no new dependency.
-- **Fase 7d — Final README polish**: a second pass once the benchmark exists,
-  citing real numbers, plus an updated demo GIF if multi-turn chat gets added to
-  the public demo's scope later.
+The original 8-phase roadmap (Fase 0-7d) and the entire security hardening
+rollout (`docs/SECURITY-HARDENING-ROADMAP.md`, Phases 0-7) are both fully done as
+of this phase — this deployment isn't blocking anything further. Remaining work
+lives in `docs/ROADMAP.md`'s Tier 2/3 (Multi-LLM fallback providers, audit-logging
+follow-ups, etc.), independent of this specific deployment.

@@ -1,0 +1,16 @@
+# Security Phase 6 (ADR 0033): Netlify-native header injection for the public demo
+# deployment specifically. web-ui/nginx.conf (ADR 0029) covers the docker-compose
+# deployment, which Netlify never runs — Netlify serves this directory as a static
+# site straight from its own CDN, so this project needs its own equivalent here.
+#
+# Tighter than nginx.conf's CSP on purpose, not just a copy: connect-src only lists
+# the one real backend this deployment ever calls (Render's rag-service URL) —
+# never the local docker-compose ports (8081/8082/8084), which mean nothing on the
+# public internet and would just be misleading noise here. The demo has no
+# upload/auth flow at all (DemoSecurityConfig, ADR 0020), so ingestion-service and
+# auth-service origins are correctly absent, not an oversight.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://ag-service-demo.onrender.com; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin

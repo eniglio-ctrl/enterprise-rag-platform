@@ -90,28 +90,62 @@ spring:
 # (key-by-ip). Every demo request authenticates as the same synthetic "demo" tenant
 # (DemoSecurityConfig) - a tenant-keyed rule here would let one visitor's traffic
 # exhaust the bucket for every other concurrent visitor, so this profile keys by IP
-# instead. trusted-proxy-hops still isn't set for real here (see the base file's
-# comment) - Security Phase 6 (public demo hardening, not yet done) is where
-# Render's actual edge hop count needs to be confirmed before this can safely
-# change from 0.
+# instead. Capacity tightened from the base file's 30/min to 10/min for Security
+# Phase 6 (public demo hardening) - the public demo pays real (if free-tier) Groq/
+# Mistral API cost per question, unlike the base file's local Ollama, so a lower
+# ceiling meaningfully caps worst-case abuse cost, not just request volume.
+#
+# trusted-proxy-hops deliberately STAYS 0 here, not "confirmed and set" as this
+# comment previously said Phase 6 would do. Researched during this phase: Render's
+# own community has an open, unresolved feature request ("Send the correct
+# X_FORWARDED_FOR") reporting inconsistent X-Forwarded-For behavior on their
+# platform - trusting a specific hop count on a documented, disputed foundation
+# would be a worse foundation for a security control than the status quo. With
+# hops=0, the worst case is coarser-than-ideal IP granularity (multiple real
+# visitors sharing one bucket if Render's edge IP is what this app actually sees as
+# request.getRemoteAddr()) - an availability/UX tradeoff, not a security bypass,
+# since nothing client-controlled is ever trusted. Revisit only if Render's own
+# support confirms the exact hop count directly (a community thread guessing isn't
+# a safe enough basis to change a trust boundary).
 security:
   rate-limit:
     rules:
       - name: rag-query
         path-pattern: /api/v1/ask
         key-by-ip: true
-        capacity: 30
+        capacity: 10
         refill-period: 1m
       - name: rag-query
         path-pattern: /api/v1/chat
         key-by-ip: true
-        capacity: 30
+        capacity: 10
         refill-period: 1m
       - name: rag-query
         path-pattern: /api/v1/diagrams
         key-by-ip: true
-        capacity: 30
+        capacity: 10
         refill-period: 1m
+
+# Security Phase 6: the base application.yml exposes health/info/prometheus/metrics
+# and a real Swagger UI + OpenAPI doc - all fine for a local/docker-compose
+# deployment nobody else can reach, not for a public, unauthenticated URL. This list
+# REPLACES the base file's (same gotcha as above) - only health stays, since Render's
+# own health check needs it.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+# springdoc has no profile-specific "replace the list" gotcha (these are plain
+# booleans, not lists) - disables both the machine-readable OpenAPI JSON and the
+# interactive UI built on top of it. Neither is needed by a demo visitor; both are
+# a full map of the API surface handed to anyone who asks.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
 
 rag:
   # See application.yml's comment on the "auto" sentinel entry (ADR 0025) — same

@@ -13,8 +13,8 @@
 | 2 | Rate limiting / abuse prevention | ✅ Done — [ADR 0028](adr/0028-rate-limiting.md) |
 | 3 | Secrets, CORS, HTTP security headers | ✅ Done — [ADR 0029](adr/0029-secrets-cors-http-headers.md) |
 | 4 | Tenants/invitations + persistent JWT key | ✅ Done — [ADR 0031](adr/0031-tenant-invitations-and-persistent-jwt-key.md) |
-| 5 | Security audit logging + monitoring | ⬜ Not started |
-| 6 | Public demo hardening | ⬜ Not started |
+| 5 | Security audit logging + monitoring | ✅ Done — [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md) |
+| 6 | Public demo hardening | ✅ Done — [ADR 0033](adr/0033-public-demo-hardening.md) |
 | 7 | Supply-chain security (secret scanning, dependency/CVE scanning) | ✅ Done — [ADR 0026](adr/0026-supply-chain-security-phase7.md) |
 
 **On "done" claims in this file**: this project has been caught once already
@@ -339,24 +339,44 @@ documented in `rag-service`'s config); Grafana's dashboard renders the new
 panels against real data, confirmed via a direct Prometheus query, not just
 schema-correct JSON.
 
-## Phase 6 — Public demo hardening ⬜
+## Phase 6 — Public demo hardening ✅
 
-**Not started.** Plan:
+**Done.** See [ADR 0033](adr/0033-public-demo-hardening.md) — the last phase in
+this rollout. Kept for the record:
 
-- Reconfirm the demo (`web-ui-rag.netlify.app` + `ag-service-demo.onrender.com`)
-  stays read-only — already true per ADR 0020, make it explicit in this
-  phase's ADR too.
-- More aggressive per-IP rate limit on the demo specifically (reuses Phase 2's
-  filter and its trusted-proxy IP resolution — never the public demo's raw
-  `X-Forwarded-For`).
-- A tighter CSP specifically for the demo's static `config.js`.
-- Confirm Swagger/actuator/metrics aren't publicly exposed on the Render
-  deployment (check `management.endpoints.web.exposure` under the "demo"
-  profile).
-- Update `docs/DEMO-DEPLOYMENT.md` with this hardening.
+- **A real, live exposure check came first, not an assumption**: `curl` against
+  the actual deployed URLs showed `/actuator/prometheus`, `/actuator/metrics`,
+  `/v3/api-docs`, and Swagger UI all publicly reachable (200/302), alongside the
+  intentionally-public `/actuator/health`. `rag-service/application-demo.yml` now
+  overrides `management.endpoints.web.exposure.include` to `health` only and
+  disables `springdoc.api-docs`/`springdoc.swagger-ui` entirely.
+- Rate limit tightened from 30/min to 10/min per IP on the demo specifically — a
+  public URL paying real per-question Groq/Mistral API cost gets a lower ceiling
+  than the free local Ollama path.
+- **`trusted-proxy-hops` was researched, not left at a guess**: Render's own
+  community has an open, unresolved report of inconsistent `X-Forwarded-For`
+  behavior on their platform. Decision: stays `0` — trusting a specific hop count
+  on a disputed foundation would be a worse basis for a trust boundary than the
+  conservative default already in place. This corrects the original plan's framing
+  ("more aggressive... never trust raw X-Forwarded-For" implied a hop count would
+  simply be confirmed) — the honest finding is that it isn't safely confirmable
+  from public information today.
+- New `web-ui/_headers` (Netlify's native header mechanism — `web-ui/nginx.conf`,
+  ADR 0029, only applies to the docker-compose build and never runs on Netlify)
+  gives the demo its own CSP, scoped to the one real backend it calls
+  (`https://ag-service-demo.onrender.com`), not the local dev ports.
+- Read-only reconfirmed explicitly in the new ADR, not just inherited from ADR
+  0020's original context.
+- **A real, unrelated bug found while updating this file**: the status table above
+  still said "Not started" for Phase 5 after Phase 5's own commit landed — the
+  phase's detail section was updated but this table row wasn't. Fixed here as
+  well, a small reminder that "done" claims in this file need re-checking, per the
+  warning below the table.
 
 **Done when**: the public URL only ever answers questions about the seeded demo
-documents, with real abuse limits, and no admin surface reachable.
+documents, with real abuse limits, and no admin surface reachable — verified via
+the same `curl` checks against the live URLs, re-run after this phase's changes
+deployed.
 
 ## Phase 7 — Supply-chain security ✅
 
