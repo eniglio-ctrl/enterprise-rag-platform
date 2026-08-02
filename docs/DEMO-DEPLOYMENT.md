@@ -253,7 +253,11 @@ GET /swagger-ui.html      -> 302 -> /swagger-ui/index.html -> 200  (now disabled
 ```
 
 Re-verify the same five requests after any future redeploy — `/actuator/health`
-should still return `200`, the other four should not.
+should still return `200`, the other four should not. **Re-verified for real**:
+`rag-service` on Render redeployed automatically and now shows exactly this
+(`/actuator/health` → `200`, the other four → `404` — an intermediate deploy
+briefly returned `500` instead of `404` for the disabled endpoints, a real bug
+fixed the same day, see ADR 0033's own account).
 
 `web-ui/_headers` (Netlify's native header-injection file, since Netlify never
 runs `web-ui/nginx.conf` — that file only applies to the docker-compose build)
@@ -261,6 +265,20 @@ gives the demo its own CSP, tighter than the docker-compose one: `connect-src`
 lists only `https://ag-service-demo.onrender.com`, not the local dev ports, and
 there's no `auth-service`/`ingestion-service` origin at all since this deployment
 never calls either.
+
+**Known gap, found while verifying this phase, not fixed by it**: unlike
+`rag-service` on Render, **`web-ui` on Netlify does not appear to auto-deploy from
+`main`**. Checked directly — the live `web-ui-rag.netlify.app` still serves the
+free-text `register-tenant` field that Security Phase 4 removed from the source
+days earlier, and the new `_headers` file's CSP is absent from the live response
+headers. This predates Phase 6 and isn't something this session could fix (it
+needs Netlify dashboard/GitHub-integration access this session doesn't have) — it
+was invisible until now because the demo's `DEMO_MODE` hides the entire
+login/register panel, so the stale HTML/JS never showed up in normal use. **Next
+step for whoever has Netlify access**: check the site's deploy settings (is it
+linked to this GitHub repo at all? is continuous deployment enabled? check the
+Deploys tab for failed builds) and trigger a manual deploy to confirm `_headers`
+actually ships once that's fixed.
 
 `trusted-proxy-hops` stays `0` — researched, not assumed: Render's own community
 has an open, unresolved report of inconsistent `X-Forwarded-For` behavior on their

@@ -114,22 +114,42 @@ deployment nobody is meant to administer from the outside at all.
   security fix.
 
 ## Consequences
-- **Verified against the live URLs, both before and after this phase's changes**:
-  the exposure table in Context above was captured from the real, currently-deployed
-  demo before any change; after this ADR's changes deploy (Netlify/Render both
-  auto-deploy from `main`, the same mechanism every other phase's commits already
-  went through), the same five requests are expected to show `/actuator/health`
-  still `200` and the other four no longer publicly reachable — re-verify directly
-  against the live URLs after the deploy completes, don't trust the config alone.
-- **`./mvnw clean verify` unaffected** — this phase only touches
-  `rag-service/application-demo.yml` (a profile that's never exercised by any
-  automated test in this repo, by design — it needs real Groq/Mistral keys and a
-  real Neon connection) and a new static `web-ui/_headers` file with no build-time
-  processing. No Java source changed.
+- **`rag-service` side fully verified against the live URL, twice**: the exposure
+  table in Context was captured from the real, currently-deployed demo before any
+  change. After deploying, the same five requests correctly showed
+  `/actuator/health` still `200` and the other four returning `404` (after the
+  `NoResourceFoundException` fix above — the very first re-check showed `500`
+  instead, caught and fixed before calling this done). A real question
+  (`POST /api/v1/ask`) was re-sent afterward and still answered correctly, citing a
+  real source — confirming the lockdown didn't collateral-damage the actual demo
+  feature.
+- **`web-ui`/Netlify side: the `_headers` file's correctness could not be verified
+  live, and a separate, pre-existing gap was found while trying.** Polling the live
+  `web-ui-rag.netlify.app` for the new CSP header found nothing after several
+  minutes — checked further and confirmed the deployed site still contains the
+  free-text `register-tenant` field, which Security Phase 4 (two phases and several
+  days earlier) already removed from the source. **Netlify is not auto-deploying
+  from `main` the way Render is** — this predates this phase entirely and isn't
+  something introduced or fixable by this ADR's changes; it means the live demo's
+  `web-ui` has been stale since at least Phase 4, invisible until now because demo
+  mode hides the affected login/register UI entirely (`DEMO_MODE` skips the auth
+  panel), so nothing about the visible chat/answer flow ever surfaced the
+  staleness. `web-ui/_headers` is still believed correct (standard Netlify syntax,
+  matches this project's own established CSP directives from ADR 0029) but is
+  **unverified in production** until Netlify's deploy configuration is fixed
+  (dashboard/GitHub-integration access this session doesn't have) and a real deploy
+  actually ships it.
+- **`./mvnw clean verify` unaffected** by this phase's application changes —
+  `rag-service/application-demo.yml` is a profile no automated test exercises (it
+  needs real Groq/Mistral keys and a real Neon connection), and `web-ui/_headers`
+  has no build-time processing. The one Java change (`NoResourceFoundException`
+  fix, `platform-common`) does have its own new regression test and was included in
+  a full green `./mvnw clean verify` run.
 - **The `trusted-proxy-hops` non-decision is durable, not a placeholder**: any
   future revisit needs a direct answer from Render's own support, not another
   community-thread read — the bar this phase sets for changing a trust boundary is
   higher than "seems likely."
 - **Local/docker-compose deployments are completely unaffected**: every change in
-  this phase lives in `application-demo.yml` or `web-ui/_headers`, neither of which
-  exists in or affects the non-demo profile or the docker-compose nginx path.
+  this phase lives in `application-demo.yml`, `web-ui/_headers`, or shared
+  exception-handling code that only changes behavior for genuinely unmapped routes
+  — none of it touches the non-demo profile or the docker-compose nginx path.
