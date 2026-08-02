@@ -108,13 +108,19 @@ needed, models are pulled automatically on first boot.
 
 ```bash
 cp .env.example .env
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 | base64 | tr -d '\n' >> .env.jwt-key
+echo "JWT_SIGNING_KEY=$(cat .env.jwt-key)" >> .env && rm .env.jwt-key
 docker compose up --build
 ```
 
 The `.env` copy is required, not optional (Security Phase 3, ADR 0021/0029) —
 `docker-compose.yml` no longer falls back to a real-looking hardcoded default if it's
-missing, it fails fast with a clear message instead. The example values are fine to
-keep as-is for local/portfolio use.
+missing, it fails fast with a clear message instead. Every value in `.env.example`
+except `JWT_SIGNING_KEY` is fine to keep as-is for local/portfolio use; that one
+specifically ships with no default (Security Phase 4, ADR 0031) — it's the
+`auth-service` JWT signing key, sensitive enough that it shouldn't be a shared,
+publicly-known value even for local use, so the `openssl` command above generates
+your own.
 
 First startup takes a few minutes while Ollama pulls `nomic-embed-text` and `llama3.1`
 (a few GB). Once healthy:
@@ -358,6 +364,7 @@ kind load docker-image rag-platform/ingestion-service:latest \
   rag-platform/rag-service:latest rag-platform/chat-service:latest \
   rag-platform/web-ui:latest --name rag-platform
 cp kubernetes/base/.env.secret.example kubernetes/base/.env.secret  # edit with real values
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out kubernetes/base/jwt-signing-key.pem
 kubectl apply -k kubernetes/base
 kubectl port-forward -n rag-platform svc/web-ui 3000:80
 ```
@@ -423,14 +430,12 @@ vs. what's blocked on a decision or resource only the user can provide.
   `docker-compose.yml`'s dependency chain. Verified against a real `kind` cluster.
 - **Security hardening rollout** (ADR 0021) — a layered pass in progress: upload
   content validation (ADR 0022), supply-chain security (Dependabot + CodeQL, ADR
-  0026), rate limiting (ADR 0028, Bucket4j), and secrets/CORS/HTTP headers (ADR
-  0029) are done; a real tenant/invitation model with a persistent JWT signing key,
-  security audit logging, and public-demo hardening are next. Full phase-by-phase
-  status: [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
-- **Signing-key persistence** — `auth-service` generates its RSA keypair in memory on
-  every restart (ADR 0016); tokens issued before a restart stop validating after one.
-  Fine for a demo, not for a real deployment. Being replaced as part of the
-  security hardening rollout above.
+  0026), rate limiting (ADR 0028, Bucket4j), secrets/CORS/HTTP headers (ADR 0029),
+  and a real tenant/invitation model with a persistent JWT signing key (ADR 0031,
+  replacing free-text `tenantId` registration and the in-memory-only signing key
+  from ADR 0016) are done; security audit logging and public-demo hardening are
+  next. Full phase-by-phase status:
+  [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
   model selector is done (ADR 0025); real cloud providers, a planner/reflection
   agent pair, native tool calling, MCP tools, RAG chunking-strategy/evaluation-metric
@@ -480,6 +485,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0028 — Rate limiting and abuse prevention (Bucket4j)](docs/adr/0028-rate-limiting.md)
 - [ADR 0029 — Secrets, CORS, and HTTP security headers](docs/adr/0029-secrets-cors-http-headers.md)
 - [ADR 0030 — Re-seed the public demo with project docs plus original technical write-ups (not copied official docs)](docs/adr/0030-demo-reseed-project-docs-plus-original-writeups.md)
+- [ADR 0031 — Tenant invitations and a persisted JWT signing key (supersedes ADR 0016's simplifications)](docs/adr/0031-tenant-invitations-and-persistent-jwt-key.md)
 
 ## License
 

@@ -58,6 +58,7 @@ services:
       DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       WEB_UI_ORIGIN: http://localhost:3000
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Copy .env.example to .env first - no default JWT signing key (Security Phase 4, ADR 0031)}
     depends_on:
       postgres:
         condition: service_healthy

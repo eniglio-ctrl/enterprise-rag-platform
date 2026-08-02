@@ -55,6 +55,15 @@ spec:
                 secretKeyRef:
                   name: rag-platform-db-credentials
                   key: DB_PASSWORD
+            # Security Phase 4 (ADR 0031): a path, not a secret value itself - the
+            # actual key material is mounted below as a file, the standard way
+            # Kubernetes handles key/cert material.
+            - name: JWT_SIGNING_KEY_PATH
+              value: /etc/auth-service/jwt/jwt-signing-key.pem
+          volumeMounts:
+            - name: jwt-signing-key
+              mountPath: /etc/auth-service/jwt
+              readOnly: true
           # No startupProbe, unlike the other three Java services — that pattern exists
           # specifically to absorb a slow first-boot Ollama model pull racing the
           # liveness probe (see rag-service.yaml); auth-service never touches Ollama,
@@ -75,3 +84,7 @@ spec:
               cpu: "200m"
             limits:
               memory: "768Mi"
+      volumes:
+        - name: jwt-signing-key
+          secret:
+            secretName: rag-platform-jwt-key

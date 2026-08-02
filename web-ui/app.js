@@ -24,6 +24,8 @@ const loginForm = document.getElementById("login-form");
 const loginStatus = document.getElementById("login-status");
 const registerForm = document.getElementById("register-form");
 const registerStatus = document.getElementById("register-status");
+const inviteForm = document.getElementById("invite-form");
+const inviteStatus = document.getElementById("invite-status");
 
 function getAuth() {
   try {
@@ -67,6 +69,7 @@ function renderAuthState() {
     appLayout.hidden = false;
     authBar.hidden = true;
     document.getElementById("upload-panel").hidden = true;
+    document.getElementById("invite-panel").hidden = true;
     document.getElementById("demo-banner").hidden = false;
     document.getElementById("ask-heading").textContent = "Ask";
     loadModels();
@@ -137,14 +140,14 @@ registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const email = document.getElementById("register-email").value.trim();
   const password = document.getElementById("register-password").value;
-  const tenantId = document.getElementById("register-tenant").value.trim();
+  const invitationToken = document.getElementById("register-invitation").value.trim() || null;
 
   setStatus(registerStatus, "Creating account...");
   try {
     const response = await fetch(`${AUTH_BASE}/api/v1/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, tenantId }),
+      body: JSON.stringify({ email, password, invitationToken }),
     });
     const body = await response.json();
     if (!response.ok) {
@@ -155,6 +158,28 @@ registerForm.addEventListener("submit", async (event) => {
     setStatus(registerStatus, "", "");
   } catch (error) {
     setStatus(registerStatus, error.message ?? "Registration failed.", "error");
+  }
+});
+
+inviteForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const email = document.getElementById("invite-email").value.trim();
+
+  setStatus(inviteStatus, "Creating invitation...");
+  try {
+    const response = await fetch(`${AUTH_BASE}/api/v1/auth/invitations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      body: JSON.stringify({ email }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.message ?? "Could not create the invitation.");
+    }
+    inviteForm.reset();
+    setStatus(inviteStatus, `Invitation token (valid until ${new Date(body.expiresAt).toLocaleString()}): ${body.token}`, "");
+  } catch (error) {
+    setStatus(inviteStatus, error.message ?? "Could not create the invitation.", "error");
   }
 });
 

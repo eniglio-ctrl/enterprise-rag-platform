@@ -129,9 +129,18 @@ exactly what that decision is):
 15. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists.
-16. ⬜ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
-    large, self-contained, no real dependency on the others; sequenced here
-    mainly by size, not a technical blocker.
+16. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+    closed. Free-text `tenantId` registration replaced by a real
+    invitation model (single-use, 7-day expiry, exact-email match, all
+    enforced atomically); `JwtKeyProvider` now loads a persisted RSA key
+    (mounted secret file or Base64 env var) instead of regenerating one on
+    every restart. Verified against the real docker-compose stack, including
+    an actual `auth-service` container restart with a pre-restart token
+    still validating afterward (see
+    [ADR 0031](adr/0031-tenant-invitations-and-persistent-jwt-key.md)). Was
+    sequenced here by size, not a real technical blocker, exactly as this
+    entry originally said — closing it didn't need anything else to land
+    first.
 17. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
 18. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs

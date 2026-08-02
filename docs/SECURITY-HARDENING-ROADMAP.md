@@ -12,7 +12,7 @@
 | 1 | Upload content validation (magic bytes) | ✅ Done, one known gap open — [ADR 0022](adr/0022-upload-validation-hardening.md) |
 | 2 | Rate limiting / abuse prevention | ✅ Done — [ADR 0028](adr/0028-rate-limiting.md) |
 | 3 | Secrets, CORS, HTTP security headers | ✅ Done — [ADR 0029](adr/0029-secrets-cors-http-headers.md) |
-| 4 | Tenants/invitations + persistent JWT key | ⬜ Not started |
+| 4 | Tenants/invitations + persistent JWT key | ✅ Done — [ADR 0031](adr/0031-tenant-invitations-and-persistent-jwt-key.md) |
 | 5 | Security audit logging + monitoring | ⬜ Not started |
 | 6 | Public demo hardening | ⬜ Not started |
 | 7 | Supply-chain security (secret scanning, dependency/CVE scanning) | ✅ Done — [ADR 0026](adr/0026-supply-chain-security-phase7.md) |
@@ -255,58 +255,43 @@ fails with a clear message instead of silently using default credentials;
 question still renders correctly in the browser with zero CSP violations in
 the console.
 
-## Phase 4 — Tenants/invitations + persistent JWT signing key ⬜
+## Phase 4 — Tenants/invitations + persistent JWT signing key ✅
 
-**Not started.** This phase **deliberately supersedes** ADR 0016's
-simplifications — the new ADR for this phase should say so explicitly, not
-frame it as fixing a bug nobody noticed.
+**Done.** See [ADR 0031](adr/0031-tenant-invitations-and-persistent-jwt-key.md)
+— deliberately supersedes ADR 0016's caller-supplied free-text `tenantId` and
+in-memory-only signing key, both explicitly flagged there as known
+limitations. Kept for the record:
 
-**Define the invitation model precisely before writing any code** (this was
-originally underspecified here — a specific enough model to implement
-directly, not "add an invitation flow"):
+- Registering with no `invitationToken` now always creates a brand-new tenant
+  with a non-guessable UUID id; there is no longer any way to join an
+  existing tenant by typing its name. Registering with a token redeems it via
+  the new `InvitationService`: single-use (enforced with an atomic
+  `UPDATE ... RETURNING`, not a check-then-update a race could bypass), a
+  7-day expiry checked at redemption time, and an exact email match.
+- New `tenants`/`invitations` tables (`V2` migration). `tenants.id` stays
+  `TEXT`, not `UUID` — every pre-existing free-text `tenant_id` value already
+  in `users` gets backfilled into it as-is, which a native `UUID` column
+  would have rejected outright.
+- `JwtKeyProvider` now loads a persisted PKCS8 PEM RSA key from a mounted
+  secret file (Kubernetes) or a Base64-encoded env var (docker-compose),
+  falling back to the old ephemeral-key behavior only when neither is
+  configured (tests). The JWKS `kid` is now a SHA-256 thumbprint of the key
+  itself, not random, so it stays identical across restarts.
+- `AuthSecurityConfig`'s `anyRequest().permitAll()` became an explicit
+  allowlist; the new `POST /api/v1/auth/invitations` endpoint is the first
+  one `auth-service` itself requires a bearer token for, validated in-process
+  against the same key material that signs tokens (no self-HTTP-call to its
+  own JWKS).
 
-- An invitation is a row referencing a specific `tenantId` and a specific
-  invited email address — not a generic, reusable "join code."
-- It has an expiration (e.g. 7 days) checked at redemption time, not just at
-  creation.
-- It is single-use: redeeming it (successfully completing registration
-  through it) invalidates it for any further use, enforced with a DB-level
-  guard (a `redeemed_at`/status column checked and set atomically), not just
-  application-level logic that a race condition could bypass.
-- Registration through an invitation must use the exact invited email — a
-  token that grants "join this tenant as anyone" instead of "join this tenant
-  as this specific person" defeats the point of tying it to an email at all.
-
-Rest of the plan:
-
-- `auth-service`'s `RegisterRequest`/`AuthService` stop accepting a free-text
-  `tenantId` — first registration (no invitation token) auto-creates an
-  organization with a non-guessable ID (e.g. UUID); every subsequent user for
-  that tenant must go through the invitation model above.
-- New `TenantRepository`, `InvitationRepository`, Flyway migration
-  `auth-service/src/main/resources/db/migration/V2__*.sql` (today only
-  `V1__users.sql` exists — `tenant_id` is a free `TEXT` column, no FK, no
-  `tenants` table).
-- `JwtKeyProvider` (`auth-service/src/main/java/com/eniglio/ragplatform/auth/security/JwtKeyProvider.java`)
-  stops generating an RSA keypair in memory at startup. **Prefer a key
-  supplied as a mounted secret file or a Base64-encoded environment variable
-  over generating one anywhere at deploy time** — generating "once, at first
-  deploy" still needs somewhere durable to persist the result, and a
-  mounted-secret/env-var approach sidesteps that entirely by treating key
-  material the same way any other secret (DB password, API key) is already
-  handled in this project, with the same `.env`/Kubernetes-secret mechanism
-  Phase 3 and the existing `kubernetes/base/.env.secret` pattern already use.
-  `AuthProperties` gains a field for the key material or its file path.
-- `AuthSecurityConfig`'s `anyRequest().permitAll()` becomes an explicit
-  allowlist (`/api/v1/auth/register`, `/api/v1/auth/login`,
-  `/.well-known/jwks.json`, `/actuator/health`).
-
-**Done when**: nobody joins an existing tenant just by typing its name; an
-invitation can't be redeemed twice (verified by actually trying it twice) or
-after it expires (verified with a manually-expired row, not just reasoning
-about the code); tokens issued before an `auth-service` restart are still
-valid after one (verified by actually restarting the container and reusing an
-old token).
+**Verified for real, not just by reasoning about the code**: against the live
+docker-compose stack — registered a user, created an invitation, redeemed it
+as a teammate (confirmed same `tenantId`), confirmed reusing the same
+invitation returns 400, **restarted the real `auth-service` container**, and
+reused the pre-restart token against the now-authenticated invitations
+endpoint — `201`, not `401`. Confirmed via `psql` that the `V2` backfill left
+zero orphaned users against 7 real pre-existing tenant IDs from earlier local
+testing. Full account, including a browser-tooling caching gotcha hit while
+verifying the new web-ui panel, in ADR 0031's Consequences section.
 
 ## Phase 5 — Security audit logging and monitoring ⬜
 

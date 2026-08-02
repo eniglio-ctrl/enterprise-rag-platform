@@ -23,8 +23,9 @@
 
   <section class="panel auth-panel" id="auth-panel">
     <h2>Log in</h2>
-    <p class="hint">Everything you upload and every question you ask is scoped to your tenant — accounts sharing the
-      same tenant ID share a knowledge base.</p>
+    <p class="hint">Everything you upload and every question you ask is scoped to your tenant. Registering with no
+      invitation token creates a brand-new tenant just for you; a teammate joins yours with an invitation you send
+      them from the "Invite a teammate" panel after logging in.</p>
 
     <form id="login-form">
       <input type="email" id="login-email" placeholder="Email" autocomplete="email" required />
@@ -40,7 +41,7 @@
       <input type="email" id="register-email" placeholder="Email" autocomplete="email" required />
       <input type="password" id="register-password" placeholder="Password (min 8 characters)"
         autocomplete="new-password" minlength="8" required />
-      <input type="text" id="register-tenant" placeholder="Tenant ID (e.g. your company name)" required />
+      <input type="text" id="register-invitation" placeholder="Invitation token (leave blank to create a new organization)" />
       <button type="submit">Register</button>
     </form>
     <div id="register-status" class="status" hidden></div>
@@ -66,6 +67,17 @@
       <div id="upload-status" class="status" hidden></div>
 
       <ul id="upload-history" class="history"></ul>
+    </section>
+
+    <section class="panel" id="invite-panel">
+      <h2>Invite a teammate</h2>
+      <p class="hint">Creates a single-use invitation for your own tenant, valid for a limited time. Share the
+        token with your teammate — they paste it into the "Invitation token" field when registering.</p>
+      <form id="invite-form">
+        <input type="email" id="invite-email" placeholder="Teammate's email" autocomplete="off" required />
+        <button type="submit">Create invitation</button>
+      </form>
+      <div id="invite-status" class="status" hidden></div>
     </section>
 
     <section class="panel panel-wide">

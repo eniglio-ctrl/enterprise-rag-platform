@@ -5,28 +5,37 @@ import com.eniglio.ragplatform.auth.dto.LoginRequest;
 import com.eniglio.ragplatform.auth.dto.RegisterRequest;
 import com.eniglio.ragplatform.auth.exception.EmailAlreadyExistsException;
 import com.eniglio.ragplatform.auth.exception.InvalidCredentialsException;
+import com.eniglio.ragplatform.auth.repository.Invitation;
+import com.eniglio.ragplatform.auth.repository.TenantRepository;
 import com.eniglio.ragplatform.auth.repository.User;
 import com.eniglio.ragplatform.auth.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.UUID;
+
 /**
- * Deliberately simple tenant model (ADR 0016): registration takes a caller-supplied
- * {@code tenantId} rather than provisioning a new organization or requiring an invite
- * flow. Two users registering with the same {@code tenantId} share a tenant; there is
- * no ownership/admin concept over a tenant. Good enough to demonstrate real
- * multi-tenant isolation (ADR 0007) without building an organization-management
- * feature that isn't the point of this portfolio project.
+ * Tenant/invitation model (Security Phase 4, ADR 0031, superseding ADR 0016's
+ * caller-supplied free-text {@code tenantId}): registering with no {@code
+ * invitationToken} always creates a brand-new tenant with a non-guessable UUID id -
+ * there is no way to join an existing tenant by typing its name anymore. Registering
+ * with a token redeems it via {@link InvitationService}, which enforces single-use,
+ * expiry, and an exact email match before handing back the tenant to join.
  */
 @Service
 public class AuthService {
 
     private final UserRepository userRepository;
+    private final TenantRepository tenantRepository;
+    private final InvitationService invitationService;
     private final PasswordEncoder passwordEncoder;
     private final TokenService tokenService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, TokenService tokenService) {
+    public AuthService(UserRepository userRepository, TenantRepository tenantRepository,
+            InvitationService invitationService, PasswordEncoder passwordEncoder, TokenService tokenService) {
         this.userRepository = userRepository;
+        this.tenantRepository = tenantRepository;
+        this.invitationService = invitationService;
         this.passwordEncoder = passwordEncoder;
         this.tokenService = tokenService;
     }
@@ -35,8 +44,17 @@ public class AuthService {
         if (userRepository.existsByEmail(request.email())) {
             throw new EmailAlreadyExistsException(request.email());
         }
-        User user = userRepository.create(request.tenantId(), request.email(),
-                passwordEncoder.encode(request.password()));
+
+        String tenantId;
+        if (request.invitationToken() == null || request.invitationToken().isBlank()) {
+            tenantId = UUID.randomUUID().toString();
+            tenantRepository.create(tenantId);
+        } else {
+            Invitation invitation = invitationService.redeem(request.invitationToken(), request.email());
+            tenantId = invitation.tenantId();
+        }
+
+        User user = userRepository.create(tenantId, request.email(), passwordEncoder.encode(request.password()));
         return toAuthResponse(user);
     }
 

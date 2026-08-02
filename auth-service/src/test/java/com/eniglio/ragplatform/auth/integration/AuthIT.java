@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -27,14 +28,15 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Exercises register/login/JWKS against a real Postgres instance, and — beyond just
- * checking HTTP status codes — actually verifies a token issued by {@code /register}
- * cryptographically against the public key served at {@code /.well-known/jwks.json},
- * the same way ingestion-service/rag-service/chat-service's resource-server config
- * would. A wiring mistake between {@link com.eniglio.ragplatform.auth.security.JwtKeyProvider}
- * and {@link com.eniglio.ragplatform.auth.service.TokenService} (e.g. signing with one
- * key but publishing another) would pass a naive "token is a non-blank string" check
- * but fail this one.
+ * Exercises register/login/JWKS and the tenant-invitation model (Security Phase 4,
+ * ADR 0031) against a real Postgres instance, and — beyond just checking HTTP status
+ * codes — actually verifies a token issued by {@code /register} cryptographically
+ * against the public key served at {@code /.well-known/jwks.json}, the same way
+ * ingestion-service/rag-service/chat-service's resource-server config would. A wiring
+ * mistake between {@link com.eniglio.ragplatform.auth.security.JwtKeyProvider} and
+ * {@link com.eniglio.ragplatform.auth.service.TokenService} (e.g. signing with one key
+ * but publishing another) would pass a naive "token is a non-blank string" check but
+ * fail this one.
  */
 @Testcontainers
 @SpringBootTest(classes = AuthServiceApplication.class)
@@ -58,12 +60,15 @@ class AuthIT {
     @Autowired
     private MockMvc mockMvc;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void registersLogsInAndIssuesATokenThatVerifiesAgainstTheJwksEndpoint() throws Exception {
+    void registersWithNoInvitationCreatesANewTenantAndIssuesAVerifiableToken() throws Exception {
         String registerBody = """
-                {"email":"ana@example.com","password":"supersecret","tenantId":"acme"}
+                {"email":"ana@example.com","password":"supersecret"}
                 """;
 
         MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register")
@@ -73,8 +78,9 @@ class AuthIT {
                 .andReturn();
 
         JsonNode registerJson = objectMapper.readTree(registerResult.getResponse().getContentAsString());
-        assertThat(registerJson.get("tenantId").asText()).isEqualTo("acme");
+        assertThat(registerJson.get("tenantId").asText()).isNotBlank();
         assertThat(registerJson.get("tokenType").asText()).isEqualTo("Bearer");
+        String tenantId = registerJson.get("tenantId").asText();
         String token = registerJson.get("token").asText();
 
         String loginBody = """
@@ -85,13 +91,13 @@ class AuthIT {
                         .content(loginBody))
                 .andExpect(status().isOk());
 
-        verifyTokenAgainstJwks(token, registerJson.get("userId").asText());
+        verifyTokenAgainstJwks(token, registerJson.get("userId").asText(), tenantId);
     }
 
     @Test
     void rejectsRegisteringTheSameEmailTwice() throws Exception {
         String body = """
-                {"email":"dup@example.com","password":"supersecret","tenantId":"acme"}
+                {"email":"dup@example.com","password":"supersecret"}
                 """;
         mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isCreated());
@@ -102,7 +108,7 @@ class AuthIT {
     @Test
     void rejectsLoginWithTheWrongPassword() throws Exception {
         String registerBody = """
-                {"email":"bruno@example.com","password":"supersecret","tenantId":"acme"}
+                {"email":"bruno@example.com","password":"supersecret"}
                 """;
         mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(registerBody))
                 .andExpect(status().isCreated());
@@ -114,7 +120,123 @@ class AuthIT {
                 .andExpect(status().isUnauthorized());
     }
 
-    private void verifyTokenAgainstJwks(String token, String expectedUserId) throws Exception {
+    @Test
+    void createInvitationRequiresAToken() throws Exception {
+        String body = """
+                {"email":"invited@example.com"}
+                """;
+        mockMvc.perform(post("/api/v1/auth/invitations").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void aTeammateCanJoinAnExistingTenantThroughAValidInvitation() throws Exception {
+        String ownerToken = registerAndGetToken("owner@example.com");
+
+        String invitationBody = """
+                {"email":"teammate@example.com"}
+                """;
+        MvcResult invitationResult = mockMvc.perform(post("/api/v1/auth/invitations")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(invitationBody))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String token = objectMapper.readTree(invitationResult.getResponse().getContentAsString())
+                .get("token").asText();
+
+        String ownerTenantId = tenantIdOf(ownerToken);
+
+        String registerBody = """
+                {"email":"teammate@example.com","password":"supersecret","invitationToken":"%s"}
+                """.formatted(token);
+        MvcResult registerResult = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerBody))
+                .andExpect(status().isCreated())
+                .andReturn();
+
+        JsonNode registerJson = objectMapper.readTree(registerResult.getResponse().getContentAsString());
+        assertThat(registerJson.get("tenantId").asText()).isEqualTo(ownerTenantId);
+    }
+
+    @Test
+    void rejectsRedeemingTheSameInvitationTwice() throws Exception {
+        String ownerToken = registerAndGetToken("owner2@example.com");
+        String token = createInvitation(ownerToken, "teammate2@example.com");
+
+        String firstAttempt = """
+                {"email":"teammate2@example.com","password":"supersecret","invitationToken":"%s"}
+                """.formatted(token);
+        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(firstAttempt))
+                .andExpect(status().isCreated());
+
+        String secondAttempt = """
+                {"email":"someone-else@example.com","password":"supersecret","invitationToken":"%s"}
+                """.formatted(token);
+        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(secondAttempt))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsAnInvitationRedeemedWithADifferentEmail() throws Exception {
+        String ownerToken = registerAndGetToken("owner3@example.com");
+        String token = createInvitation(ownerToken, "teammate3@example.com");
+
+        String wrongEmail = """
+                {"email":"not-the-invited-email@example.com","password":"supersecret","invitationToken":"%s"}
+                """.formatted(token);
+        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(wrongEmail))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsAnExpiredInvitationEvenWithTheCorrectEmail() throws Exception {
+        String ownerToken = registerAndGetToken("owner4@example.com");
+        String token = createInvitation(ownerToken, "teammate4@example.com");
+
+        // Manually expire the row - the same guarantee this phase's "done when"
+        // requires verifying for real, not just by reasoning about the code.
+        jdbcTemplate.update("UPDATE invitations SET expires_at = now() - interval '1 day' WHERE token = ?", token);
+
+        String registerBody = """
+                {"email":"teammate4@example.com","password":"supersecret","invitationToken":"%s"}
+                """.formatted(token);
+        mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(registerBody))
+                .andExpect(status().isBadRequest());
+    }
+
+    private String registerAndGetToken(String email) throws Exception {
+        String body = """
+                {"email":"%s","password":"supersecret"}
+                """.formatted(email);
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
+    }
+
+    private String createInvitation(String ownerToken, String invitedEmail) throws Exception {
+        String body = """
+                {"email":"%s"}
+                """.formatted(invitedEmail);
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/invitations")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
+    }
+
+    private String tenantIdOf(String token) throws Exception {
+        return SignedJWT.parse(token).getJWTClaimsSet().getClaim("tenantId").toString();
+    }
+
+    private void verifyTokenAgainstJwks(String token, String expectedUserId, String expectedTenantId)
+            throws Exception {
         MvcResult jwksResult = mockMvc.perform(get("/.well-known/jwks.json"))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -128,6 +250,6 @@ class AuthIT {
 
         assertThat(verified).isTrue();
         assertThat(signedJwt.getJWTClaimsSet().getSubject()).isEqualTo(expectedUserId);
-        assertThat(signedJwt.getJWTClaimsSet().getClaim("tenantId")).isEqualTo("acme");
+        assertThat(signedJwt.getJWTClaimsSet().getClaim("tenantId")).isEqualTo(expectedTenantId);
     }
 }

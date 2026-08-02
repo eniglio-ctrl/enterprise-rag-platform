@@ -16,6 +16,7 @@ out/
 .env
 .env.secret
 kubernetes/base/.env.secret
+kubernetes/base/jwt-signing-key.pem
 credenciais/
 ollama-data/
 postgres-data/

@@ -19,3 +19,10 @@ secretGenerator:
   - name: rag-platform-db-credentials
     envs:
       - .env.secret
+  # Security Phase 4 (ADR 0031): mounted as a file, not an env var - the
+  # standard way Kubernetes handles key/cert material (like a TLS secret).
+  # Generate your own before `kubectl apply -k kubernetes/base`:
+  #   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out kubernetes/base/jwt-signing-key.pem
+  - name: rag-platform-jwt-key
+    files:
+      - jwt-signing-key.pem

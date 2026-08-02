@@ -24,7 +24,8 @@ public class AuthController {
     }
 
     @Operation(summary = "Register a new user",
-            description = "Users sharing the same tenantId belong to the same tenant (ADR 0016) — there is no invite flow")
+            description = "No invitationToken creates a brand-new tenant; a valid one joins the tenant it "
+                    + "was issued for (ADR 0031, see POST /api/v1/auth/invitations)")
     @PostMapping("/api/v1/auth/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
