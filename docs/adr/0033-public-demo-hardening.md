@@ -88,6 +88,31 @@ deployment nobody is meant to administer from the outside at all.
   the claim has its own decision record rather than only living in ADR 0020's
   original context.
 
+### A second real bug, found by re-verifying against the live demo after deploy
+- After the actuator/springdoc changes above deployed, `/actuator/prometheus` and
+  the other disabled endpoints returned **500**, not the expected 404 — checked
+  because "verify for real" means checking the actual response, not just that it's
+  no longer `200`. Reproduced locally against `rag-service` (`GET
+  /actuator/anything-fake` → 500) to find the cause without needing another live
+  deploy cycle: Spring throws `NoResourceFoundException` for a route that matches
+  nothing, and `GlobalExceptionHandlerSupport`'s generic `Exception.class` handler
+  (`platform-common`, shared by all four services) was catching it and returning a
+  misleading "Internal Server Error" instead of letting it be the 404 it actually
+  is. This bug predates this phase — any genuinely mistyped path already hit it —
+  Phase 6 only made it visible by moving previously-`200` admin endpoints onto this
+  exact path.
+- Fixed with a specific `@ExceptionHandler(NoResourceFoundException.class)` in
+  `GlobalExceptionHandlerSupport`, returning a real 404. Spring resolves
+  `@ExceptionHandler` methods by most-specific type match, so this takes priority
+  over the generic handler automatically — no reordering needed. New
+  `GlobalExceptionHandlerSupportTest` (`platform-common`) is this fix's regression
+  test, the first test this class has ever had.
+- The security objective itself (no metrics/schema disclosure) was never actually
+  at risk from this — the 500's body was the same generic, content-free error
+  message as any other unexpected failure, not a leak. This was a correctness bug
+  (wrong status code for "route doesn't exist") surfaced by, not caused by, the
+  security fix.
+
 ## Consequences
 - **Verified against the live URLs, both before and after this phase's changes**:
   the exposure table in Context above was captured from the real, currently-deployed

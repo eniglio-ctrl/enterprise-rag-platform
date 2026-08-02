@@ -8,6 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 
@@ -35,6 +36,19 @@ public abstract class GlobalExceptionHandlerSupport {
         log.error("Ollama unreachable after retries", ex);
         return build(HttpStatus.SERVICE_UNAVAILABLE,
                 "O serviço de IA está temporariamente indisponível. Tente novamente em instantes.", request);
+    }
+
+    // A real bug found by Security Phase 6's live verification: disabling an
+    // endpoint (management.endpoints.web.exposure.include, springdoc.*.enabled) on
+    // the demo profile made a request to it fall through Spring's own routing as
+    // NoResourceFoundException - which the generic Exception.class handler below
+    // was catching and turning into a misleading 500, instead of the real 404 no
+    // route existing actually means. Predates this phase (any genuinely mistyped
+    // path already hit this), only became visible once Phase 6 made previously-200
+    // admin endpoints take this exact path.
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResourceFound(NoResourceFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, "Not found", request);
     }
 
     @ExceptionHandler(Exception.class)
