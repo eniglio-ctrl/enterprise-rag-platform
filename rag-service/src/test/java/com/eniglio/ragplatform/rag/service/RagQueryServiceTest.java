@@ -7,6 +7,7 @@ import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,7 +60,8 @@ class RagQueryServiceTest {
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.
         return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, new LlmGateway(),
-                new RagProperties(5, 0.5, 15, availableModels), visionDescriptionService, new SimpleMeterRegistry());
+                new RagProperties(5, 0.5, 15, availableModels), visionDescriptionService,
+                new DocumentLookupTool(hybridSearchService), new SimpleMeterRegistry());
     }
 
     @Test

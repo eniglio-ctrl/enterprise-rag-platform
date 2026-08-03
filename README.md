@@ -456,13 +456,13 @@ vs. what's blocked on a decision or resource only the user can provide.
   `/actuator/health`). Full phase-by-phase status:
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
-  model selector is done (ADR 0025); real cloud providers, a planner/reflection
-  agent pair, native tool calling, MCP tools, RAG chunking-strategy/evaluation-metric
-  upgrades, event-driven architecture, an AWS deployment target, a Python/LangGraph
-  agent layer, and LLM-specific observability (LangFuse/OpenTelemetry) are a much
-  larger, explicitly staged initiative — see
+  model selector (ADR 0025), the RAG chunking-strategy/evaluation-metric deep-dive
+  (ADR 0034), and native tool calling (ADR 0035) are done; real cloud providers, a
+  planner/reflection agent pair, MCP tools, event-driven architecture, an AWS
+  deployment target, a Python/LangGraph agent layer, and LLM-specific observability
+  (LangFuse/OpenTelemetry) are a much larger, explicitly staged initiative — see
   [docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md).
-  Every phase past the selector is blocked on a real decision (which paid API(s), is
+  Every remaining phase is blocked on a real decision (which paid API(s), is
   Redis/Kafka actually justified, which MCP tools, whether a second language is
   worth it) before any code gets written for it.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
@@ -508,6 +508,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0032 — Security audit logging and monitoring (correlation ID, audit events, found and fixed a real Prometheus scrape bug)](docs/adr/0032-security-audit-logging-and-monitoring.md)
 - [ADR 0033 — Public demo hardening (locked down actuator/API docs, tighter rate limit, demo-specific CSP — closes the security hardening rollout)](docs/adr/0033-public-demo-hardening.md)
 - [ADR 0034 — RAG quality deep-dive: chunking strategies and evaluation metrics (real measured numbers, not asserted)](docs/adr/0034-rag-quality-chunking-and-evaluation-metrics.md)
+- [ADR 0035 — Native tool/function calling: a document-lookup-by-filename `@Tool`, verified via a real log line, not inferred from the answer](docs/adr/0035-native-tool-calling.md)
 
 ## License
 

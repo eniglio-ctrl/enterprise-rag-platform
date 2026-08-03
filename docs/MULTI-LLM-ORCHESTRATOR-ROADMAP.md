@@ -428,25 +428,29 @@ number showing which won and by how much; the benchmark reports faithfulness
 (reusing the groundedness check) and context relevance as real, measured
 numbers per question, not just the existing single cosine-similarity score.
 
-## Phase 9 — Native tool/function calling (Spring AI `@Tool`) ⬜
+## Phase 9 — Native tool/function calling (Spring AI `@Tool`) ✅
 
-**Not started — nothing blocks this, can start now.** A real, distinct gap
-from Phase 6 (MCP): Spring AI supports the LLM directly invoking a Java
-method during a chat completion (`@Tool`-annotated methods, or the
-`FunctionCallback` API) — no external protocol, no separate tool server, just
-a method on an existing `@Component` the model can choose to call mid-answer.
-This is the natural, much cheaper stepping stone before MCP (Phase 6), which
-is genuinely more complex (a full client-server protocol, external tool
-processes). Recommended first tool: something the model can call using data
-already in this codebase — e.g. a `lookupDocumentById(String documentId)`
-tool backed by the existing `VectorStoreGateway`, letting a question like
-"summarize document X" work without needing X's content to already be in the
-retrieved context.
+**Done.** See [ADR 0035](adr/0035-native-tool-calling.md). The plan's suggested
+`lookupDocumentById(String documentId)` was refined to a lookup **by exact source
+filename** instead — a chat user never sees or types the internal UUID this
+project generates per upload, but every citation already shows the filename, so
+that's what a real question actually gives the model to reference. Kept below
+for the record:
+
+Recommended first tool: something the model can call using data already in this
+codebase — e.g. a `lookupDocumentById(String documentId)` tool backed by the
+existing `VectorStoreGateway`, letting a question like "summarize document X"
+work without needing X's content to already be in the retrieved context.
 
 **Done when**: a real question causes the model to actually invoke the tool
 (confirmed via a log line or a debugger breakpoint showing the Java method
 ran, not just inferred from the answer's content) and the tool's return value
-demonstrably shaped the final answer.
+demonstrably shaped the final answer. **Verified exactly this way**: uploaded a
+real document, asked a real question against it by filename, and confirmed via
+the actual `rag-service` log (`Tool lookupDocumentBySource invoked:
+source=report-2026.md tenantId=<real-uuid> chunksFound=1`) that `llama3.1`
+genuinely called the tool with the correct filename and the caller's real
+tenant id — not inferred from the (also correct) final answer.
 
 ## Phase 10 — Reframe agents around capability, not just LLM provider ⬜
 

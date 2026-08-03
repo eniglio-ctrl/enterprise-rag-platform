@@ -98,8 +98,19 @@ around):
    (see [ADR 0034](adr/0034-rag-quality-chunking-and-evaluation-metrics.md)).
    Not wired into the real ingestion pipeline yet — a separate follow-up
    decision, not made by this investigation alone.
-7. ⬜ **Multi-LLM Phase 9 — Native tool/function calling** — no dependency;
-   sets up Tier 2's Phase 10 and Phase 6 below.
+7. ✅ **Multi-LLM Phase 9 — Native tool/function calling** — closed. One
+   `@Tool` (`DocumentLookupTool.lookupDocumentBySource`, `rag-service`) lets
+   the model fetch a whole document by exact filename when a question names
+   it directly (e.g. "resuma o documento X.md"). `tenantId` comes from
+   Spring AI's `ToolContext`, never a model-supplied parameter — the one
+   security-critical decision in this phase, since exposing it to the model
+   would let a crafted prompt read another tenant's data. Verified for real
+   against the running local stack: uploaded a real document, asked a real
+   question, and confirmed via the actual server log (not inferred from the
+   answer) that `llama3.1` invoked the tool with the correct filename and
+   the caller's real tenant id (see
+   [ADR 0035](adr/0035-native-tool-calling.md)). Known, named limitation:
+   tool-fetched content doesn't get its own citation entry yet.
 8. ⬜ **Multi-LLM Phase 2a — Fallback provider wiring: OpenAI + Gemini**
    (`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`) — unblocked: both keys real,
    verified, already in `credenciais/multi-llm-fallback.env`. Confirmed

@@ -42,6 +42,18 @@ public class HybridSearchService {
             LIMIT ?
             """;
 
+    // Multi-LLM Phase 9: exact lookup, not similarity search - a tenant-scoped exact
+    // match on the source filename, every chunk of the document in original order.
+    // (metadata->>'chunkIndex')::int, not a plain text sort, since "10" would
+    // otherwise sort before "2".
+    private static final String LOOKUP_BY_SOURCE_SQL = """
+            SELECT id, content, metadata
+            FROM vector_store
+            WHERE metadata->>'source' = ?
+              AND tenant_id = ?
+            ORDER BY (metadata->>'chunkIndex')::int
+            """;
+
     private final VectorStoreGateway vectorStoreGateway;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -92,6 +104,24 @@ public class HybridSearchService {
         log.info("Hybrid search: {} vector hits, {} full-text hits, {} after RRF fusion",
                 vectorResults.size(), textResults.size(), fused.size());
         return fused;
+    }
+
+    /**
+     * Multi-LLM Phase 9: backs {@code DocumentLookupTool}, the model-invokable
+     * {@code @Tool} that fetches a whole document by its exact source filename —
+     * distinct from {@link #search} (similarity-ranked, partial, never exact-match).
+     * {@code tenantId} always comes from server-side {@code ToolContext}, never from
+     * the model - the tenant boundary this enforces is the entire reason this method
+     * takes it as a parameter here rather than trusting the source string alone.
+     */
+    public List<Document> findBySource(String source, String tenantId) {
+        return jdbcTemplate.query(LOOKUP_BY_SOURCE_SQL,
+                (rs, rowNum) -> Document.builder()
+                        .id(rs.getString("id"))
+                        .text(rs.getString("content"))
+                        .metadata(parseMetadata(rs.getString("metadata")))
+                        .build(),
+                source, tenantId);
     }
 
     private List<Document> fullTextSearch(String question, String tenantId, int limit) {

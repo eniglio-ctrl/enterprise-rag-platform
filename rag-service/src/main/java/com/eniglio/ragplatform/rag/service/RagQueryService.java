@@ -10,6 +10,7 @@ import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -27,6 +28,7 @@ import org.springframework.util.MimeType;
 import java.text.Normalizer;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -152,6 +154,7 @@ public class RagQueryService {
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
     private final VisionDescriptionService visionDescriptionService;
+    private final DocumentLookupTool documentLookupTool;
     private final Counter answersGeneratedCounter;
     private final Counter diagramsGeneratedCounter;
     private final Timer answerTimer;
@@ -162,6 +165,7 @@ public class RagQueryService {
                             @Qualifier("lmstudio") ChatClient lmStudioChatClient,
                             LlmGateway llmGateway, RagProperties ragProperties,
                             VisionDescriptionService visionDescriptionService,
+                            DocumentLookupTool documentLookupTool,
                             MeterRegistry meterRegistry) {
         this.hybridSearchService = hybridSearchService;
         this.llmRerankService = llmRerankService;
@@ -170,6 +174,7 @@ public class RagQueryService {
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
         this.visionDescriptionService = visionDescriptionService;
+        this.documentLookupTool = documentLookupTool;
         this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
                 .description("Number of text answers generated")
                 .register(meterRegistry);
@@ -287,10 +292,15 @@ public class RagQueryService {
         String finalSystemTemplate = systemTemplate;
         AvailableModel resolvedModel = resolveModel(model);
 
+        // Multi-LLM Phase 9: tenantId comes from ToolContext, a server-side channel
+        // the model never sees or controls - see DocumentLookupTool's own javadoc for
+        // why that boundary matters here specifically.
         String answer = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
                 .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
                 .user(question)
                 .options(modelOptions(resolvedModel, null))
+                .tools(documentLookupTool)
+                .toolContext(Map.of("tenantId", tenantId))
                 .call()
                 .content());
 
