@@ -295,6 +295,49 @@ button:disabled {
   color: var(--color-muted);
 }
 
+.fallback-confirm-card {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.fallback-confirm-card p {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+.fallback-confirm-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.fallback-confirm-actions button {
+  margin-top: 0;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.provenance-badge {
+  display: inline-block;
+  margin-bottom: 0.75rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .answer-card {
   margin-top: 1.25rem;
   padding-top: 1.25rem;

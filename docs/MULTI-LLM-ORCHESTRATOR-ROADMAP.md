@@ -25,7 +25,7 @@
 | 2a | Fallback provider wiring: OpenAI + Gemini | ✅ Done, with one real caveat — [ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md) | Gemini fully works; OpenAI's account has zero credits (user action needed) |
 | 2b | Fallback trigger detection (local failed / insufficient) | ✅ Done — [ADR 0037](adr/0037-fallback-trigger-detection.md) | — |
 | 2c | Confirmation gate + non-grounded response contract | ✅ Done — [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md) | — |
-| 2d | `web-ui`: confirmation dialog + provenance badge | ⬜ Not started | Depends on 2c |
+| 2d | `web-ui`: confirmation dialog + provenance badge | ✅ Done — [ADR 0039](adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md) | — |
 | 2e | Fallback provider wiring: Anthropic | ⬜ Not started | Same pattern as 2a — do when the Anthropic key is provided |
 | 3 | `PlannerAgent` (decides which specialist handles a request) | ⬜ Not started | Phase 2 |
 | 4 | `ReflectionAgent` (compares/merges multiple models' answers) | ⬜ Not started | Phase 2/3 |
@@ -328,10 +328,15 @@ same tenant returned `source: "local"` (retrieval succeeded — RRF score
 quality on that one terse chunk was mediocre, an unrelated, pre-existing model
 behavior).
 
-### Phase 2d — `web-ui`: confirmation dialog + provenance badge ⬜
+### Phase 2d — `web-ui`: confirmation dialog + provenance badge ✅
 
-**Not started.** Depends on 2c. Two pieces of UI, both carrying the two
-warnings from the same screen (cost + provenance), not staged separately:
+**Done.** See [ADR 0039](adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)
+for the full account. `askForm`'s submit logic was extracted into a single
+reusable `performAsk(...)` function shared by the initial ask, the confirm
+button, and (implicitly) the diagram/normal-answer paths, so the confirm flow
+didn't need to duplicate any fetch/response-handling logic. Original plan
+text kept below for the record — implemented essentially as written, no
+premise corrections needed this time:
 
 - A confirmation prompt shown when `fallbackAvailable: true` comes back:
   something like "Não encontrei uma resposta nos seus documentos. Buscar em
@@ -344,7 +349,15 @@ warnings from the same screen (cost + provenance), not staged separately:
 
 **Done when**: tested for real in the browser — a question with no local
 match shows the confirmation prompt, confirming it shows a visibly
-different-looking answer with no citations.
+different-looking answer with no citations. **Verified for real** in the
+browser (not just code review): registered a fresh test tenant, asked a
+question with no matching documents, saw the confirmation card render with
+the exact planned copy, clicked "Buscar em IA pública", and saw a real
+`gemini-flash-latest` answer render with the provenance badge visible above
+it and "No sources were retrieved for this question." in the citations area.
+Then, as the negative-case check, uploaded a real document and asked a
+normal question about it — the badge correctly did **not** appear on that
+grounded answer.
 
 ### Phase 2e — Fallback provider wiring: Anthropic ⬜
 

@@ -158,10 +158,18 @@ around):
     state) still surfaces as a generic 500 — a proper error contract for
     that is deferred to Phase 2d (see
     [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md)).
-11. ⬜ **Multi-LLM Phase 2d — `web-ui`: confirmation dialog + provenance
-    badge** (after #10) — the one-screen dialog naming both the cost and the
-    "not from your documents" warning together, plus a visibly distinct
-    badge on the answer itself.
+11. ✅ **Multi-LLM Phase 2d — `web-ui`: confirmation dialog + provenance
+    badge** — done, closing the Phase 2 fallback sequence except Anthropic.
+    A confirmation card (exact copy from the plan) shows when
+    `fallbackAvailable: true`, and a distinct warning badge marks any answer
+    whose `source` is `public-llm`. `askForm`'s logic was extracted into one
+    reusable `performAsk(...)` function shared by the initial ask and the
+    confirm button, so the confirm flow needed no duplicated fetch logic.
+    Verified live in the browser, both directions: a question with no local
+    match showed the confirmation card, confirming got a real
+    `gemini-flash-latest` answer with the badge visible; a normal question
+    against a real uploaded document correctly showed **no** badge (see
+    [ADR 0039](adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)).
 12. ⬜ **Multi-LLM Phase 2e — Fallback provider wiring: Anthropic** (same
     shape as #8, once #8-#11 exist) — deliberately deferred: the user will
     generate `ANTHROPIC_API_KEY` specifically when this item starts, not

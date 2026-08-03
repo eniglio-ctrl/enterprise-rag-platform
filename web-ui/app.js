@@ -202,7 +202,18 @@ const questionInput = document.getElementById("question-input");
 const modelSelect = document.getElementById("model-select");
 const answerCard = document.getElementById("answer-card");
 const answerText = document.getElementById("answer-text");
+const answerProvenanceBadge = document.getElementById("answer-provenance-badge");
 const citationsList = document.getElementById("citations-list");
+
+// Multi-LLM Phase 2c/2d (ADR 0038)
+const fallbackConfirmCard = document.getElementById("fallback-confirm-card");
+const fallbackConfirmYes = document.getElementById("fallback-confirm-yes");
+const fallbackConfirmNo = document.getElementById("fallback-confirm-no");
+// Set only while fallback-confirm-card is showing - lets the "yes" button re-ask
+// the exact same question with useFallback: true without the user retyping it.
+// Never carries an attached image: rag-service never offers the fallback at all
+// when one is present (ADR 0038), so there is nothing to resend here either way.
+let pendingFallbackQuestion = null;
 
 const imageInput = document.getElementById("image-input");
 const imageAttachmentPreview = document.getElementById("image-attachment-preview");
@@ -342,15 +353,43 @@ askForm.addEventListener("submit", async (event) => {
   if (!question) {
     return;
   }
+  await performAsk({ question, model: modelSelect.value, attachedImage: imageInput.files[0], useFallback: false });
+});
 
-  const attachedImage = imageInput.files[0];
+// Multi-LLM Phase 2d (ADR 0038): the confirmation gate's "yes" button - re-asks
+// the exact same question with useFallback: true, the one thing that actually
+// triggers a real call to the public-LLM fallback (rag-service never calls it
+// on the first, unconfirmed request).
+fallbackConfirmYes.addEventListener("click", async () => {
+  if (!pendingFallbackQuestion) {
+    return;
+  }
+  const { question, model } = pendingFallbackQuestion;
+  fallbackConfirmYes.disabled = true;
+  fallbackConfirmNo.disabled = true;
+  try {
+    await performAsk({ question, model, attachedImage: null, useFallback: true });
+  } finally {
+    fallbackConfirmYes.disabled = false;
+    fallbackConfirmNo.disabled = false;
+  }
+});
 
+fallbackConfirmNo.addEventListener("click", () => {
+  fallbackConfirmCard.hidden = true;
+  pendingFallbackQuestion = null;
+});
+
+async function performAsk({ question, model, attachedImage, useFallback }) {
   askButton.disabled = true;
   answerCard.hidden = true;
   diagramCard.hidden = true;
+  fallbackConfirmCard.hidden = true;
   setStatus(askStatus, attachedImage
     ? "Describing the attached image and generating a response..."
-    : "Retrieving context and generating a response...");
+    : useFallback
+      ? "Asking a public AI model (not grounded in your documents)..."
+      : "Retrieving context and generating a response...");
 
   try {
     let response;
@@ -361,8 +400,8 @@ askForm.addEventListener("submit", async (event) => {
       // the document-upload form above.
       const formData = new FormData();
       formData.append("question", question);
-      if (modelSelect.value) {
-        formData.append("model", modelSelect.value);
+      if (model) {
+        formData.append("model", model);
       }
       formData.append("image", attachedImage);
       response = await fetch(`${RAG_BASE}/api/v1/ask`, {
@@ -374,7 +413,7 @@ askForm.addEventListener("submit", async (event) => {
       response = await fetch(`${RAG_BASE}/api/v1/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({ question, model: modelSelect.value || undefined }),
+        body: JSON.stringify({ question, model: model || undefined, useFallback: useFallback || undefined }),
       });
     }
 
@@ -396,8 +435,15 @@ askForm.addEventListener("submit", async (event) => {
       }
       setStatus(askStatus, "");
       await renderDiagram(body);
+    } else if (body.fallbackAvailable) {
+      // Multi-LLM Phase 2c/2d: offered, not answered - no LLM was called yet.
+      // Keep the question around so "yes" can resend it with useFallback: true.
+      setStatus(askStatus, "");
+      pendingFallbackQuestion = { question, model };
+      fallbackConfirmCard.hidden = false;
     } else {
       setStatus(askStatus, "");
+      pendingFallbackQuestion = null;
       renderAnswer(body);
     }
 
@@ -407,9 +453,14 @@ askForm.addEventListener("submit", async (event) => {
   } finally {
     askButton.disabled = false;
   }
-});
+}
 
-function renderAnswer({ answer, citations }) {
+function renderAnswer({ answer, citations, source }) {
+  // Multi-LLM Phase 2d (ADR 0038): the one visible signal that this answer was
+  // never grounded in the tenant's own documents - reads the backend's explicit
+  // `source` field rather than inferring it from citations being empty (which
+  // can also happen for other reasons on the normal, local path).
+  answerProvenanceBadge.hidden = source !== "public-llm";
   answerText.textContent = answer;
   renderCitations(citationsList, citations);
   answerCard.hidden = false;

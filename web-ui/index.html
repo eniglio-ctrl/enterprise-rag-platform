@@ -108,8 +108,26 @@
 
       <div id="ask-status" class="status" hidden></div>
 
+      <!-- Multi-LLM Phase 2c/2d (ADR 0038): shown instead of an answer when the
+           backend's fallbackAvailable: true fires - no LLM (local or public) has
+           been called yet, so this offers the choice rather than assuming it. -->
+      <div id="fallback-confirm-card" class="fallback-confirm-card" hidden>
+        <p>Não encontrei uma resposta nos seus documentos. Buscar em um modelo de
+          IA pública (OpenAI/Gemini)? A resposta não será baseada nos seus
+          documentos, e isso usa uma API paga/com limite de uso.</p>
+        <div class="fallback-confirm-actions">
+          <button type="button" id="fallback-confirm-yes">Buscar em IA pública</button>
+          <button type="button" id="fallback-confirm-no" class="secondary">Cancelar</button>
+        </div>
+      </div>
+
       <div id="answer-card" class="answer-card" hidden>
         <h3>Answer</h3>
+        <!-- Only shown when source === "public-llm" (Phase 2c) - visibly distinct
+             from a normal grounded answer so it can't be mistaken for one. -->
+        <div id="answer-provenance-badge" class="provenance-badge" hidden>
+          ⚠️ Resposta de IA pública, não verificada com seus documentos
+        </div>
         <p id="answer-text"></p>
 
         <h4>Citations</h4>
