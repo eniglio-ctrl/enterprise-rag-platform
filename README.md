@@ -460,12 +460,15 @@ vs. what's blocked on a decision or resource only the user can provide.
   (ADR 0034), native tool calling (ADR 0035), OpenAI+Gemini fallback provider
   wiring (ADR 0036 — Gemini fully verified working end-to-end; OpenAI's key
   authenticates but the account has zero credits, a real, external, user-actionable
-  blocker), and fallback-trigger detection (ADR 0037 — circuit-breaker state +
-  empty retrieval, not keyword matching) are done; the confirmation gate, `web-ui`
-  dialog, Anthropic wiring, a planner/reflection agent pair, MCP tools, event-driven
-  architecture, an AWS deployment target, a Python/LangGraph agent layer, and
-  LLM-specific observability (LangFuse/OpenTelemetry) are a much larger, explicitly
-  staged initiative — see
+  blocker), fallback-trigger detection (ADR 0037 — circuit-breaker state +
+  empty retrieval, not keyword matching), and the confirmation gate + non-grounded
+  response contract (ADR 0038 — two-step `useFallback` flow, verified live: a real
+  question with no local context got `fallbackAvailable: true`, then a confirmed
+  follow-up got a real Gemini answer marked `source: "public-llm"`) are done; the
+  `web-ui` dialog, Anthropic wiring, a planner/reflection agent pair, MCP tools,
+  event-driven architecture, an AWS deployment target, a Python/LangGraph agent
+  layer, and LLM-specific observability (LangFuse/OpenTelemetry) are a much larger,
+  explicitly staged initiative — see
   [docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md).
   Every remaining phase is blocked on a real decision (which paid API(s), is
   Redis/Kafka actually justified, which MCP tools, whether a second language is
@@ -516,6 +519,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0035 — Native tool/function calling: a document-lookup-by-filename `@Tool`, verified via a real log line, not inferred from the answer](docs/adr/0035-native-tool-calling.md)
 - [ADR 0036 — Fallback provider wiring (OpenAI + Gemini): manually-built beans, a plain-REST Gemini client, real API verification (Gemini working, OpenAI zero credits)](docs/adr/0036-fallback-provider-wiring-openai-gemini.md)
 - [ADR 0037 — Fallback trigger detection: circuit-breaker state + empty retrieval, not keyword matching; corrected the roadmap's own premise about the RRF score's scale](docs/adr/0037-fallback-trigger-detection.md)
+- [ADR 0038 — Confirmation gate + non-grounded response contract: two-step `useFallback` flow, `source`/`fallbackAvailable` fields, verified live against the running stack (Gemini answered for real)](docs/adr/0038-fallback-confirmation-gate-response-contract.md)
 
 ## License
 

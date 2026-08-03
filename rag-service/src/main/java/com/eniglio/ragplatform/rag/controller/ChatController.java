@@ -40,7 +40,7 @@ public class ChatController {
     @PostMapping(value = "/api/v1/ask", consumes = MediaType.APPLICATION_JSON_VALUE)
     public AskResponse ask(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
         return ragQueryService.ask(request.question(), JwtClaims.tenantId(jwt), request.isGrounded(), request.isRerank(),
-                request.model());
+                request.model(), request.isUseFallback(), request.fallbackProvider());
     }
 
     @Operation(summary = "Ask anything, with an image attached",
@@ -70,7 +70,7 @@ public class ChatController {
     @PostMapping("/api/v1/chat")
     public ChatResponse chat(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
         return ragQueryService.answer(request.question(), JwtClaims.tenantId(jwt), request.isGrounded(), request.isRerank(),
-                request.model());
+                request.model(), request.isUseFallback(), request.fallbackProvider());
     }
 
     @Operation(summary = "Generate an architecture diagram from ingested data",

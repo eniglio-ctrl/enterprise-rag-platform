@@ -24,7 +24,7 @@
 | 1 | Single LLM + RAG | ✅ Already done (with Ollama, not literally OpenAI) | — |
 | 2a | Fallback provider wiring: OpenAI + Gemini | ✅ Done, with one real caveat — [ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md) | Gemini fully works; OpenAI's account has zero credits (user action needed) |
 | 2b | Fallback trigger detection (local failed / insufficient) | ✅ Done — [ADR 0037](adr/0037-fallback-trigger-detection.md) | — |
-| 2c | Confirmation gate + non-grounded response contract | ⬜ Not started | Depends on 2b |
+| 2c | Confirmation gate + non-grounded response contract | ✅ Done — [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md) | — |
 | 2d | `web-ui`: confirmation dialog + provenance badge | ⬜ Not started | Depends on 2c |
 | 2e | Fallback provider wiring: Anthropic | ⬜ Not started | Same pattern as 2a — do when the Anthropic key is provided |
 | 3 | `PlannerAgent` (decides which specialist handles a request) | ⬜ Not started | Phase 2 |
@@ -283,9 +283,22 @@ it; a normal closed-breaker/non-empty-retrieval case does not. Not yet wired
 into any real response — that's Phase 2c's job, since the trigger existing
 in isolation doesn't yet mean anything client-visible happens when it fires.
 
-### Phase 2c — Confirmation gate + non-grounded response contract ⬜
+### Phase 2c — Confirmation gate + non-grounded response contract ✅
 
-**Not started.** Depends on 2b. The API-level shape of the two-step flow:
+**Done.** See [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md)
+for the full account. `ChatRequest` gained `useFallback`/`fallbackProvider`;
+`ChatResponse`/`AskResponse` gained `fallbackAvailable`/`source`. A real,
+previously-existing bug this phase incidentally fixed: an open local circuit
+breaker used to have no proactive check anywhere in `doAnswer`, so a request
+would reach the doomed local call and Resilience4j's `CallNotPermittedException`
+would propagate as an unhandled 500 — `FallbackTriggerEvaluator`'s check now runs
+before generation, turning that into a clean `fallbackAvailable: true` response.
+A real, honest, **not** fixed-in-this-phase limitation: a confirmed fallback call
+that itself fails (e.g. OpenAI's real zero-credits state) has no dedicated error
+shape yet — it surfaces as a generic 500, same as every other unhandled provider
+failure in this codebase; designing that error contract properly belongs with
+Phase 2d, once `web-ui` needs to show *something* for it. Original plan text kept
+below for the record:
 
 - First request, local insufficient (2b triggered): response carries a new
   field (e.g. `fallbackAvailable: true`) **instead of** silently calling a
@@ -304,7 +317,16 @@ in isolation doesn't yet mean anything client-visible happens when it fires.
 **Done when**: a real `curl` sequence — ask a question with no good local
 context, get `fallbackAvailable: true` back, confirm, get a real answer from
 OpenAI or Gemini with the distinct non-grounded shape — works end-to-end
-against the running stack.
+against the running stack. **Verified for real**, against the actual local
+`docker compose` stack, not just mocked tests: a fresh test tenant with no
+matching documents got `fallbackAvailable: true`/`source: null` on the first
+request; the identical question with `useFallback: true` (default provider)
+returned a real, live `gemini-flash-latest` answer with `source: "public-llm"`
+and empty citations; a normal question against a real uploaded document for the
+same tenant returned `source: "local"` (retrieval succeeded — RRF score
+`0.0328`, matching ADR 0037's math exactly — even though `llama3.1`'s own answer
+quality on that one terse chunk was mediocre, an unrelated, pre-existing model
+behavior).
 
 ### Phase 2d — `web-ui`: confirmation dialog + provenance badge ⬜
 

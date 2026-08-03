@@ -2,6 +2,7 @@ package com.eniglio.ragplatform.rag.service;
 
 import com.eniglio.ragplatform.common.web.Citation;
 import com.eniglio.ragplatform.common.web.RetrievedChunk;
+import com.eniglio.ragplatform.rag.config.FallbackProviderProperties;
 import com.eniglio.ragplatform.rag.config.RagProperties;
 import com.eniglio.ragplatform.rag.config.RagProperties.AvailableModel;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
@@ -9,6 +10,7 @@ import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.gateway.GeminiClient;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
 import io.micrometer.core.instrument.Counter;
@@ -151,8 +153,12 @@ public class RagQueryService {
     private final LlmRerankService llmRerankService;
     private final ChatClient ollamaChatClient;
     private final ChatClient lmStudioChatClient;
+    private final ChatClient openAiFallbackChatClient;
+    private final GeminiClient geminiClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
+    private final FallbackProviderProperties fallbackProviderProperties;
+    private final FallbackTriggerEvaluator fallbackTriggerEvaluator;
     private final VisionDescriptionService visionDescriptionService;
     private final DocumentLookupTool documentLookupTool;
     private final Counter answersGeneratedCounter;
@@ -163,7 +169,11 @@ public class RagQueryService {
     public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
                             @Qualifier("ollama") ChatClient ollamaChatClient,
                             @Qualifier("lmstudio") ChatClient lmStudioChatClient,
+                            @Qualifier("openaiFallback") ChatClient openAiFallbackChatClient,
+                            GeminiClient geminiClient,
                             LlmGateway llmGateway, RagProperties ragProperties,
+                            FallbackProviderProperties fallbackProviderProperties,
+                            FallbackTriggerEvaluator fallbackTriggerEvaluator,
                             VisionDescriptionService visionDescriptionService,
                             DocumentLookupTool documentLookupTool,
                             MeterRegistry meterRegistry) {
@@ -171,8 +181,12 @@ public class RagQueryService {
         this.llmRerankService = llmRerankService;
         this.ollamaChatClient = ollamaChatClient;
         this.lmStudioChatClient = lmStudioChatClient;
+        this.openAiFallbackChatClient = openAiFallbackChatClient;
+        this.geminiClient = geminiClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
+        this.fallbackProviderProperties = fallbackProviderProperties;
+        this.fallbackTriggerEvaluator = fallbackTriggerEvaluator;
         this.visionDescriptionService = visionDescriptionService;
         this.documentLookupTool = documentLookupTool;
         this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
@@ -197,7 +211,19 @@ public class RagQueryService {
      * {@link #ROUTING_SYSTEM_TEMPLATE} for why a keyword check isn't reliable enough.
      */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
-        return ask(question, tenantId, grounded, rerank, model, null, null);
+        return ask(question, tenantId, grounded, rerank, model, null, null, false, null);
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): same as the 5-arg
+     * {@link #ask(String, String, boolean, boolean, String)}, plus the fallback
+     * confirmation flow's two fields — see {@link com.eniglio.ragplatform.rag.dto.ChatRequest}'s
+     * javadoc for the full contract. Never affects diagram routing; only the
+     * text-answer path checks these.
+     */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                            boolean useFallback, String fallbackProvider) {
+        return ask(question, tenantId, grounded, rerank, model, null, null, useFallback, fallbackProvider);
     }
 
     /**
@@ -209,14 +235,22 @@ public class RagQueryService {
      */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
                             byte[] imageBytes, MimeType imageMimeType) {
+        return ask(question, tenantId, grounded, rerank, model, imageBytes, imageMimeType, false, null);
+    }
+
+    private AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                             byte[] imageBytes, MimeType imageMimeType, boolean useFallback, String fallbackProvider) {
         String imageDescription = describeImage(imageBytes, imageMimeType);
         AvailableModel resolvedModel = resolveModel(model);
         if (wantsDiagram(question, imageDescription, resolvedModel)) {
             DiagramResponse diagram = diagram(question, tenantId, model, imageDescription);
-            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model());
+            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model(),
+                    null, "local");
         }
-        ChatResponse chat = answer(question, tenantId, grounded, rerank, model, imageDescription);
-        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model());
+        ChatResponse chat = answer(question, tenantId, grounded, rerank, model, imageDescription, useFallback,
+                fallbackProvider);
+        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model(),
+                chat.fallbackAvailable(), chat.source());
     }
 
     private String describeImage(byte[] imageBytes, MimeType imageMimeType) {
@@ -253,33 +287,53 @@ public class RagQueryService {
     }
 
     public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
-        return answer(question, tenantId, grounded, rerank, model, null);
+        return answer(question, tenantId, grounded, rerank, model, null, false, null);
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): same as the 5-arg
+     * {@link #answer(String, String, boolean, boolean, String)}, plus the fallback
+     * confirmation flow's two fields.
+     */
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                                boolean useFallback, String fallbackProvider) {
+        return answer(question, tenantId, grounded, rerank, model, null, useFallback, fallbackProvider);
     }
 
     private ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                                 String imageDescription) {
+                                 String imageDescription, boolean useFallback, String fallbackProvider) {
         ChatResponse response = answerTimer.record(
-                () -> doAnswer(question, tenantId, grounded, rerank, model, imageDescription));
+                () -> doAnswer(question, tenantId, grounded, rerank, model, imageDescription, useFallback,
+                        fallbackProvider));
         answersGeneratedCounter.increment();
         return response;
     }
 
     private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                                   String imageDescription) {
+                                   String imageDescription, boolean useFallback, String fallbackProvider) {
         int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
         List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
         if (rerank) {
             retrieved = llmRerankService.rerank(question, retrieved, ragProperties.topK());
         }
 
-        // An attached image can fully answer the question on its own (e.g. "what does
-        // this diagram show?") even with zero relevant chunks in the knowledge base —
-        // only short-circuit to "not enough information" when there's neither.
-        if (retrieved.isEmpty() && imageDescription == null) {
-            log.info("No relevant chunks found for question");
+        AvailableModel resolvedModel = resolveModel(model);
+
+        // Multi-LLM Phase 2c: an attached image can fully answer the question on its
+        // own (e.g. "what does this diagram show?") even with zero relevant chunks in
+        // the knowledge base, and its vision-description call already just succeeded
+        // through the local provider moments earlier - the public-LLM fallback is
+        // never offered while an image is attached, same precedent as the pre-Phase-2b
+        // "image alone can answer" short-circuit this replaces.
+        if (imageDescription == null && fallbackTriggerEvaluator.shouldOfferFallback(resolvedModel.provider(), retrieved)) {
+            if (useFallback) {
+                return answerViaPublicLlmFallback(question, fallbackProvider);
+            }
+            log.info("Local retrieval/generation insufficient, offering the public-LLM fallback instead of failing");
             return new ChatResponse(
-                    "Não encontrei informação suficiente na base de conhecimento para responder a essa pergunta.",
-                    List.of(), null, null);
+                    "Não encontrei informação suficiente na base de conhecimento local para responder a essa "
+                            + "pergunta.",
+                    List.of(), null, null, true, null);
         }
 
         String context = buildContext(retrieved);
@@ -290,7 +344,6 @@ public class RagQueryService {
         }
         String finalContext = context;
         String finalSystemTemplate = systemTemplate;
-        AvailableModel resolvedModel = resolveModel(model);
 
         // Multi-LLM Phase 9: tenantId comes from ToolContext, a server-side channel
         // the model never sees or controls - see DocumentLookupTool's own javadoc for
@@ -310,7 +363,31 @@ public class RagQueryService {
         log.info("Answered question using {} retrieved chunks{}", retrieved.size(),
                 imageDescription != null ? " and an attached image" : "");
 
-        return new ChatResponse(answer, citations, groundedness, resolvedModel.id());
+        return new ChatResponse(answer, citations, groundedness, resolvedModel.id(), null, "local");
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): the actual public-LLM call, made only once the
+     * caller has explicitly confirmed via {@code useFallback: true}. Deliberately
+     * sends only the raw {@code question} — never {@code context}, retrieved chunks,
+     * or the {@link DocumentLookupTool} — this is the one boundary that keeps this
+     * tenant's document content from ever reaching a public API through this path.
+     * {@code citations} is always empty and {@code groundedness} always {@code null}:
+     * neither concept applies to an answer that was never grounded in this tenant's
+     * documents in the first place.
+     */
+    private ChatResponse answerViaPublicLlmFallback(String question, String fallbackProvider) {
+        boolean useOpenAi = "openai".equalsIgnoreCase(fallbackProvider);
+        String provider = useOpenAi ? "openai" : "gemini";
+        String answer = useOpenAi
+                ? llmGateway.callOpenAiFallback(() -> openAiFallbackChatClient.prompt(question).call().content())
+                : llmGateway.callGeminiFallback(() -> geminiClient.generateContent(question));
+        String modelId = useOpenAi
+                ? fallbackProviderProperties.openai().model()
+                : fallbackProviderProperties.gemini().model();
+        log.info("Answered question using the public-LLM fallback ({}), never grounded in tenant documents",
+                provider);
+        return new ChatResponse(answer, List.of(), null, modelId, null, "public-llm");
     }
 
     /**

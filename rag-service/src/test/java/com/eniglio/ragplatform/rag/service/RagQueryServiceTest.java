@@ -1,16 +1,20 @@
 package com.eniglio.ragplatform.rag.service;
 
+import com.eniglio.ragplatform.rag.config.FallbackProviderProperties;
 import com.eniglio.ragplatform.rag.config.RagProperties;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.gateway.GeminiClient;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
@@ -45,10 +49,24 @@ class RagQueryServiceTest {
     private ChatModel chatModel;
 
     @Mock
+    private ChatModel openAiFallbackChatModel;
+
+    @Mock
+    private GeminiClient geminiClient;
+
+    @Mock
     private VisionDescriptionService visionDescriptionService;
+
+    // Real, not mocked (Multi-LLM Phase 2b/2c) - shared with newService() below so
+    // individual tests can drive real circuit-breaker state transitions the same way
+    // FallbackTriggerEvaluatorTest does.
+    private final CircuitBreakerRegistry circuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults();
 
     private RagQueryService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
+        // Multi-LLM Phase 2a's fallback ChatClient, wired the same way the local ones
+        // are - only exercised by the Phase 2c fallback tests below.
+        ChatClient openAiFallbackChatClient = ChatClient.builder(openAiFallbackChatModel).build();
         // Mirrors production config (ADR 0025): "auto" is always first, resolveModel
         // substitutes it for the first concrete entry ("ollama" here) — every existing
         // test below that never requests a model exercises that exact substitution
@@ -56,12 +74,16 @@ class RagQueryServiceTest {
         List<RagProperties.AvailableModel> availableModels = List.of(
                 new RagProperties.AvailableModel("auto", "Automático (recomendado)", "auto"),
                 new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
+        FallbackProviderProperties fallbackProviderProperties = new FallbackProviderProperties(
+                new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
+                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"));
         // lmStudioChatClient is never exercised by these tests — every available model
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.
-        return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, new LlmGateway(),
-                new RagProperties(5, 0.5, 15, availableModels), visionDescriptionService,
-                new DocumentLookupTool(hybridSearchService), new SimpleMeterRegistry());
+        return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, openAiFallbackChatClient,
+                geminiClient, new LlmGateway(), new RagProperties(5, 0.5, 15, availableModels),
+                fallbackProviderProperties, new FallbackTriggerEvaluator(circuitBreakerRegistry),
+                visionDescriptionService, new DocumentLookupTool(hybridSearchService), new SimpleMeterRegistry());
     }
 
     @Test
@@ -87,6 +109,10 @@ class RagQueryServiceTest {
         assertThat(response.citations().get(0).source()).isEqualTo("aula12.md");
         assertThat(response.citations().get(0).chunkIndex()).isEqualTo(3);
         assertThat(response.groundedness()).isNull();
+        // Multi-LLM Phase 2c (ADR 0038): every normal, grounded answer marks its own
+        // provenance explicitly - web-ui (Phase 2d) never has to infer it.
+        assertThat(response.source()).isEqualTo("local");
+        assertThat(response.fallbackAvailable()).isNull();
         verify(llmRerankService, never()).rerank(anyString(), any(), anyInt());
     }
 
@@ -248,6 +274,79 @@ class RagQueryServiceTest {
 
         assertThat(response.citations()).isEmpty();
         assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
+        // Multi-LLM Phase 2c (ADR 0038): empty retrieval is one of the two structural
+        // fallback triggers - the caller must be told a public-LLM fallback exists,
+        // without any LLM (local or public) having been called yet.
+        assertThat(response.fallbackAvailable()).isTrue();
+        assertThat(response.source()).isNull();
+        verify(chatModel, never()).call(any(Prompt.class));
+        verify(openAiFallbackChatModel, never()).call(any(Prompt.class));
+        verify(geminiClient, never()).generateContent(anyString());
+    }
+
+    @Test
+    void offersFallbackWithoutCallingTheLocalModelWhenItsCircuitBreakerIsOpen() {
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        circuitBreakerRegistry.circuitBreaker("ollama").transitionToOpenState();
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false, null);
+
+        assertThat(response.fallbackAvailable()).isTrue();
+        assertThat(response.source()).isNull();
+        // The whole point of Phase 2b's check running before generation: an open
+        // breaker must skip the call entirely, not attempt it and let Resilience4j's
+        // CallNotPermittedException propagate as an unhandled 500.
+        verify(chatModel, never()).call(any(Prompt.class));
+    }
+
+    @Test
+    void confirmedFallbackCallsGeminiByDefaultAndSendsOnlyTheRawQuestion() {
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(geminiClient.generateContent(anyString())).willReturn("Resposta pública, não fundamentada.");
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null,
+                true, null);
+
+        assertThat(response.answer()).isEqualTo("Resposta pública, não fundamentada.");
+        assertThat(response.citations()).isEmpty();
+        assertThat(response.groundedness()).isNull();
+        assertThat(response.source()).isEqualTo("public-llm");
+        assertThat(response.fallbackAvailable()).isNull();
+        assertThat(response.model()).isEqualTo("gemini-flash-latest");
+
+        ArgumentCaptor<String> sentQuestion = ArgumentCaptor.forClass(String.class);
+        verify(geminiClient).generateContent(sentQuestion.capture());
+        // The exact question, nothing appended - no retrieved chunk or document
+        // content ever reaches the public API through this path (ADR 0038).
+        assertThat(sentQuestion.getValue()).isEqualTo("Pergunta sem contexto na base");
+        verify(chatModel, never()).call(any(Prompt.class));
+        verify(openAiFallbackChatModel, never()).call(any(Prompt.class));
+    }
+
+    @Test
+    void confirmedFallbackCallsOpenAiWhenExplicitlyRequested() {
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("Resposta da OpenAI."))));
+        given(openAiFallbackChatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null,
+                true, "openai");
+
+        assertThat(response.answer()).isEqualTo("Resposta da OpenAI.");
+        assertThat(response.source()).isEqualTo("public-llm");
+        assertThat(response.model()).isEqualTo("gpt-4o-mini");
+        verify(chatModel, never()).call(any(Prompt.class));
+        verify(geminiClient, never()).generateContent(anyString());
     }
 
     @Test

@@ -144,10 +144,20 @@ around):
    (see [ADR 0037](adr/0037-fallback-trigger-detection.md)). Verified via 5
    unit tests against a real `CircuitBreakerRegistry`, not mocked state.
    Not wired into any real response yet — Phase 2c's job.
-10. ⬜ **Multi-LLM Phase 2c — Confirmation gate + non-grounded response
-    contract** (after #9) — the two-step API flow (offer → explicit confirm
-    → call) and the response shape that keeps a public-LLM answer from ever
-    looking like a grounded one.
+10. ✅ **Multi-LLM Phase 2c — Confirmation gate + non-grounded response
+    contract** — done. `ChatRequest.useFallback`/`fallbackProvider` and
+    `ChatResponse.fallbackAvailable`/`source` implement the two-step flow
+    (offer → explicit confirm → call). Incidentally fixed a real,
+    pre-existing bug: an open local circuit breaker used to reach the
+    doomed call and surface as an unhandled 500 — the Phase 2b trigger now
+    runs before generation instead. Verified live against the running
+    stack: a real question with no local context got `fallbackAvailable:
+    true`, the confirmed follow-up got a real `gemini-flash-latest` answer
+    marked `source: "public-llm"`. Known, undecided-on-purpose gap: a
+    confirmed fallback call that itself fails (OpenAI's real zero-credits
+    state) still surfaces as a generic 500 — a proper error contract for
+    that is deferred to Phase 2d (see
+    [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md)).
 11. ⬜ **Multi-LLM Phase 2d — `web-ui`: confirmation dialog + provenance
     badge** (after #10) — the one-screen dialog naming both the cost and the
     "not from your documents" warning together, plus a visibly distinct
