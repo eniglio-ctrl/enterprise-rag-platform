@@ -131,10 +131,19 @@ around):
    and Phase 2's full writeup for why this is a deliberate, visible exception
    to ADR 0004, not a silent one). Phases 2b-2e (trigger detection,
    confirmation gate, `web-ui` dialog, Anthropic) are still not started.
-9. ⬜ **Multi-LLM Phase 2b — Fallback trigger detection** (after #8) —
-   structural detection (retrieval score threshold / circuit breaker state),
-   not keyword matching in the answer text — same principle ADR 0024
-   already established for routing.
+9. ✅ **Multi-LLM Phase 2b — Fallback trigger detection** — done.
+   `FallbackTriggerEvaluator` triggers on either an open local circuit
+   breaker (`ollama`/`lmstudio`) or empty retrieval — structural detection,
+   never keyword matching in the answer text, same principle ADR 0024
+   already established for routing. Found and corrected a real premise
+   error while implementing: the plan assumed the citation's retrieval
+   score was cosine-similarity scale; it's actually the post-RRF-fusion
+   score, a much smaller, incomparable scale, so the empty-retrieval check
+   (already backed by the existing cosine `similarity-threshold` applied
+   before fusion) is the correct signal instead of a new, guessed threshold
+   (see [ADR 0037](adr/0037-fallback-trigger-detection.md)). Verified via 5
+   unit tests against a real `CircuitBreakerRegistry`, not mocked state.
+   Not wired into any real response yet — Phase 2c's job.
 10. ⬜ **Multi-LLM Phase 2c — Confirmation gate + non-grounded response
     contract** (after #9) — the two-step API flow (offer → explicit confirm
     → call) and the response shape that keeps a public-LLM answer from ever

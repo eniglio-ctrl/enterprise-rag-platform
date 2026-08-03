@@ -23,7 +23,7 @@
 | 0 | "Automático" model selector | ✅ Done — [ADR 0025](adr/0025-auto-model-selection.md) | — |
 | 1 | Single LLM + RAG | ✅ Already done (with Ollama, not literally OpenAI) | — |
 | 2a | Fallback provider wiring: OpenAI + Gemini | ✅ Done, with one real caveat — [ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md) | Gemini fully works; OpenAI's account has zero credits (user action needed) |
-| 2b | Fallback trigger detection (local failed / insufficient) | ⬜ Not started | Depends on 2a |
+| 2b | Fallback trigger detection (local failed / insufficient) | ✅ Done — [ADR 0037](adr/0037-fallback-trigger-detection.md) | — |
 | 2c | Confirmation gate + non-grounded response contract | ⬜ Not started | Depends on 2b |
 | 2d | `web-ui`: confirmation dialog + provenance badge | ⬜ Not started | Depends on 2c |
 | 2e | Fallback provider wiring: Anthropic | ⬜ Not started | Same pattern as 2a — do when the Anthropic key is provided |
@@ -249,12 +249,19 @@ yet; the circuit-breaker isolation criterion passed outright — 6 real,
 failing OpenAI calls tripped only the `openai-fallback` breaker while
 `gemini-fallback` stayed `CLOSED` and kept answering.
 
-### Phase 2b — Fallback trigger detection ⬜
+### Phase 2b — Fallback trigger detection ✅
 
-**Not started.** Depends on 2a existing (nothing to fall back *to* otherwise).
-Defines, precisely and structurally — **not** via keyword/string matching in
-the answer text, the exact mistake ADR 0024 already replaced once — when the
-local path counts as "failed or insufficient":
+**Done.** See [ADR 0037](adr/0037-fallback-trigger-detection.md) for the full
+account. A real correction to the plan below, found before writing any code:
+"reuse the existing score already on every citation" assumed that score was
+still on a cosine-similarity scale — inspecting `HybridSearchService
+.fuseWithRrf` showed it's actually the post-RRF-fusion score (`1/(60+rank)`
+summed across legs), maxing out around 0.033, nowhere near the existing 0.5
+`rag.similarity-threshold`. Since the vector leg already discards anything
+below that threshold *before* fusion, an empty `retrieved` list turned out
+to already be the correct, meaningful "nothing relevant found" signal — no
+second, arbitrarily-calibrated RRF-scale threshold was introduced. Original
+plan text kept below for the record:
 
 - **Local infra failure**: the Ollama/LM Studio circuit breaker is already
   `OPEN`, or the call throws/times out.
@@ -267,7 +274,14 @@ local path counts as "failed or insufficient":
 
 **Done when**: a unit test simulating each of the two trigger conditions
 independently confirms the fallback gate is offered, and a normal
-successful/grounded answer confirms it is *not* offered.
+successful/grounded answer confirms it is *not* offered. **Verified for
+real** via `FallbackTriggerEvaluatorTest` (5 tests, a real
+`CircuitBreakerRegistry.ofDefaults()`, no mocking of circuit-breaker state):
+an open `ollama` breaker triggers it; an open `lmstudio` breaker triggers it
+without affecting `ollama`'s own check; an empty `retrieved` list triggers
+it; a normal closed-breaker/non-empty-retrieval case does not. Not yet wired
+into any real response — that's Phase 2c's job, since the trigger existing
+in isolation doesn't yet mean anything client-visible happens when it fires.
 
 ### Phase 2c — Confirmation gate + non-grounded response contract ⬜
 
