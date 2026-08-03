@@ -22,11 +22,11 @@
 
 Two living roadmaps now exist (security hardening; the broader AI-engineering
 skill roadmap), plus a Kubernetes gap the README has tracked on its own since
-before either roadmap existed. Twenty-five items are pending across all three
-places (up from twenty-one — the Multi-LLM public-fallback design, discussed
-directly with the user, split what was one blocked Tier-3 item into five
-sequential Tier-1 sub-phases once two of its three provider keys were
-actually obtained). They don't have to happen in roadmap-file order or phase-number
+before either roadmap existed. Twenty-six items are tracked across all three
+places (up from twenty-five — a real accent/diacritic-insensitivity gap in
+hybrid search's full-text leg, found while exercising the Phase 2c fallback
+flow, added as its own Tier 1 item rather than folded silently into an
+existing one). They don't have to happen in roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
 same rate-limit filter both a security phase and an AI-roadmap phase need);
@@ -166,6 +166,34 @@ around):
     shape as #8, once #8-#11 exist) — deliberately deferred: the user will
     generate `ANTHROPIC_API_KEY` specifically when this item starts, not
     before, unlike OpenAI/Gemini's keys which were obtained ahead of time.
+13. ⬜ **Hybrid search: accent/diacritic-insensitive full-text matching** —
+    a real gap found while using the fallback flow: `HybridSearchService`'s
+    full-text leg indexes `content_tsv` via `to_tsvector('simple', ...)`
+    (ADR 0011/0012), and Postgres's `'simple'` text search configuration
+    does **not** strip accents/diacritics — "informação" and "informacao"
+    tokenize differently, so a question typed without accents (common —
+    quick typing, some keyboards) can silently miss full-text-indexed
+    content that has them, or vice versa. The vector/embedding leg is
+    largely unaffected (semantic similarity, not exact tokens), so this is
+    specifically a full-text-leg gap, not a whole-retrieval one. Fix: enable
+    Postgres's built-in `unaccent` extension and a custom text search
+    configuration copying `simple` but mapping through `unaccent` first
+    (`CREATE TEXT SEARCH CONFIGURATION ... (COPY = simple); ALTER ... ALTER
+    MAPPING ... WITH unaccent, simple;`), then point both the generated
+    `content_tsv` column (needs a new Flyway migration — generated column
+    expressions can't be altered in place, only dropped and re-added) and
+    `HybridSearchService`'s `to_tsquery(...)` calls at it instead of
+    `'simple'`. "Especial characters" beyond accents (e.g. hyphenated
+    compounds like "e-commerce") are a related but distinct tokenization
+    question `buildOrTsQuery`'s existing alphanumeric stripping doesn't
+    fully resolve either — worth a real test case, not assumed fixed by the
+    same change. **Done when**: a real test indexes a chunk containing an
+    accented word, a question using the unaccented spelling (and vice
+    versa) still retrieves it via the full-text leg specifically (not
+    coincidentally via the vector leg alone) — verified with a targeted
+    `HybridSearchServiceTest`/integration test, plus a real `curl` round
+    trip against the running local stack, not just asserted from reading
+    the SQL.
 
 ## Tier 2 — needs a design/infra decision first, no money
 
@@ -173,7 +201,7 @@ Not blocked on a paid resource, but shouldn't start until a concrete decision
 is made (see each phase's own "not started" note in its home file for
 exactly what that decision is):
 
-13. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
+14. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
     across every service (a servlet filter registered ahead of Spring
     Security entirely), structured audit events for login/registration/
     upload/access-denied, two new metrics, and a Grafana "Segurança" row.
@@ -181,7 +209,7 @@ exactly what that decision is):
     own `/actuator/prometheus` had been silently unreachable by Prometheus
     since Security Phase 4 (see
     [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md)).
-14. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
+15. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
     in the whole security hardening rollout. Found real public exposure on
     the live demo first (`curl` showed `/actuator/prometheus`,
     `/actuator/metrics`, `/v3/api-docs`, and Swagger UI all reachable) and
@@ -190,10 +218,10 @@ exactly what that decision is):
     (`web-ui/_headers`); researched (not guessed) Render's real
     `X-Forwarded-For` behavior and documented why `trusted-proxy-hops`
     deliberately stays `0` (see [ADR 0033](adr/0033-public-demo-hardening.md)).
-15. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
+16. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists.
-16. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+17. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
     closed. Free-text `tenantId` registration replaced by a real
     invitation model (single-use, 7-day expiry, exact-email match, all
     enforced atomically); `JwtKeyProvider` now loads a persisted RSA key
@@ -205,15 +233,15 @@ exactly what that decision is):
     sequenced here by size, not a real technical blocker, exactly as this
     entry originally said — closing it didn't need anything else to land
     first.
-17. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
+18. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
-18. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
+19. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
     its own scope cut to 1-2 concrete tools)
-19. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
+20. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
     needs a concrete driving use case (the phase's own text suggests async
     document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
     not a paid key.
-20. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
+21. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
     phase in either file — see "Where Go actually fits" below for the full
     reasoning). Addresses the still-unaddressed "API Gateway" microservices
     pattern from the AI-engineer checklist, and is a genuine, low-risk way to
@@ -231,18 +259,18 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-21. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+22. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-22. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #21 — note this
+23. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #22 — note this
     multiplies paid API calls per question)
-23. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+24. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision)
-24. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+25. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-25. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+26. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
@@ -264,7 +292,7 @@ language, since two of the three aren't performance plays at all:
   actual signal for where a lighter-weight language earns its place: **the
   edge**, not the domain services.
 - **Go's genuine fit here: a lightweight API Gateway/BFF at the edge**
-  (Tier 2 #20, new). This isn't spreading Go around speculatively — it fills
+  (Tier 2 #21, new). This isn't spreading Go around speculatively — it fills
   a real, still-unaddressed gap (the checklist's "API Gateway" microservices
   pattern, currently implemented nowhere in this project) with a language
   that's *actually* the right tool for it: a Go binary's baseline memory
