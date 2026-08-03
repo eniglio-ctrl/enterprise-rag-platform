@@ -22,6 +22,13 @@ import java.util.function.Supplier;
  * routing both providers' calls through the same named breaker would let an LM Studio
  * outage trip Ollama's circuit too, an unrelated dependency failing for an unrelated
  * reason. Callers pick the method matching {@code AvailableModel.provider()}.
+ * <p>
+ * Multi-LLM Phase 2a added {@code callOpenAiFallback}/{@code callGeminiFallback},
+ * same shape and same reasoning: an invalid/exhausted OpenAI key must never trip
+ * Gemini's breaker (or vice versa), and neither may share a breaker with the local
+ * providers above — a cloud outage or quota exhaustion is a different failure mode
+ * than a local server being down, and Phase 2b's fallback-trigger logic needs to be
+ * able to tell them apart.
  */
 @Component
 public class LlmGateway {
@@ -35,6 +42,18 @@ public class LlmGateway {
     @CircuitBreaker(name = "lmstudio")
     @Retry(name = "lmstudio")
     public <T> T callLmStudio(Supplier<T> chatCall) {
+        return chatCall.get();
+    }
+
+    @CircuitBreaker(name = "openai-fallback")
+    @Retry(name = "openai-fallback")
+    public <T> T callOpenAiFallback(Supplier<T> chatCall) {
+        return chatCall.get();
+    }
+
+    @CircuitBreaker(name = "gemini-fallback")
+    @Retry(name = "gemini-fallback")
+    public <T> T callGeminiFallback(Supplier<T> chatCall) {
         return chatCall.get();
     }
 }

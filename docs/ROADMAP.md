@@ -111,13 +111,26 @@ around):
    the caller's real tenant id (see
    [ADR 0035](adr/0035-native-tool-calling.md)). Known, named limitation:
    tool-fetched content doesn't get its own citation entry yet.
-8. ⬜ **Multi-LLM Phase 2a — Fallback provider wiring: OpenAI + Gemini**
-   (`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`) — unblocked: both keys real,
-   verified, already in `credenciais/multi-llm-fallback.env`. Confirmed
-   design: not a dropdown option, a confirmed, non-grounded fallback for
-   when the local path fails or finds nothing — see Phase 2's full writeup
-   for why this is a deliberate, visible exception to ADR 0004, not a
-   silent one.
+8. ✅ **Multi-LLM Phase 2a — Fallback provider wiring: OpenAI + Gemini** —
+   done, with one real caveat. `GeminiClient` (plain REST client — Spring AI
+   1.0.0 has no plain-API-key Gemini integration, only Vertex AI) and a
+   second, manually-built `OpenAiChatModel` bean (Spring AI's OpenAI
+   autoconfiguration only supports one provider slot, already claimed by LM
+   Studio) are both wired behind `LlmGateway.callGeminiFallback`/
+   `callOpenAiFallback`, each with its own independent Resilience4j breaker.
+   Real API verification: **Gemini fully works end-to-end**
+   (`gemini-flash-latest` returns real generated text); **OpenAI's key
+   authenticates but the account has zero credits** (`HTTP 429
+   insufficient_quota`) — a real, external blocker only the user's own
+   OpenAI-console billing action can resolve, not a code problem. Circuit
+   breaker isolation verified for real too: repeated OpenAI failures tripped
+   only its own breaker while Gemini's stayed closed and kept answering.
+   Neither provider is in `rag.available-models` — not a dropdown option, a
+   confirmed, non-grounded fallback for when the local path fails or finds
+   nothing (see [ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md)
+   and Phase 2's full writeup for why this is a deliberate, visible exception
+   to ADR 0004, not a silent one). Phases 2b-2e (trigger detection,
+   confirmation gate, `web-ui` dialog, Anthropic) are still not started.
 9. ⬜ **Multi-LLM Phase 2b — Fallback trigger detection** (after #8) —
    structural detection (retrieval score threshold / circuit breaker state),
    not keyword matching in the answer text — same principle ADR 0024

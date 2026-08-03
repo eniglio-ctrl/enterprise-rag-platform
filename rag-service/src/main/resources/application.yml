@@ -166,6 +166,21 @@ rag:
     # (ADR 0018) — one setting governs "what vision model to use" locally, whether the
     # image is a permanently-ingested document or an ephemeral question attachment.
     ollama-model: ${VISION_MODEL:llava}
+  # Multi-LLM Phase 2a (ADR 0036) — deliberately not part of available-models above,
+  # see FallbackProviderProperties' own javadoc for why. Blank defaults keep the
+  # "test" profile (no real keys) booting exactly as before this phase; a blank key
+  # simply fails at the real provider's own auth check if ever actually invoked,
+  # which only happens once Phase 2c's confirmation flow exists to trigger it.
+  fallback-providers:
+    openai:
+      api-key: ${OPENAI_FALLBACK_API_KEY:}
+      model: ${OPENAI_FALLBACK_MODEL:gpt-4o-mini}
+    gemini:
+      api-key: ${GEMINI_FALLBACK_API_KEY:}
+      # gemini-flash-latest, not a dated alias - confirmed for real (ADR 0036) that
+      # dated aliases like gemini-2.5-flash/gemini-1.5-flash can 404 for this
+      # account while the -latest alias resolves correctly.
+      model: ${GEMINI_FALLBACK_MODEL:gemini-flash-latest}
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
@@ -213,6 +228,26 @@ resilience4j:
         wait-duration: 500ms
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
+      # Multi-LLM Phase 2a (ADR 0036) — deliberately NOT retrying
+      # HttpClientErrorException here, unlike a first instinct to mirror
+      # ollama/lmstudio exactly. A real cloud API's 4xx (401 invalid key, 429 quota
+      # exhausted — both confirmed for real against this project's own keys) won't
+      # resolve itself in a 500ms retry window; retrying it just burns another call
+      # against the same rate limit. Only retry-worthy failure modes: no
+      # response at all (ResourceAccessException) or the provider's own transient
+      # 5xx (HttpServerErrorException).
+      openai-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+      gemini-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
   circuitbreaker:
     instances:
       ollama:
@@ -222,6 +257,22 @@ resilience4j:
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
       lmstudio:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      # Multi-LLM Phase 2a (ADR 0036) — independent instance from ollama/lmstudio
+      # AND from each other (see LlmGateway's javadoc): OpenAI's zero-credits state
+      # (confirmed for real against this project's own key) must not affect
+      # Gemini's breaker, or either local provider's.
+      openai-fallback:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      gemini-fallback:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50

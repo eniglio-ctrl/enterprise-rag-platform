@@ -22,7 +22,7 @@
 |---|---|---|---|
 | 0 | "Automático" model selector | ✅ Done — [ADR 0025](adr/0025-auto-model-selection.md) | — |
 | 1 | Single LLM + RAG | ✅ Already done (with Ollama, not literally OpenAI) | — |
-| 2a | Fallback provider wiring: OpenAI + Gemini | ⬜ Not started | **Unblocked** — both keys already in `credenciais/multi-llm-fallback.env` |
+| 2a | Fallback provider wiring: OpenAI + Gemini | ✅ Done, with one real caveat — [ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md) | Gemini fully works; OpenAI's account has zero credits (user action needed) |
 | 2b | Fallback trigger detection (local failed / insufficient) | ⬜ Not started | Depends on 2a |
 | 2c | Confirmation gate + non-grounded response contract | ⬜ Not started | Depends on 2b |
 | 2d | `web-ui`: confirmation dialog + provenance badge | ⬜ Not started | Depends on 2c |
@@ -32,8 +32,8 @@
 | 5 | Long-term memory beyond pgvector (Redis) | ⬜ Not started | A concrete "what does Redis add" answer |
 | 6 | Tools via MCP | ⬜ Not started | Scope cut to 1-2 concrete tools; benefits from Phase 9 landing first |
 | 7 | Observability (LangFuse + OpenTelemetry) | ⬜ Not started | A LangFuse account/hosting decision |
-| 8 | RAG quality deep-dive (chunking strategies + formal eval metrics) | ⬜ Not started | **Nothing — can start now** |
-| 9 | Native tool/function calling (Spring AI `@Tool`) | ⬜ Not started | **Nothing — can start now** |
+| 8 | RAG quality deep-dive (chunking strategies + formal eval metrics) | ✅ Done — [ADR 0034](adr/0034-rag-quality-chunking-and-evaluation-metrics.md) | — |
+| 9 | Native tool/function calling (Spring AI `@Tool`) | ✅ Done — [ADR 0035](adr/0035-native-tool-calling.md) | — |
 | 10 | Reframe agents around capability, not just LLM provider | ⬜ Not started | Phase 9 (and Phase 2/3 for real multi-provider value) |
 | 11 | Event-driven architecture (Kafka/RabbitMQ, outbox pattern) | ⬜ Not started | A provisioning decision (new infra, no paid key needed) |
 | 12 | AWS deployment target (ECS/EKS/Lambda/Bedrock/OpenSearch/...) | ⬜ Not started | An AWS account + explicit real-cost acceptance |
@@ -199,10 +199,24 @@ impossible to confuse with a normal answer — no citations array pretending to
 be empty-by-coincidence, a distinct response field, and a visible UI badge
 (Phase 2d). This must never become the default or silent path.
 
-### Phase 2a — Fallback provider wiring: OpenAI + Gemini ⬜
+### Phase 2a — Fallback provider wiring: OpenAI + Gemini ✅
 
-**Not started, no blocker.** Follows the exact bean/gateway/breaker pattern
-ADR 0017 already established — not a new design:
+**Done**, with one real, external, honest caveat — see
+[ADR 0036](adr/0036-fallback-provider-wiring-openai-gemini.md) for the full
+account. Gemini is fully verified working end-to-end (a real
+`generateContent` call against `gemini-flash-latest` returns real text).
+OpenAI's key authenticates successfully but the account has **zero
+credits** (`HTTP 429 insufficient_quota`) — a real, external, user-actionable
+blocker (adding a payment method on the OpenAI console) that no amount of
+code here can fix, and that this session explicitly did not attempt to
+resolve itself (a financial transaction). Two real corrections to the plan
+below surfaced during implementation, not assumed from this text: Spring AI
+1.0.0 has no plain-API-key Gemini integration (only Vertex AI, a different
+product), so `GeminiClient` is a plain REST client, not a Spring AI
+`ChatModel`; and the OpenAI fallback bean needed a manually-constructed
+`OpenAiApi`/`OpenAiChatModel` pair since Spring AI's OpenAI autoconfiguration
+only supports one `spring.ai.openai.*` block, already claimed by LM Studio.
+Original plan text kept below for the record:
 
 - `spring-ai-starter-model-openai` is already on the classpath (used today
   for LM Studio); a **second**, separate `ChatModel`/`ChatClient` bean pair
@@ -226,7 +240,14 @@ ADR 0017 already established — not a new design:
 **Done when**: a direct, isolated call to each of `callOpenAiFallback` and
 `callGeminiFallback` (a temporary test path is fine) returns a real answer
 from the real API, and a deliberately invalid key for one doesn't affect the
-other's circuit breaker state.
+other's circuit breaker state. **Verified for real** via
+`FallbackProviderLiveTest` (opt-in, real API calls, gated like the Phase 8
+benchmarks): `callGeminiFallback` returns a real answer; `callOpenAiFallback`
+authenticates successfully (confirmed not to be an auth failure) but the
+real account has zero credits, so full generation isn't confirmed working
+yet; the circuit-breaker isolation criterion passed outright — 6 real,
+failing OpenAI calls tripped only the `openai-fallback` breaker while
+`gemini-fallback` stayed `CLOSED` and kept answering.
 
 ### Phase 2b — Fallback trigger detection ⬜
 

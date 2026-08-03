@@ -3,8 +3,12 @@ package com.eniglio.ragplatform.rag.config;
 import java.time.Duration;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
+import org.springframework.ai.openai.OpenAiChatModel;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
@@ -28,6 +32,7 @@ import org.springframework.web.client.RestClient;
  * by a mock that only implements the {@code ChatModel} interface.
  */
 @Configuration
+@EnableConfigurationProperties(FallbackProviderProperties.class)
 public class ChatClientConfig {
 
     @Bean
@@ -39,6 +44,31 @@ public class ChatClientConfig {
     @Bean
     @Qualifier("lmstudio")
     public ChatClient lmStudioChatClient(@Qualifier("openAiChatModel") ChatModel chatModel) {
+        return ChatClient.builder(chatModel).build();
+    }
+
+    /**
+     * Multi-LLM Phase 2a: a **second**, manually-constructed OpenAI-family {@code
+     * ChatModel} — a deliberate, documented exception to this class's own
+     * autoconfigured-only convention (see the class javadoc), not an oversight. Spring
+     * AI's OpenAI autoconfiguration supports exactly one {@code spring.ai.openai.*}
+     * property block per application context, already claimed by LM Studio's entry
+     * above; a second simultaneous OpenAI-family provider (real {@code api.openai.com},
+     * for fallback) has no autoconfigured slot left to occupy, so it's built directly
+     * from the same {@code spring-ai-starter-model-openai} classes the autoconfiguration
+     * itself would otherwise use. Never added to {@code rag.available-models} — see
+     * {@link FallbackProviderProperties}'s own javadoc for why.
+     */
+    @Bean
+    @Qualifier("openaiFallback")
+    public ChatClient openAiFallbackChatClient(FallbackProviderProperties properties) {
+        OpenAiApi api = OpenAiApi.builder()
+                .apiKey(properties.openai().apiKey())
+                .build();
+        OpenAiChatModel chatModel = OpenAiChatModel.builder()
+                .openAiApi(api)
+                .defaultOptions(OpenAiChatOptions.builder().model(properties.openai().model()).build())
+                .build();
         return ChatClient.builder(chatModel).build();
     }
 

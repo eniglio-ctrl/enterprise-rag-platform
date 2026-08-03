@@ -457,10 +457,14 @@ vs. what's blocked on a decision or resource only the user can provide.
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
 - **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
   model selector (ADR 0025), the RAG chunking-strategy/evaluation-metric deep-dive
-  (ADR 0034), and native tool calling (ADR 0035) are done; real cloud providers, a
-  planner/reflection agent pair, MCP tools, event-driven architecture, an AWS
-  deployment target, a Python/LangGraph agent layer, and LLM-specific observability
-  (LangFuse/OpenTelemetry) are a much larger, explicitly staged initiative — see
+  (ADR 0034), native tool calling (ADR 0035), and OpenAI+Gemini fallback provider
+  wiring (ADR 0036 — Gemini fully verified working end-to-end; OpenAI's key
+  authenticates but the account has zero credits, a real, external, user-actionable
+  blocker) are done; the fallback-trigger detection, confirmation gate, `web-ui`
+  dialog, Anthropic wiring, a planner/reflection agent pair, MCP tools, event-driven
+  architecture, an AWS deployment target, a Python/LangGraph agent layer, and
+  LLM-specific observability (LangFuse/OpenTelemetry) are a much larger, explicitly
+  staged initiative — see
   [docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md](docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md).
   Every remaining phase is blocked on a real decision (which paid API(s), is
   Redis/Kafka actually justified, which MCP tools, whether a second language is
@@ -509,6 +513,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0033 — Public demo hardening (locked down actuator/API docs, tighter rate limit, demo-specific CSP — closes the security hardening rollout)](docs/adr/0033-public-demo-hardening.md)
 - [ADR 0034 — RAG quality deep-dive: chunking strategies and evaluation metrics (real measured numbers, not asserted)](docs/adr/0034-rag-quality-chunking-and-evaluation-metrics.md)
 - [ADR 0035 — Native tool/function calling: a document-lookup-by-filename `@Tool`, verified via a real log line, not inferred from the answer](docs/adr/0035-native-tool-calling.md)
+- [ADR 0036 — Fallback provider wiring (OpenAI + Gemini): manually-built beans, a plain-REST Gemini client, real API verification (Gemini working, OpenAI zero credits)](docs/adr/0036-fallback-provider-wiring-openai-gemini.md)
 
 ## License
 
