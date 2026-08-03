@@ -1,7 +1,10 @@
 package com.eniglio.ragplatform.rag.benchmark;
 
+import com.eniglio.ragplatform.common.web.RetrievedChunk;
 import com.eniglio.ragplatform.rag.RagServiceApplication;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
+import com.eniglio.ragplatform.rag.dto.ContextRelevance;
+import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.service.RagQueryService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +28,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import static com.eniglio.ragplatform.rag.benchmark.BenchmarkSupport.cosineSimilarity;
+import static com.eniglio.ragplatform.rag.benchmark.BenchmarkSupport.truncate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -33,6 +38,24 @@ import static org.assertj.core.api.Assertions.assertThat;
  * each generated answer's embedding and its expected answer's embedding — via the
  * same {@link EmbeddingModel} the app already injects everywhere else, no new
  * dependency.
+ * <p>
+ * Multi-LLM Phase 8 extended this with two more real, measured-per-question metrics
+ * instead of just the one cosine-similarity score:
+ * <ul>
+ * <li><b>Faithfulness</b> — reuses ADR 0008's own groundedness check rather than
+ * building a second, parallel implementation. Simply flips {@code answer()}'s
+ * {@code grounded} argument to {@code true}, so {@code response.groundedness()}
+ * comes back already computed against the exact context the answer was actually
+ * generated from.</li>
+ * <li><b>Context relevance</b> — independent of the final answer: {@link
+ * RagQueryService#retrieve(String, String)} is called separately to get the
+ * full, untruncated retrieved-chunk text (not {@code Citation}'s 200-char
+ * snippet), and each chunk is judged against the question via {@link
+ * RagQueryService#checkContextRelevance(String, String)}.</li>
+ * </ul>
+ * Both add real LLM calls per question (one more for the chunk-relevance judge, per
+ * retrieved chunk) — acceptable here since this is an opt-in benchmark, never run in
+ * CI.
  * <p>
  * <b>If this fails with "model ... not found, try pulling it first" against a model
  * that's demonstrably already pulled</b>: check for a second Ollama process
@@ -137,45 +160,49 @@ class RagQualityBenchmark {
 
         List<String> report = new ArrayList<>();
         double totalSimilarity = 0;
+        int faithfulCount = 0;
+        double totalContextRelevanceRate = 0;
 
         for (QaPair pair : qaPairs) {
-            ChatResponse response = ragQueryService.answer(pair.question(), "benchmark", false, false, null);
+            // grounded=true (was false): gets the real faithfulness verdict for free,
+            // computed by the same call against the exact context actually used —
+            // no need for a second, separately-reconstructed context string.
+            ChatResponse response = ragQueryService.answer(pair.question(), "benchmark", true, false, null);
 
             float[] expectedEmbedding = embeddingModel.embed(pair.expectedAnswer());
             float[] actualEmbedding = embeddingModel.embed(response.answer());
             double similarity = cosineSimilarity(expectedEmbedding, actualEmbedding);
             totalSimilarity += similarity;
 
-            report.add("%.3f  %-24s  %s".formatted(similarity, pair.source(), truncate(response.answer(), 90)));
+            Groundedness groundedness = response.groundedness();
+            if (groundedness == Groundedness.SUPPORTED) {
+                faithfulCount++;
+            }
+
+            List<RetrievedChunk> retrieved = ragQueryService.retrieve(pair.question(), "benchmark");
+            long relevantCount = retrieved.stream()
+                    .filter(chunk -> ragQueryService.checkContextRelevance(pair.question(), chunk.content())
+                            == ContextRelevance.RELEVANT)
+                    .count();
+            double contextRelevanceRate = retrieved.isEmpty() ? 0.0 : (double) relevantCount / retrieved.size();
+            totalContextRelevanceRate += contextRelevanceRate;
+
+            report.add("%.3f  faithful=%-5s  ctx-relevance=%.2f  %-24s  %s".formatted(
+                    similarity, groundedness == Groundedness.SUPPORTED, contextRelevanceRate, pair.source(),
+                    truncate(response.answer(), 70)));
         }
 
         double averageSimilarity = totalSimilarity / qaPairs.size();
+        double averageContextRelevance = totalContextRelevanceRate / qaPairs.size();
 
         System.out.println();
         System.out.println("=== RAG Quality Benchmark (" + qaPairs.size() + " questions) ===");
         report.forEach(System.out::println);
-        System.out.printf("Average similarity: %.3f (minimum bar: %.2f)%n%n",
+        System.out.printf("Average similarity: %.3f (minimum bar: %.2f)%n",
                 averageSimilarity, MINIMUM_ACCEPTABLE_AVERAGE_SIMILARITY);
+        System.out.printf("Faithful answers: %d/%d%n", faithfulCount, qaPairs.size());
+        System.out.printf("Average context-relevance rate: %.2f%n%n", averageContextRelevance);
 
         assertThat(averageSimilarity).isGreaterThanOrEqualTo(MINIMUM_ACCEPTABLE_AVERAGE_SIMILARITY);
-    }
-
-    private static double cosineSimilarity(float[] a, float[] b) {
-        double dot = 0;
-        double normA = 0;
-        double normB = 0;
-        for (int i = 0; i < a.length; i++) {
-            dot += a[i] * b[i];
-            normA += a[i] * a[i];
-            normB += b[i] * b[i];
-        }
-        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-    }
-
-    private static String truncate(String text, int maxLength) {
-        if (text == null) {
-            return "";
-        }
-        return text.length() <= maxLength ? text : text.substring(0, maxLength) + "...";
     }
 }

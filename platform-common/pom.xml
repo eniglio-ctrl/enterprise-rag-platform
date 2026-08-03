@@ -65,6 +65,15 @@
             <artifactId>micrometer-core</artifactId>
         </dependency>
         <dependency>
+            <!-- Multi-LLM Phase 8: RecursiveCharacterTextSplitter/MarkdownAwareTextSplitter
+                 extend org.springframework.ai.transformer.splitter.TextSplitter. Lightweight
+                 core module (not a model-provider starter) - version comes from the root
+                 pom's spring-ai-bom, same as every other Spring AI dependency in this
+                 project. -->
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-commons</artifactId>
+        </dependency>
+        <dependency>
             <!-- First tests this module has ever had (RateLimitFilterTest,
                  Security Phase 2) - platform-common had zero test dependencies
                  before this. -->

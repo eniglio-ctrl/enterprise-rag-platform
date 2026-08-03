@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.rag.service;
 import com.eniglio.ragplatform.rag.config.RagProperties;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
+import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
@@ -497,5 +498,56 @@ class RagQueryServiceTest {
         service.ask("Como funciona o SAGA?", "default", false, false, null);
 
         verify(visionDescriptionService, never()).describe(any(), any());
+    }
+
+    // --- Multi-LLM Phase 8: standalone faithfulness/context-relevance checks,
+    // reused by RagQualityBenchmark outside the full answer()/ask() request cycle ---
+
+    @Test
+    void checkGroundednessIsReusableStandaloneOutsideTheAnswerFlow() {
+        given(chatModel.call(any(Prompt.class))).willReturn(new org.springframework.ai.chat.model.ChatResponse(
+                List.of(new Generation(new AssistantMessage("SUPORTADA")))));
+
+        Groundedness result = newService().checkGroundedness("[1] SAGA coordena transações.",
+                "O padrão SAGA coordena transações [1]");
+
+        assertThat(result).isEqualTo(Groundedness.SUPPORTED);
+    }
+
+    @Test
+    void checkContextRelevanceMarksAChunkThatAnswersTheQuestionAsRelevant() {
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("RELEVANTE")
+                    ? "RELEVANTE"
+                    : "resposta genérica";
+            return new org.springframework.ai.chat.model.ChatResponse(
+                    List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        ContextRelevance result = newService().checkContextRelevance("Como funciona o SAGA?",
+                "SAGA coordena transações distribuídas via choreography ou orchestration.");
+
+        assertThat(result).isEqualTo(ContextRelevance.RELEVANT);
+    }
+
+    @Test
+    void checkContextRelevanceMarksAnUnrelatedChunkAsNotRelevant() {
+        // "IRRELEVANTE" contains "RELEVANTE" as a substring - this is the regression
+        // test for parseContextRelevance checking the negative token first, the same
+        // pitfall parseGroundedness already handles for NAO_SUPORTADA/SUPORTADA.
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("RELEVANTE")
+                    ? "IRRELEVANTE"
+                    : "resposta genérica";
+            return new org.springframework.ai.chat.model.ChatResponse(
+                    List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        ContextRelevance result = newService().checkContextRelevance("Como funciona o SAGA?",
+                "A receita de bolo de cenoura leva três ovos.");
+
+        assertThat(result).isEqualTo(ContextRelevance.NOT_RELEVANT);
     }
 }

@@ -7,6 +7,7 @@ import com.eniglio.ragplatform.rag.config.RagProperties.AvailableModel;
 import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import io.micrometer.core.instrument.Counter;
@@ -80,6 +81,21 @@ public class RagQueryService {
 
             CONTEXTO:
             {context}
+            """;
+
+    // Multi-LLM Phase 8 (RAG quality deep-dive): faithfulness (above) asks "is the
+    // *answer* backed by the context"; this asks the narrower, independent question
+    // "is *this one retrieved chunk* actually useful for this question" - a bad
+    // retrieval can still produce a faithful-looking answer if the model happens to
+    // already know the fact, so the two checks catch different failure modes.
+    private static final String CONTEXT_RELEVANCE_SYSTEM_TEMPLATE = """
+            Dada a PERGUNTA abaixo e um TRECHO de documento, responda apenas "RELEVANTE" ou "IRRELEVANTE".
+            Considere RELEVANTE se o trecho contém informação que ajudaria a responder a pergunta,
+            mesmo que só parcialmente.
+            Considere IRRELEVANTE se o trecho não tem relação nenhuma com o que a pergunta pede.
+
+            PERGUNTA:
+            {question}
             """;
 
     // Prepended to SYSTEM_TEMPLATE/DIAGRAM_SYSTEM_TEMPLATE only when a question has an
@@ -420,6 +436,16 @@ public class RagQueryService {
         return parseGroundedness(verdict);
     }
 
+    /**
+     * Public entry point for {@code RagQualityBenchmark} (Multi-LLM Phase 8) to reuse
+     * this exact faithfulness check outside the live {@code /api/v1/ask} request
+     * cycle — resolves the default model rather than requiring a caller that only has
+     * a (question, answer, context) triple to also know about model selection.
+     */
+    public Groundedness checkGroundedness(String context, String answer) {
+        return checkGroundedness(context, answer, resolveModel(null));
+    }
+
     private Groundedness parseGroundedness(String verdict) {
         String normalized = stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT));
         if (normalized.contains("NAO_SUPORTADA") || normalized.contains("NAO SUPORTADA")) {
@@ -430,6 +456,38 @@ public class RagQueryService {
         }
         log.warn("Unexpected groundedness verdict from model, defaulting to SUPPORTED: {}", verdict);
         return Groundedness.SUPPORTED;
+    }
+
+    /**
+     * Multi-LLM Phase 8: independent of faithfulness above — this judges one
+     * retrieved chunk against the question alone, with no knowledge of what the
+     * final answer said. A bad retrieval can still yield a faithful-looking answer
+     * (the model already "knew" the fact), so context relevance catches a different
+     * failure than groundedness does.
+     */
+    public ContextRelevance checkContextRelevance(String question, String chunkContent) {
+        AvailableModel resolvedModel = resolveModel(null);
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(CONTEXT_RELEVANCE_SYSTEM_TEMPLATE).param("question", question))
+                .user("TRECHO:\n" + chunkContent)
+                .options(modelOptions(resolvedModel, 0.0))
+                .call()
+                .content());
+        return parseContextRelevance(verdict);
+    }
+
+    private ContextRelevance parseContextRelevance(String verdict) {
+        String normalized = stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT));
+        // "IRRELEVANTE" contains "RELEVANTE" as a substring - same ordering pitfall
+        // already handled in parseGroundedness above, checked first here too.
+        if (normalized.contains("IRRELEVANTE")) {
+            return ContextRelevance.NOT_RELEVANT;
+        }
+        if (normalized.contains("RELEVANTE")) {
+            return ContextRelevance.RELEVANT;
+        }
+        log.warn("Unexpected context-relevance verdict from model, defaulting to RELEVANT: {}", verdict);
+        return ContextRelevance.RELEVANT;
     }
 
     public DiagramResponse diagram(String question, String tenantId, String model) {

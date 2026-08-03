@@ -371,11 +371,20 @@ token usage in LangFuse, and a single request's trace is visible end-to-end
 across at least two services in whatever tracing backend OpenTelemetry is
 configured to export to.
 
-## Phase 8 — RAG quality deep-dive (chunking strategies + evaluation metrics) ⬜
+## Phase 8 — RAG quality deep-dive (chunking strategies + evaluation metrics) ✅
 
-**Not started — nothing blocks this, can start now.** Two related gaps found
-during the checklist gap-check, both strengthening the existing RAG pipeline
-rather than adding new infrastructure:
+**Done.** See [ADR 0034](adr/0034-rag-quality-chunking-and-evaluation-metrics.md)
+for the full account, including the real measured numbers (both structure-aware
+splitters beat the production baseline by ~0.10 average similarity on a real
+document; faithfulness 10/10 on the existing QA corpus; context-relevance
+0.20 average, explained by the benchmark's shared-tenant seeding, not a bug).
+Semantic and parent-child splitting were **not** added — the plan's own
+condition for skipping them ("only add these two if the simpler ones don't
+move the needle enough") wasn't met, since recursive and markdown-aware both
+already showed a clear, real improvement. Recall/precision and a dedicated
+hallucination-rate metric were also not added — both would need new labeled
+test-set infrastructure (`relevantChunkIds`-style fields) this phase's
+"done when" didn't require. Kept below for the record:
 
 - **Chunking strategies.** Today's pipeline uses only `TokenTextSplitter`
   (fixed token-count chunks, `ingestion.chunk-size-tokens`, no awareness of

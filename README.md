@@ -397,9 +397,12 @@ database, not a fake.
 A separate, opt-in benchmark scores real answer quality — not mocked models — against
 10 question/expected-answer pairs, via cosine similarity between each generated
 answer's embedding and its expected answer's (reusing the same `EmbeddingModel` bean
-the app already injects, no new dependency). It needs a real, reachable local Ollama
-with `llama3.1` and `nomic-embed-text` already pulled, so it's excluded from both
-`verify` and CI:
+the app already injects, no new dependency). It also reports faithfulness (reusing
+ADR 0008's groundedness check) and context relevance (an LLM-as-judge scoring each
+retrieved chunk against the question) per question, not just the one similarity
+score — added in Multi-LLM Phase 8 (ADR 0034). It needs a real, reachable local
+Ollama with `llama3.1` and `nomic-embed-text` already pulled, so it's excluded from
+both `verify` and CI:
 
 ```bash
 ./mvnw test -pl rag-service -Dtest=RagQualityBenchmark -Dbenchmark=true \
@@ -407,13 +410,25 @@ with `llama3.1` and `nomic-embed-text` already pulled, so it's excluded from bot
 ```
 
 Latest real run: **average similarity 0.651** across 10 questions (minimum bar:
-0.60), individual scores 0.47–0.93. Several answers came back in Portuguese for
-English questions — a genuine, CPU-bound `llama3.1` quirk on this hardware, not a
-retrieval defect — which cross-lingual cosine similarity penalizes even when the
-answer is factually correct; see the class's own Javadoc for the full account,
-including a real, reproducible gotcha (a second, unrelated local Ollama process
-competing for port 11434) that looked like test flakiness before it was tracked
-down.
+0.60), individual scores 0.47–0.93, **10/10 answers faithful**, **average
+context-relevance 0.20** (explained, not a bug — the benchmark's 10 QA pairs share
+one tenant, so a 5-chunk retrieval sees the whole 10-document pool with only one
+truly relevant document per question; see ADR 0034). Several answers came back in
+Portuguese for English questions — a genuine, CPU-bound `llama3.1` quirk on this
+hardware, not a retrieval defect — which cross-lingual cosine similarity penalizes
+even when the answer is factually correct; see the class's own Javadoc for the full
+account, including a real, reproducible gotcha (a second, unrelated local Ollama
+process competing for port 11434) that looked like test flakiness before it was
+tracked down.
+
+A second benchmark, `ChunkingStrategyBenchmark`, compares the production
+`TokenTextSplitter` against two new structure-aware splitters
+(`RecursiveCharacterTextSplitter`, `MarkdownAwareTextSplitter`) on a real document
+(`docs/architecture.md`). Latest real run: baseline 0.737 average similarity vs.
+0.839 (recursive) and 0.841 (markdown-aware) — both structure-aware strategies beat
+the baseline by ~0.10 (~14% relative) at a small, boundary-sensitive chunk size. Not
+yet wired into the real ingestion pipeline — see ADR 0034 for why and what a
+follow-up would need to check first.
 
 ## What's implemented vs. what's next
 
@@ -492,6 +507,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0031 — Tenant invitations and a persisted JWT signing key (supersedes ADR 0016's simplifications)](docs/adr/0031-tenant-invitations-and-persistent-jwt-key.md)
 - [ADR 0032 — Security audit logging and monitoring (correlation ID, audit events, found and fixed a real Prometheus scrape bug)](docs/adr/0032-security-audit-logging-and-monitoring.md)
 - [ADR 0033 — Public demo hardening (locked down actuator/API docs, tighter rate limit, demo-specific CSP — closes the security hardening rollout)](docs/adr/0033-public-demo-hardening.md)
+- [ADR 0034 — RAG quality deep-dive: chunking strategies and evaluation metrics (real measured numbers, not asserted)](docs/adr/0034-rag-quality-chunking-and-evaluation-metrics.md)
 
 ## License
 

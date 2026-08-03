@@ -87,9 +87,17 @@ around):
    verified against the actual diagram feature (Mermaid's inline styles) in
    a live browser, not just `curl -I` (see
    [ADR 0029](adr/0029-secrets-cors-http-headers.md)).
-6. ⬜ **Multi-LLM Phase 8 — RAG quality deep-dive** (chunking strategies +
-   faithfulness/context-relevance metrics) — strengthens the actual core
-   product, no dependency on anything above.
+6. ✅ **Multi-LLM Phase 8 — RAG quality deep-dive** — closed. Two new
+   structure-aware splitters (`RecursiveCharacterTextSplitter`,
+   `MarkdownAwareTextSplitter`) both beat the production `TokenTextSplitter`
+   baseline by ~0.10 average answer similarity (~14% relative) on a real
+   document, measured, not asserted; the benchmark now also reports
+   faithfulness (10/10, reusing ADR 0008's groundedness check) and context
+   relevance (0.20 average, explained by the benchmark's shared-tenant
+   corpus, not a bug) per question, not just one cosine-similarity number
+   (see [ADR 0034](adr/0034-rag-quality-chunking-and-evaluation-metrics.md)).
+   Not wired into the real ingestion pipeline yet — a separate follow-up
+   decision, not made by this investigation alone.
 7. ⬜ **Multi-LLM Phase 9 — Native tool/function calling** — no dependency;
    sets up Tier 2's Phase 10 and Phase 6 below.
 8. ⬜ **Multi-LLM Phase 2a — Fallback provider wiring: OpenAI + Gemini**
