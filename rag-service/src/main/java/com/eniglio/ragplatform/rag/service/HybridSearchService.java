@@ -33,12 +33,17 @@ public class HybridSearchService {
     /** Standard RRF constant from the literature (e.g. Elasticsearch's own RRF). */
     private static final int RRF_K = 60;
 
+    // unaccent_simple (docs/ROADMAP.md item #16, V3 migration): copies 'simple' but
+    // folds accents/diacritics before comparison, so a question typed without accents
+    // still matches indexed content that has them, and vice versa. content_tsv is
+    // generated using this same config - querying with a different one here would
+    // silently reintroduce the exact mismatch this exists to close.
     private static final String FULL_TEXT_SEARCH_SQL = """
             SELECT id, content, metadata
             FROM vector_store
-            WHERE content_tsv @@ to_tsquery('simple', ?)
+            WHERE content_tsv @@ to_tsquery('unaccent_simple', ?)
               AND tenant_id = ?
-            ORDER BY ts_rank(content_tsv, to_tsquery('simple', ?)) DESC
+            ORDER BY ts_rank(content_tsv, to_tsquery('unaccent_simple', ?)) DESC
             LIMIT ?
             """;
 
@@ -73,9 +78,12 @@ public class HybridSearchService {
      * similarity but an exact rare-term match (e.g. a proper noun) can still surface
      * here purely on the strength of the full-text leg.
      *
-     * {@code 'simple'} (not {@code 'portuguese'}/{@code 'english'}) is deliberate:
-     * content can be in either language, and a fixed stemming config would silently
-     * degrade matches in whichever language it wasn't tuned for.
+     * {@code 'unaccent_simple'} (not {@code 'portuguese'}/{@code 'english'}) is
+     * deliberate: content can be in either language, and a fixed stemming config
+     * would silently degrade matches in whichever language it wasn't tuned for. It's
+     * a custom config copying Postgres's built-in {@code 'simple'} but folding
+     * accents/diacritics first (V3 migration, ADR 0011/0012), so "informação" and
+     * "informacao" tokenize the same way on both the indexed side and the query side.
      *
      * {@code [achado]} the plan called for {@code plainto_tsquery}, which ANDs every
      * token together — a real natural-language question ("Onde fica o Globodyne?")

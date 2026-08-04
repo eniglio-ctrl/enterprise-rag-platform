@@ -256,34 +256,44 @@ around):
     question was resolved using the prior turn's context and the running
     conversation history, not answered in isolation. See
     [ADR 0041](adr/0041-conversation-ui-in-web-ui.md).
-16. ⬜ **Hybrid search: accent/diacritic-insensitive full-text matching** —
-    a real gap found while using the fallback flow: `HybridSearchService`'s
-    full-text leg indexes `content_tsv` via `to_tsvector('simple', ...)`
-    (ADR 0011/0012), and Postgres's `'simple'` text search configuration
-    does **not** strip accents/diacritics — "informação" and "informacao"
-    tokenize differently, so a question typed without accents (common —
-    quick typing, some keyboards) can silently miss full-text-indexed
-    content that has them, or vice versa. The vector/embedding leg is
-    largely unaffected (semantic similarity, not exact tokens), so this is
-    specifically a full-text-leg gap, not a whole-retrieval one. Fix: enable
-    Postgres's built-in `unaccent` extension and a custom text search
-    configuration copying `simple` but mapping through `unaccent` first
-    (`CREATE TEXT SEARCH CONFIGURATION ... (COPY = simple); ALTER ... ALTER
-    MAPPING ... WITH unaccent, simple;`), then point both the generated
-    `content_tsv` column (needs a new Flyway migration — generated column
-    expressions can't be altered in place, only dropped and re-added) and
-    `HybridSearchService`'s `to_tsquery(...)` calls at it instead of
-    `'simple'`. "Especial characters" beyond accents (e.g. hyphenated
-    compounds like "e-commerce") are a related but distinct tokenization
-    question `buildOrTsQuery`'s existing alphanumeric stripping doesn't
-    fully resolve either — worth a real test case, not assumed fixed by the
-    same change. **Done when**: a real test indexes a chunk containing an
-    accented word, a question using the unaccented spelling (and vice
-    versa) still retrieves it via the full-text leg specifically (not
-    coincidentally via the vector leg alone) — verified with a targeted
-    `HybridSearchServiceTest`/integration test, plus a real `curl` round
-    trip against the running local stack, not just asserted from reading
-    the SQL.
+16. ✅ **Hybrid search: accent/diacritic-insensitive full-text matching** —
+    closed a real gap found while using the fallback flow: `HybridSearchService`'s
+    full-text leg indexed `content_tsv` via `to_tsvector('simple', ...)`
+    (ADR 0011/0012), and Postgres's `'simple'` text search configuration does
+    **not** strip accents/diacritics — "informação" and "informacao"
+    tokenized differently, so a question typed without accents (common —
+    quick typing, some keyboards) could silently miss full-text-indexed
+    content that has them, or vice versa. The vector/embedding leg was
+    largely unaffected (semantic similarity, not exact tokens) — this was
+    specifically a full-text-leg gap, not a whole-retrieval one. Fix: a new
+    `unaccent_simple` text search configuration (`CREATE EXTENSION unaccent;
+    CREATE TEXT SEARCH CONFIGURATION unaccent_simple (COPY = simple); ALTER
+    ... ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple;`),
+    a new Flyway migration (V3, both `db/migration` and `db/migration-demo`)
+    dropping and re-adding the generated `content_tsv` column against it
+    (generated column expressions can't be altered in place), and
+    `HybridSearchService`'s two `to_tsquery(...)` call sites repointed at
+    `'unaccent_simple'` instead of `'simple'`. Hyphenated compounds (e.g.
+    "e-commerce") were checked too, per this item's own callout that it's a
+    related but distinct tokenization question — `buildOrTsQuery`'s existing
+    alphanumeric stripping already splits them the same way on both the
+    index and query side, confirmed by a dedicated test rather than assumed.
+    **Done when, verified for real**: three new `ChatQueryIT` tests, reusing
+    the same deliberately-opposite-vector trick as the existing Globodyne
+    test so a match can only come from the full-text leg, not the vector leg
+    — unaccented-indexed/accented-question, accented-indexed/unaccented-question,
+    and the hyphenated-compound case — all passing against a real
+    Postgres/pgvector Testcontainer. `ingestion-service`'s own integration
+    test confirmed the V3 migration applies cleanly. Then, against the real
+    running local stack: uploaded a document containing "informação",
+    queried Postgres directly (`content_tsv @@ to_tsquery('unaccent_simple',
+    ...)` matched both the accented and unaccented spelling), and asked
+    `/api/v1/ask` the fully unaccented question "Qual o prazo de retenção da
+    informação?" spelled without accents — got back the right answer with a
+    citation, RRF score `0.0328 ≈ 2/61`, matching the exact "found in both
+    lists at rank 1" score the unit test asserts, confirming the full-text
+    leg (not just the vector leg) genuinely contributed. See
+    [ADR 0042](adr/0042-unaccent-text-search-configuration.md).
 17. ⬜ **Operational resilience hardening** (timeouts, concurrency limits,
     readiness-vs-liveness split) — see
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)

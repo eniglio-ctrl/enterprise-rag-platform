@@ -88,18 +88,33 @@ class ChatQueryIT {
     void seedVectorStoreAndStubModels() {
         // rag-service never runs Flyway (ADR 0011) — it only reads a schema
         // ingestion-service migrates. This test's Postgres is standalone (no
-        // ingestion-service involved), so it needs the same columns Flyway's V2
-        // migration adds, or HybridSearchService's full-text SQL leg has nothing to
-        // query against. Mirrors that migration's DDL exactly; IF NOT EXISTS makes
-        // re-running it every test method harmless.
+        // ingestion-service involved), so it needs the same columns Flyway's V2/V3
+        // migrations add, or HybridSearchService's full-text SQL leg has nothing to
+        // query against. Mirrors those migrations' DDL exactly; IF NOT EXISTS/OR
+        // REPLACE makes re-running this every test method harmless. CREATE TEXT
+        // SEARCH CONFIGURATION has no IF NOT EXISTS form, hence the catch.
         jdbcTemplate.execute("""
                 ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS tenant_id text
                         GENERATED ALWAYS AS (metadata->>'tenantId') STORED,
                     ADD COLUMN IF NOT EXISTS user_id text
-                        GENERATED ALWAYS AS (metadata->>'userId') STORED,
+                        GENERATED ALWAYS AS (metadata->>'userId') STORED
+                """);
+        jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS unaccent");
+        try {
+            jdbcTemplate.execute("CREATE TEXT SEARCH CONFIGURATION unaccent_simple (COPY = simple)");
+            jdbcTemplate.execute("""
+                    ALTER TEXT SEARCH CONFIGURATION unaccent_simple
+                        ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple
+                    """);
+        } catch (org.springframework.dao.DataAccessException alreadyExists) {
+            // Testcontainers reuses the same container across every test method in
+            // this class - only the first method's call actually creates it.
+        }
+        jdbcTemplate.execute("""
+                ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS content_tsv tsvector
-                        GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED
+                        GENERATED ALWAYS AS (to_tsvector('unaccent_simple', coalesce(content, ''))) STORED
                 """);
 
         float[] fixedVector = fixedVector();
@@ -234,6 +249,124 @@ class ChatQueryIT {
                         .content("{\"question\":\"Globodyne\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("globodyne-doc.md")));
+    }
+
+    @Test
+    void hybridSearchMatchesAnAccentedQuestionAgainstUnaccentedIndexedContent() throws Exception {
+        // docs/ROADMAP.md item #16: 'simple' alone tokenizes "manutencao" and
+        // "manutenção" differently. Same opposite-vector trick as the Globodyne test
+        // above, so a match here can only have come from the full-text leg's
+        // accent-insensitive unaccent_simple config (V3 migration), not the vector leg.
+        float[] queryVector = fixedVector();
+        float[] oppositeVector = oppositeVector();
+
+        given(embeddingModel.embed(any(String.class))).willAnswer(inv -> {
+            String text = inv.getArgument(0);
+            return text.contains("manutencao") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(Document.class))).willAnswer(inv -> {
+            Document doc = inv.getArgument(0);
+            return doc.getText().contains("manutencao") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(List.class), any(EmbeddingOptions.class), any(BatchingStrategy.class)))
+                .willAnswer(inv -> {
+                    List<Document> documents = inv.getArgument(0);
+                    return documents.stream()
+                            .map(doc -> doc.getText().contains("manutencao") ? oppositeVector : queryVector)
+                            .toList();
+                });
+
+        vectorStore.add(List.of(Document.builder()
+                .text("O procedimento de manutencao evita falhas no sistema.")
+                .metadata(Map.of("source", "manutencao-doc.md", "documentId", "doc-unaccented", "chunkIndex", 0, "tenantId", "default"))
+                .build()));
+
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona a manutenção preventiva?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("manutencao-doc.md")));
+    }
+
+    @Test
+    void hybridSearchMatchesAnUnaccentedQuestionAgainstAccentedIndexedContent() throws Exception {
+        // The reverse direction of the test above: indexed content has the accent,
+        // the question doesn't. Both directions need their own test since folding is
+        // applied identically on both sides - a bug that broke only one direction
+        // (e.g. an index-time regression that stopped applying unaccent_simple) would
+        // otherwise go unnoticed if only one were checked.
+        float[] queryVector = fixedVector();
+        float[] oppositeVector = oppositeVector();
+
+        given(embeddingModel.embed(any(String.class))).willAnswer(inv -> {
+            String text = inv.getArgument(0);
+            return text.contains("proteção") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(Document.class))).willAnswer(inv -> {
+            Document doc = inv.getArgument(0);
+            return doc.getText().contains("proteção") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(List.class), any(EmbeddingOptions.class), any(BatchingStrategy.class)))
+                .willAnswer(inv -> {
+                    List<Document> documents = inv.getArgument(0);
+                    return documents.stream()
+                            .map(doc -> doc.getText().contains("proteção") ? oppositeVector : queryVector)
+                            .toList();
+                });
+
+        vectorStore.add(List.of(Document.builder()
+                .text("O firewall oferece proteção contra acessos indevidos.")
+                .metadata(Map.of("source", "protecao-doc.md", "documentId", "doc-accented", "chunkIndex", 0, "tenantId", "default"))
+                .build()));
+
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como funciona a protecao do firewall?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("protecao-doc.md")));
+    }
+
+    @Test
+    void hybridSearchMatchesAHyphenatedCompoundInBothIndexedContentAndQuestion() throws Exception {
+        // docs/ROADMAP.md item #16 also flagged hyphenated compounds (e.g.
+        // "e-commerce") as a related but distinct tokenization question, worth its own
+        // test rather than assuming the accent fix also covers it. buildOrTsQuery
+        // strips non-alphanumeric characters (including hyphens) before building the
+        // OR query, and to_tsvector does the same at index time - both sides split
+        // "e-commerce" into "e"/"commerce" identically, so this passes without any
+        // extra change; this test exists to prove that, not to fix anything.
+        float[] queryVector = fixedVector();
+        float[] oppositeVector = oppositeVector();
+
+        given(embeddingModel.embed(any(String.class))).willAnswer(inv -> {
+            String text = inv.getArgument(0);
+            return text.contains("e-commerce") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(Document.class))).willAnswer(inv -> {
+            Document doc = inv.getArgument(0);
+            return doc.getText().contains("e-commerce") ? oppositeVector : queryVector;
+        });
+        given(embeddingModel.embed(any(List.class), any(EmbeddingOptions.class), any(BatchingStrategy.class)))
+                .willAnswer(inv -> {
+                    List<Document> documents = inv.getArgument(0);
+                    return documents.stream()
+                            .map(doc -> doc.getText().contains("e-commerce") ? oppositeVector : queryVector)
+                            .toList();
+                });
+
+        vectorStore.add(List.of(Document.builder()
+                .text("Nossa loja de e-commerce cresceu 40% este ano.")
+                .metadata(Map.of("source", "ecommerce-doc.md", "documentId", "doc-hyphen", "chunkIndex", 0, "tenantId", "default"))
+                .build()));
+
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"Como está o e-commerce da empresa?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("ecommerce-doc.md")));
     }
 
     @Test

@@ -556,6 +556,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0039 — `web-ui` fallback confirmation dialog + provenance badge: tested live in the browser, both the positive (badge shown) and negative (badge absent on a normal answer) cases](docs/adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)
 - [ADR 0040 — Mockito as an explicit Surefire Java agent for JDK-vendor portability: closes a real, live warning present on every test run this session](docs/adr/0040-mockito-javaagent-jdk-portability.md)
 - [ADR 0041 — Multi-turn conversation UI in `web-ui`: closes the self-admitted `chat-service` wiring gap, verified live with a context-only follow-up question ("E o que mais?")](docs/adr/0041-conversation-ui-in-web-ui.md)
+- [ADR 0042 — `unaccent_simple` text search configuration: closes the hybrid search full-text leg's accent/diacritic gap, verified with an RRF score matching the exact "found in both legs" value](docs/adr/0042-unaccent-text-search-configuration.md)
 
 ## License
 
