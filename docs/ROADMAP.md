@@ -22,11 +22,13 @@
 
 Two living roadmaps now exist (security hardening; the broader AI-engineering
 skill roadmap), plus a Kubernetes gap the README has tracked on its own since
-before either roadmap existed. Twenty-six items are tracked across all three
-places (up from twenty-five — a real accent/diacritic-insensitivity gap in
-hybrid search's full-text leg, found while exercising the Phase 2c fallback
-flow, added as its own Tier 1 item rather than folded silently into an
-existing one). They don't have to happen in roadmap-file order or phase-number
+before either roadmap existed. Twenty-nine items are tracked across all three
+places (up from twenty-six — three real gaps added after a direct evaluation
+with the user: the DOCX upload validation gap `docs/SECURITY-HARDENING-ROADMAP.md`
+already self-flags as its top open security risk, a real Mockito/JDK-vendor
+test-portability blind spot CI's Temurin pin never exercises, and
+`chat-service` never actually being demoed in `web-ui`'s main flow despite
+being fully built). They don't have to happen in roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
 same rate-limit filter both a security phase and an AI-roadmap phase need);
@@ -174,7 +176,73 @@ around):
     shape as #8, once #8-#11 exist) — deliberately deferred: the user will
     generate `ANTHROPIC_API_KEY` specifically when this item starts, not
     before, unlike OpenAI/Gemini's keys which were obtained ahead of time.
-13. ⬜ **Hybrid search: accent/diacritic-insensitive full-text matching** —
+13. ⬜ **Close the DOCX upload validation gap (zip-as-docx + zip bomb)** —
+    the top remaining technical security risk this project's own docs
+    already flag as open. `UploadValidationService`'s `.docx` check
+    (`ingestion-service/.../UploadValidationService.java`) only confirms the
+    upload starts with the generic ZIP local-file-header signature
+    (`PK\x03\x04`, verified directly in the code) — any arbitrary ZIP
+    renamed to `.docx` passes validation today and reaches
+    `TikaDocumentReader`, which then either throws an unhandled exception
+    (a raw 500, not this phase's own guaranteed clean 422) or successfully
+    parses whatever unrelated ZIP content Tika's auto-detection happens to
+    find inside. Already described, with the exact fix shape, in
+    [ADR 0022](adr/0022-upload-validation-hardening.md)'s own "known gap,
+    correctly flagged in review, not yet fixed" section and in
+    `docs/SECURITY-HARDENING-ROADMAP.md`'s Phase 1 (currently "✅ Done, one
+    known gap open"): (1) after the ZIP signature check, open the archive's
+    central directory and confirm `word/document.xml` (and ideally
+    `[Content_Types].xml`) is actually present before accepting it as a real
+    DOCX; (2) cap total uncompressed size and entry count read from the
+    central directory *before* handing the archive to Tika, guarding against
+    a zip-bomb-style upload (a small file that decompresses to gigabytes, or
+    an entry count high enough to exhaust memory/CPU) — the same reasoning
+    already applied to the 25MB compressed-upload limit, just extended to
+    the decompressed side, which that limit doesn't touch. **Done when**: a
+    real ZIP file renamed to `.docx` (no `word/document.xml` inside) is
+    rejected with a clean 422, not a 500 or a silently-wrong parse; a
+    real, small-but-decompresses-huge ZIP (or one with an excessive entry
+    count) is also rejected before Tika ever runs — both verified against
+    the real running `ingestion-service`, not just unit-tested.
+14. ⬜ **Make the test suite portable across JDK vendors (Mockito as a
+    Surefire Java agent)** — real finding: Mockito's inline mock maker
+    self-attaches Byte Buddy at runtime by default, and the JDK itself
+    already warns on every test run (confirmed for real, this exact
+    session, Java 21.0.7 Oracle Corporation on macOS): *"Dynamic loading of
+    agents will be disallowed by default in a future release."* Not
+    reproduced as an outright test failure in this same JDK/OS combination
+    when checked directly (`./mvnw -pl platform-common test` passed clean,
+    `RateLimitFilterTest`/`CorrelationIdFilterTest` included) — but a real,
+    confirmed blind spot exists regardless: `.github/workflows/ci.yml` pins
+    **Temurin**, not Oracle's JDK, so CI has never exercised whatever
+    vendor-specific self-attach behavior a real Oracle-JDK machine (or a
+    future JDK release that actually enforces the warning above) would hit.
+    Fix: configure Mockito explicitly as a `-javaagent` on the Surefire
+    plugin's `argLine` (the officially documented fix, linked directly from
+    the warning text itself) instead of relying on runtime self-attach, so
+    the build's test behavior stops depending on which JDK vendor/version
+    happens to run it. **Done when**: `./mvnw test` passes with zero
+    Mockito self-attach warnings in the log, on both Temurin (CI) and
+    whatever JDK vendor a contributor's machine actually has.
+15. ⬜ **Wire `chat-service` into `web-ui` — a real multi-turn conversation
+    UI** — closes a real, self-admitted gap: `README.md` says outright
+    "`chat-service` isn't wired into `web-ui` yet ... it's reachable today
+    via its own API." That leaves a fully-built, tested capability
+    (conversation memory on top of retrieval, ADR 0013) with zero visible
+    demonstration in the one flow anyone reviewing this project actually
+    clicks through — a real portfolio-narrative gap, not just a technical
+    one. Confirmed while scoping this: `chat-service` has real but thin
+    test coverage (2 test files) relative to the other services, worth
+    padding out alongside the UI work rather than treating this as
+    frontend-only. Scope: a minimal multi-turn chat panel in `web-ui`
+    (create/continue a conversation, send a message, show the running
+    history) calling `chat-service`'s own existing endpoints directly — no
+    new backend design, `chat-service` already does everything this needs.
+    **Done when**: tested for real in the browser — starting a conversation,
+    asking a follow-up question that only makes sense with the prior
+    message's context (e.g. "e o que mais?"), and getting back an answer
+    that's actually using that context, not just the isolated last message.
+16. ⬜ **Hybrid search: accent/diacritic-insensitive full-text matching** —
     a real gap found while using the fallback flow: `HybridSearchService`'s
     full-text leg indexes `content_tsv` via `to_tsvector('simple', ...)`
     (ADR 0011/0012), and Postgres's `'simple'` text search configuration
@@ -209,7 +277,7 @@ Not blocked on a paid resource, but shouldn't start until a concrete decision
 is made (see each phase's own "not started" note in its home file for
 exactly what that decision is):
 
-14. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
+17. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
     across every service (a servlet filter registered ahead of Spring
     Security entirely), structured audit events for login/registration/
     upload/access-denied, two new metrics, and a Grafana "Segurança" row.
@@ -217,7 +285,7 @@ exactly what that decision is):
     own `/actuator/prometheus` had been silently unreachable by Prometheus
     since Security Phase 4 (see
     [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md)).
-15. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
+18. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
     in the whole security hardening rollout. Found real public exposure on
     the live demo first (`curl` showed `/actuator/prometheus`,
     `/actuator/metrics`, `/v3/api-docs`, and Swagger UI all reachable) and
@@ -226,10 +294,10 @@ exactly what that decision is):
     (`web-ui/_headers`); researched (not guessed) Render's real
     `X-Forwarded-For` behavior and documented why `trusted-proxy-hops`
     deliberately stays `0` (see [ADR 0033](adr/0033-public-demo-hardening.md)).
-16. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
+19. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists.
-17. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+20. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
     closed. Free-text `tenantId` registration replaced by a real
     invitation model (single-use, 7-day expiry, exact-email match, all
     enforced atomically); `JwtKeyProvider` now loads a persisted RSA key
@@ -241,15 +309,15 @@ exactly what that decision is):
     sequenced here by size, not a real technical blocker, exactly as this
     entry originally said — closing it didn't need anything else to land
     first.
-18. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
+21. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
-19. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
+22. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
     its own scope cut to 1-2 concrete tools)
-20. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
+23. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
     needs a concrete driving use case (the phase's own text suggests async
     document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
     not a paid key.
-21. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
+24. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
     phase in either file — see "Where Go actually fits" below for the full
     reasoning). Addresses the still-unaddressed "API Gateway" microservices
     pattern from the AI-engineer checklist, and is a genuine, low-risk way to
@@ -267,18 +335,18 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-22. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+25. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-23. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #22 — note this
+26. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #25 — note this
     multiplies paid API calls per question)
-24. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+27. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision)
-25. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+28. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-26. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+29. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
@@ -300,7 +368,7 @@ language, since two of the three aren't performance plays at all:
   actual signal for where a lighter-weight language earns its place: **the
   edge**, not the domain services.
 - **Go's genuine fit here: a lightweight API Gateway/BFF at the edge**
-  (Tier 2 #21, new). This isn't spreading Go around speculatively — it fills
+  (Tier 2 #24, new). This isn't spreading Go around speculatively — it fills
   a real, still-unaddressed gap (the checklist's "API Gateway" microservices
   pattern, currently implemented nowhere in this project) with a language
   that's *actually* the right tool for it: a Go binary's baseline memory
