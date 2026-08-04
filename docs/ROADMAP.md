@@ -1,14 +1,15 @@
 # Roadmap — execution order across every pending initiative
 
 > This file doesn't replace
-> [`docs/SECURITY-HARDENING-ROADMAP.md`](SECURITY-HARDENING-ROADMAP.md) or
-> [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md)
-> — those two still own all the implementation detail, "done when" criteria,
+> [`docs/SECURITY-HARDENING-ROADMAP.md`](SECURITY-HARDENING-ROADMAP.md),
+> [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md),
+> or [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md)
+> — those three still own all the implementation detail, "done when" criteria,
 > and per-phase context for their own concerns. This file is the single thing
 > to open when the question is **"what do we actually do next, in what
-> order?"** across *both* of them plus the couple of standalone items that
-> never made it into either. Update the checkboxes as items land — this is a
-> living document, same convention as the other two.
+> order?"** across *all three* of them plus the couple of standalone items
+> that never made it into any. Update the checkboxes as items land — this is
+> a living document, same convention as the other three.
 >
 > **Deliberately no deep-links to specific `##` headings in the other two
 > files** — heading-anchor slugs for titles with emoji/backticks/em-dashes
@@ -20,15 +21,22 @@
 
 ## Why this exists
 
-Two living roadmaps now exist (security hardening; the broader AI-engineering
-skill roadmap), plus a Kubernetes gap the README has tracked on its own since
-before either roadmap existed. Twenty-nine items are tracked across all three
-places (up from twenty-six — three real gaps added after a direct evaluation
-with the user: the DOCX upload validation gap `docs/SECURITY-HARDENING-ROADMAP.md`
-already self-flags as its top open security risk, a real Mockito/JDK-vendor
-test-portability blind spot CI's Temurin pin never exercises, and
-`chat-service` never actually being demoed in `web-ui`'s main flow despite
-being fully built). They don't have to happen in roadmap-file order or phase-number
+Three living roadmaps now exist (security hardening; the broader
+AI-engineering skill roadmap; production readiness — added 2026-08-03, see
+its own file for why it's separate), plus a Kubernetes gap the README has
+tracked on its own since before any of them existed. Thirty-three items are
+tracked across all four places (up from twenty-nine — four real,
+previously-untracked gaps added when the user asked for a direct evaluation
+of what production maturity this project would still need before adding more
+AI features: operational resilience hardening — no concurrency limit on
+LLM/Whisper calls, and every Kubernetes readiness/liveness probe hitting the
+identical endpoint on the identical schedule, both confirmed directly, not
+assumed; backups and disaster recovery — no automation, no retention policy,
+no restore ever exercised; secrets/configuration management for a real
+deployment, since today's `.env` approach is explicitly dev/demo-shaped; and
+resource-level authorization, since today's tenant-only model has no
+per-document/group/user permission concept on top of it). They don't have to
+happen in roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
 same rate-limit filter both a security phase and an AI-roadmap phase need);
@@ -270,6 +278,24 @@ around):
     `HybridSearchServiceTest`/integration test, plus a real `curl` round
     trip against the running local stack, not just asserted from reading
     the SQL.
+17. ⬜ **Operational resilience hardening** (timeouts, concurrency limits,
+    readiness-vs-liveness split) — see
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 4 for the full account. Two real gaps confirmed directly, not
+    assumed: no `Semaphore`/Resilience4j `@Bulkhead` anywhere bounds
+    concurrent Ollama/Whisper calls, and every Kubernetes manifest's
+    `readinessProbe`/`livenessProbe` hit the exact same `/actuator/health`
+    endpoint on the same schedule, defeating the actual point of the
+    Kubernetes liveness/readiness distinction (a slow dependency should
+    fail readiness, not trigger a pod restart via liveness).
+18. ⬜ **Backups and disaster recovery** — see
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 9. Today's Postgres volume (local or Kubernetes) is the only copy
+    of every tenant's data, with no backup automation, no retention policy,
+    and no restore procedure ever actually exercised — the most concrete
+    "not yet a production system" gap on the whole production-readiness
+    list, precisely because it costs nothing to postpone until the day it's
+    needed, which is exactly the failure mode it exists to prevent.
 
 ## Tier 2 — needs a design/infra decision first, no money
 
@@ -277,7 +303,7 @@ Not blocked on a paid resource, but shouldn't start until a concrete decision
 is made (see each phase's own "not started" note in its home file for
 exactly what that decision is):
 
-17. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
+19. ✅ **Security Phase 5 — Audit logging** — closed. A shared correlation ID
     across every service (a servlet filter registered ahead of Spring
     Security entirely), structured audit events for login/registration/
     upload/access-denied, two new metrics, and a Grafana "Segurança" row.
@@ -285,7 +311,7 @@ exactly what that decision is):
     own `/actuator/prometheus` had been silently unreachable by Prometheus
     since Security Phase 4 (see
     [ADR 0032](adr/0032-security-audit-logging-and-monitoring.md)).
-18. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
+20. ✅ **Security Phase 6 — Public demo hardening** — closed, the last phase
     in the whole security hardening rollout. Found real public exposure on
     the live demo first (`curl` showed `/actuator/prometheus`,
     `/actuator/metrics`, `/v3/api-docs`, and Swagger UI all reachable) and
@@ -294,10 +320,22 @@ exactly what that decision is):
     (`web-ui/_headers`); researched (not guessed) Render's real
     `X-Forwarded-For` behavior and documented why `trusted-proxy-hops`
     deliberately stays `0` (see [ADR 0033](adr/0033-public-demo-hardening.md)).
-19. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
+21. ⬜ **Secrets and configuration management for production** — decide
+    which secrets backend (Vault, a cloud-managed store, or plain
+    Kubernetes `Secret`s with an external-secrets operator) before any
+    implementation. See
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 2 for the full account — today's `.env`-based secrets (Security
+    Phase 3, ADR 0029) are real and correct for dev/demo use, but
+    structurally can't rotate without a redeploy or provide an audit trail,
+    which a real deployment would need.
+22. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
-    clearer justification exists.
-20. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
+    clearer justification exists. Only once there's more than one replica
+    or real measured load — see
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 7 for why that condition matters, not just a nice-to-have caveat.
+23. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
     closed. Free-text `tenantId` registration replaced by a real
     invitation model (single-use, 7-day expiry, exact-email match, all
     enforced atomically); `JwtKeyProvider` now loads a persisted RSA key
@@ -309,15 +347,27 @@ exactly what that decision is):
     sequenced here by size, not a real technical blocker, exactly as this
     entry originally said — closing it didn't need anything else to land
     first.
-21. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
+24. ⬜ **Resource-level authorization (RBAC vs. ABAC)** — decide which model
+    fits before implementing either; they solve different real shapes of
+    "who can share what with whom" and shouldn't be conflated. See
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 8 — today's authorization is tenant-only (ADR 0007), with no
+    per-document/group/user permission model on top of it, a reasonable
+    scope for a portfolio project but a real gap for anything beyond one.
+25. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
-22. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
+26. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
     its own scope cut to 1-2 concrete tools)
-23. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
+27. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
     needs a concrete driving use case (the phase's own text suggests async
     document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
-    not a paid key.
-24. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
+    not a paid key. Bundled with separate file storage (S3/MinIO) and
+    status tracking (`PENDING`/`PROCESSING`/`READY`/`FAILED`) once it
+    starts — see
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 3 for why an async queue without durable storage just moves the
+    "where did the bytes go" problem rather than solving it.
+28. ⬜ **New — Go-based API Gateway / BFF** (not yet written up as its own
     phase in either file — see "Where Go actually fits" below for the full
     reasoning). Addresses the still-unaddressed "API Gateway" microservices
     pattern from the AI-engineer checklist, and is a genuine, low-risk way to
@@ -335,18 +385,21 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-25. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+29. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-26. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #25 — note this
+30. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #29 — note this
     multiplies paid API calls per question)
-27. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
-    LangFuse account/hosting decision)
-28. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+31. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+    LangFuse account/hosting decision; the OpenTelemetry half is also
+    tracked from the production-operations angle in
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 6, not duplicated content, just a second reason to want it)
+32. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-29. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+33. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
@@ -368,7 +421,7 @@ language, since two of the three aren't performance plays at all:
   actual signal for where a lighter-weight language earns its place: **the
   edge**, not the domain services.
 - **Go's genuine fit here: a lightweight API Gateway/BFF at the edge**
-  (Tier 2 #24, new). This isn't spreading Go around speculatively — it fills
+  (Tier 2 #28, new). This isn't spreading Go around speculatively — it fills
   a real, still-unaddressed gap (the checklist's "API Gateway" microservices
   pattern, currently implemented nowhere in this project) with a language
   that's *actually* the right tool for it: a Go binary's baseline memory
@@ -405,8 +458,8 @@ language, since two of the three aren't performance plays at all:
   "the list isn't done yet." Don't infer this file's mere existence as
   standing approval to spend money or add a new language later.
 - After finishing any item: check its box here, update its own status in
-  whichever of the two detailed roadmap files owns it (or write it up as a
+  whichever of the three detailed roadmap files owns it (or write it up as a
   new phase there first, for the Go item above, which doesn't have a home
   section yet), write its ADR if the decision was non-trivial, and follow
-  the verification pattern both of those files already define (build green,
-  container healthy, a real manual test, commit + push).
+  the verification pattern all three of those files already define (build
+  green, container healthy, a real manual test, commit + push).

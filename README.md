@@ -487,6 +487,19 @@ vs. what's blocked on a decision or resource only the user can provide.
   Every remaining phase is blocked on a real decision (which paid API(s), is
   Redis/Kafka actually justified, which MCP tools, whether a second language is
   worth it) before any code gets written for it.
+- **Production readiness roadmap** (new,
+  [docs/PRODUCTION-READINESS-ROADMAP.md](docs/PRODUCTION-READINESS-ROADMAP.md)) —
+  a deliberately separate concern from the two roadmaps above: what this project
+  would need to run for real, not to demonstrate AI-engineering skill. Nine
+  phases (closing the DOCX upload gap first, then secrets/config management,
+  async ingestion + object storage, operational resilience hardening, an API
+  gateway, distributed tracing, Redis only once real scale justifies it,
+  resource-level authorization, and backups/disaster recovery last) — none
+  started yet, all planning only as of 2026-08-03. Explicitly **not** a claim
+  that the current stack is unfinished: it's a working, honestly-scoped
+  portfolio project today, and this file exists so the next evolution (if and
+  when wanted) has a thought-through order instead of an ungrounded technology
+  list.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
