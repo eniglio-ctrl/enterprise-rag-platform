@@ -455,6 +455,17 @@ vs. what's blocked on a decision or resource only the user can provide.
   OpenAPI/Swagger endpoints all publicly reachable and locked them down to just
   `/actuator/health`). Full phase-by-phase status:
   [docs/SECURITY-HARDENING-ROADMAP.md](docs/SECURITY-HARDENING-ROADMAP.md).
+- **`auth-service` is a deliberate scope/didactic choice, not a gap** — hand-rolling
+  RS256 signing, JWKS, and claim extraction end to end (ADR 0016) demonstrates
+  understanding the mechanics a pre-built identity provider would otherwise hide,
+  without adding a heavyweight sixth service to an already-6-service local stack for
+  a demo whose real auth needs are simple. **Migrating to a real OIDC provider**
+  (Keycloak, or Auth0/Ory Hydra/Azure AD B2C) is documented as the natural evolution
+  *if* this ever became a real, multi-organization deployment needing user/group
+  management, MFA, or social-login — and would be a comparatively contained swap
+  precisely because every other service already validates against a JWKS endpoint
+  rather than trusting `auth-service` directly (see ADR 0016's "Update" section).
+  Not scheduled, not a gap — a named direction.
 - **Multi-LLM orchestrator + broader AI-engineering roadmap** — an "Automático"
   model selector (ADR 0025), the RAG chunking-strategy/evaluation-metric deep-dive
   (ADR 0034), native tool calling (ADR 0035), OpenAI+Gemini fallback provider
@@ -500,7 +511,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0013 — chat-service: conversation memory on top of rag-service's retrieval](docs/adr/0013-chat-service-conversation-memory.md)
 - [ADR 0014 — Kubernetes manifests for local `kind` deployment](docs/adr/0014-kubernetes-manifests-kind.md)
 - [ADR 0015 — Observability stack (Prometheus + Grafana)](docs/adr/0015-observability-stack.md)
-- [ADR 0016 — auth-service: RS256 JWTs, JWKS, and the transition from trusted headers](docs/adr/0016-auth-service-jwt-oauth2.md)
+- [ADR 0016 — auth-service: RS256 JWTs, JWKS, and the transition from trusted headers; a deliberate didactic choice over Keycloak, with OIDC migration documented as a future evolution](docs/adr/0016-auth-service-jwt-oauth2.md)
 - [ADR 0017 — Per-request chat model picker (Ollama models + LM Studio)](docs/adr/0017-selectable-chat-model-ollama-lmstudio.md)
 - [ADR 0018 — Image ingestion via a local vision model](docs/adr/0018-image-ingestion-via-vision-model.md)
 - [ADR 0019 — Audio ingestion via a local Whisper server; the real root cause of an early transport bug](docs/adr/0019-audio-ingestion-via-local-whisper.md)

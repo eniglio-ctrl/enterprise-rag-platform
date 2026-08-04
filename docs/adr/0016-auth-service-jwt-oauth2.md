@@ -111,3 +111,32 @@ and `userId` already existed as concepts everywhere; only their *source* changes
   `display` while also relying on `hidden` for visibility would otherwise hit the same
   bug silently. Verified in a real browser after the fix: login-only state, then a
   full login → authenticated-app → real upload → real cited answer flow, end to end.
+
+## Update: documented future evolution — migrating to a real OIDC provider
+
+Restating, explicitly, something this ADR's original "Decision" section already
+said but that's easy to skim past: the custom `auth-service` was a **deliberate
+scope and didactic choice**, not a gap or an unawareness of the standard
+alternative. Hand-rolling RS256/JWKS/claims end to end demonstrates
+understanding the mechanics an identity provider would otherwise hide — the
+whole point for a portfolio project — and a sixth heavyweight service
+(Keycloak's own JVM footprint alone exceeds several of this project's existing
+services combined) wasn't worth adding to an already-6-service local stack for
+a demo whose actual authentication needs are simple.
+
+**Named, on purpose, as a concrete future evolution rather than left implicit**:
+migrating to Keycloak (or another OIDC-compliant provider — Auth0, Ory Hydra,
+Azure AD B2C) is the natural next step *if* this ever needed to become a real,
+multi-organization production deployment — user/group management, MFA,
+social-login federation, and admin UIs are all things `auth-service` doesn't
+attempt and a real IdP gets for free. The migration itself would be
+comparatively contained precisely *because* of decisions already made here:
+every other service already validates JWTs against a JWKS endpoint rather than
+trusting `auth-service` directly (this ADR's own RS256/JWKS choice), and
+`JwtClaims`/`ResourceServerSecurityConfig` in `platform-common` already isolate
+the one place `tenantId`/`userId` claim extraction happens — swapping the
+token *issuer* would mean pointing `AUTH_SERVICE_BASE_URL`'s JWKS URI at
+Keycloak's own realm and retiring `auth-service`'s issuer role, not rewriting
+how the other three services consume identity. Not scheduled, not blocked on
+anything, and not implied to be "missing" — a documented direction, not a
+commitment.
