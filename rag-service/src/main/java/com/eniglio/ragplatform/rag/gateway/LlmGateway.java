@@ -67,4 +67,13 @@ public class LlmGateway {
     public <T> T callGeminiFallback(Supplier<T> chatCall) {
         return chatCall.get();
     }
+
+    // Multi-LLM Phase 2e (ADR 0045): same shape/reasoning as the two fallbacks
+    // above - an Anthropic auth/quota failure must never trip OpenAI's or
+    // Gemini's breaker, or vice versa.
+    @CircuitBreaker(name = "anthropic-fallback")
+    @Retry(name = "anthropic-fallback")
+    public <T> T callAnthropicFallback(Supplier<T> chatCall) {
+        return chatCall.get();
+    }
 }

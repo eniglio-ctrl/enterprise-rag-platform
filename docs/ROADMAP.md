@@ -180,10 +180,30 @@ around):
     `gemini-flash-latest` answer with the badge visible; a normal question
     against a real uploaded document correctly showed **no** badge (see
     [ADR 0039](adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)).
-12. ⬜ **Multi-LLM Phase 2e — Fallback provider wiring: Anthropic** (same
-    shape as #8, once #8-#11 exist) — deliberately deferred: the user will
-    generate `ANTHROPIC_API_KEY` specifically when this item starts, not
-    before, unlike OpenAI/Gemini's keys which were obtained ahead of time.
+12. ✅ **Multi-LLM Phase 2e — Fallback provider wiring: Anthropic** — done,
+    same shape as #8 (`spring-ai-starter-model-anthropic`, a real Spring AI
+    starter unlike Gemini's, built the same manually-constructed-bean way as
+    the OpenAI fallback). No `ANTHROPIC_API_KEY` was generated for this —
+    the user's own instruction when starting this item was to wire it and
+    handle a missing key/no credits gracefully everywhere, not to acquire a
+    key first. Doing that surfaced a real, pre-existing gap: OpenAI/Gemini's
+    own auth/quota failures had **no** handling at all before this — either
+    would have propagated as a raw exception into a generic `500`.
+    `RagQueryService.answerViaPublicLlmFallback` now checks every provider's
+    API key before ever attempting a call, and catches a real rejection
+    (invalid key, no credits/quota) from any of the three, returning a
+    clear `source: "public-llm-unavailable"` response instead — while still
+    re-throwing genuine infrastructure signals (circuit open, bulkhead
+    full, no response) unchanged, so ADR 0017/0043's existing handling for
+    those isn't bypassed. **Verified for real against the running stack**:
+    Anthropic (genuinely no key) and OpenAI (the real zero-credits account
+    from ADR 0036) both now return a graceful `200`/`"public-llm-unavailable"`
+    instead of a `500`; Gemini (default) still returns a real answer,
+    unaffected. 4 new `RagQueryServiceTest` cases (the happy path, the
+    no-key skip, the rejected-request rescue, and confirming a circuit-
+    breaker-open signal still propagates rather than being swallowed) — 71
+    → 76 rag-service tests. See
+    [ADR 0045](adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md).
 13. ✅ **Close the DOCX upload validation gap (zip-as-docx + zip bomb)** —
     done. `UploadValidationService.validateDocxStructure` walks the archive
     for real via `ZipInputStream` after the existing signature check:

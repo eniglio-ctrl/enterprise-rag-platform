@@ -17,10 +17,14 @@ import jakarta.validation.constraints.NotBlank;
  * fallbackAvailable: true} and no answer is generated at all — only a follow-up
  * request with {@code useFallback: true} actually calls a public LLM, and even then
  * only the raw {@code question} is ever sent to it, never any retrieved chunk or
- * document content. {@code fallbackProvider} picks which one ({@code "openai"} or
- * {@code "gemini"}); {@code null} or anything else defaults to {@code "gemini"} —
- * the only one of the two verified working end-to-end as of ADR 0036 (OpenAI's key
- * authenticates but the account has zero credits).
+ * document content. {@code fallbackProvider} picks which one ({@code "openai"},
+ * {@code "anthropic"} — Multi-LLM Phase 2e, ADR 0045 — or {@code "gemini"});
+ * {@code null} or anything else defaults to {@code "gemini"}, the only one of the
+ * three verified working end-to-end as of ADR 0036 (OpenAI authenticates but the
+ * account has zero credits; Anthropic has no key generated at all yet). Any
+ * provider without a configured key, or one that rejects the request for a real
+ * external reason, answers gracefully with {@code source: "public-llm-unavailable"}
+ * rather than failing the request.
  */
 public record ChatRequest(@NotBlank String question, Boolean grounded, Boolean rerank, String model,
                            Boolean useFallback, String fallbackProvider) {

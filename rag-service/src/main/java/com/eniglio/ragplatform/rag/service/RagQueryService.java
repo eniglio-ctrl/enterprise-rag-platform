@@ -13,6 +13,8 @@ import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.gateway.GeminiClient;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -26,6 +28,7 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MimeType;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.text.Normalizer;
 import java.util.List;
@@ -154,6 +157,7 @@ public class RagQueryService {
     private final ChatClient ollamaChatClient;
     private final ChatClient lmStudioChatClient;
     private final ChatClient openAiFallbackChatClient;
+    private final ChatClient anthropicFallbackChatClient;
     private final GeminiClient geminiClient;
     private final LlmGateway llmGateway;
     private final RagProperties ragProperties;
@@ -170,6 +174,7 @@ public class RagQueryService {
                             @Qualifier("ollama") ChatClient ollamaChatClient,
                             @Qualifier("lmstudio") ChatClient lmStudioChatClient,
                             @Qualifier("openaiFallback") ChatClient openAiFallbackChatClient,
+                            @Qualifier("anthropicFallback") ChatClient anthropicFallbackChatClient,
                             GeminiClient geminiClient,
                             LlmGateway llmGateway, RagProperties ragProperties,
                             FallbackProviderProperties fallbackProviderProperties,
@@ -182,6 +187,7 @@ public class RagQueryService {
         this.ollamaChatClient = ollamaChatClient;
         this.lmStudioChatClient = lmStudioChatClient;
         this.openAiFallbackChatClient = openAiFallbackChatClient;
+        this.anthropicFallbackChatClient = anthropicFallbackChatClient;
         this.geminiClient = geminiClient;
         this.llmGateway = llmGateway;
         this.ragProperties = ragProperties;
@@ -375,19 +381,86 @@ public class RagQueryService {
      * {@code citations} is always empty and {@code groundedness} always {@code null}:
      * neither concept applies to an answer that was never grounded in this tenant's
      * documents in the first place.
+     * <p>
+     * Multi-LLM Phase 2e (ADR 0045): a three-way dispatch now, not a boolean —
+     * {@code "openai"}/{@code "anthropic"}/anything else (including {@code null},
+     * the default) resolves to one of the three fallback providers. Every provider
+     * is checked for a configured API key <em>before</em> ever attempting a call
+     * (never wasting a network round trip on a provider that was never going to
+     * work), and a real, external rejection from the provider itself (invalid key,
+     * no credits/quota — OpenAI's own real zero-credits account, ADR 0036, is
+     * exactly this case) is caught and turned into a clear, graceful answer instead
+     * of propagating as a raw exception into a generic 500. Genuine infrastructure
+     * signals — the circuit breaker already open, the (non-existent, by design)
+     * bulkhead full, or no response at all after retries — are deliberately
+     * re-thrown unchanged: those already have their own correct, tested handling
+     * (ADR 0017/0043) and must not be silently swallowed into an always-200
+     * response.
      */
     private ChatResponse answerViaPublicLlmFallback(String question, String fallbackProvider) {
-        boolean useOpenAi = "openai".equalsIgnoreCase(fallbackProvider);
-        String provider = useOpenAi ? "openai" : "gemini";
-        String answer = useOpenAi
-                ? llmGateway.callOpenAiFallback(() -> openAiFallbackChatClient.prompt(question).call().content())
-                : llmGateway.callGeminiFallback(() -> geminiClient.generateContent(question));
-        String modelId = useOpenAi
-                ? fallbackProviderProperties.openai().model()
-                : fallbackProviderProperties.gemini().model();
-        log.info("Answered question using the public-LLM fallback ({}), never grounded in tenant documents",
-                provider);
-        return new ChatResponse(answer, List.of(), null, modelId, null, "public-llm");
+        String provider = normalizeFallbackProvider(fallbackProvider);
+        String apiKey = apiKeyFor(provider);
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("Public-LLM fallback provider '{}' has no API key configured, skipping the call", provider);
+            return unavailableFallbackResponse(provider);
+        }
+        try {
+            String answer = callFallbackProvider(provider, question);
+            log.info("Answered question using the public-LLM fallback ({}), never grounded in tenant documents",
+                    provider);
+            return new ChatResponse(answer, List.of(), null, modelIdFor(provider), null, "public-llm");
+        } catch (CallNotPermittedException | BulkheadFullException | ResourceAccessException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Public-LLM fallback provider '{}' rejected the request (invalid key or no credits): {}",
+                    provider, e.getMessage());
+            return unavailableFallbackResponse(provider);
+        }
+    }
+
+    /** {@code null}/anything not explicitly recognized defaults to Gemini (ADR 0036: the only one of the three verified working end-to-end so far). */
+    private String normalizeFallbackProvider(String fallbackProvider) {
+        if ("openai".equalsIgnoreCase(fallbackProvider) || "anthropic".equalsIgnoreCase(fallbackProvider)) {
+            return fallbackProvider.toLowerCase(Locale.ROOT);
+        }
+        return "gemini";
+    }
+
+    private String apiKeyFor(String provider) {
+        return switch (provider) {
+            case "openai" -> fallbackProviderProperties.openai().apiKey();
+            case "anthropic" -> fallbackProviderProperties.anthropic().apiKey();
+            default -> fallbackProviderProperties.gemini().apiKey();
+        };
+    }
+
+    private String modelIdFor(String provider) {
+        return switch (provider) {
+            case "openai" -> fallbackProviderProperties.openai().model();
+            case "anthropic" -> fallbackProviderProperties.anthropic().model();
+            default -> fallbackProviderProperties.gemini().model();
+        };
+    }
+
+    private String callFallbackProvider(String provider, String question) {
+        return switch (provider) {
+            case "openai" -> llmGateway.callOpenAiFallback(() -> openAiFallbackChatClient.prompt(question).call().content());
+            case "anthropic" -> llmGateway.callAnthropicFallback(
+                    () -> anthropicFallbackChatClient.prompt(question).call().content());
+            default -> llmGateway.callGeminiFallback(() -> geminiClient.generateContent(question));
+        };
+    }
+
+    private ChatResponse unavailableFallbackResponse(String provider) {
+        String label = switch (provider) {
+            case "openai" -> "OpenAI";
+            case "anthropic" -> "Anthropic";
+            default -> "Gemini";
+        };
+        String message = "O provedor de IA pública (" + label + ") não está disponível no momento "
+                + "(chave de API não configurada ou sem créditos). Tente novamente mais tarde ou, se possível, "
+                + "escolha outro provedor.";
+        return new ChatResponse(message, List.of(), null, null, null, "public-llm-unavailable");
     }
 
     /**

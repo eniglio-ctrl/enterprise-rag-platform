@@ -29,12 +29,18 @@ spring:
   # model. Both of those auto-configurations fail fast at boot without an api-key set
   # rather than quietly backing off (confirmed by a real failing build before this
   # exclude existed), so they can't just be left inactive-by-absence-of-key.
+  # Multi-LLM Phase 2e (ADR 0045): AnthropicChatAutoConfiguration excluded for the
+  # same reason as Mistral's above - the fallback's api-key/model live under
+  # rag.fallback-providers.anthropic.*, never spring.ai.anthropic.*, so this
+  # autoconfiguration would otherwise try to build its own competing, unconfigured
+  # ChatModel bean from a property prefix nothing here ever sets.
   autoconfigure:
     exclude:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.mistralai.autoconfigure.MistralAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
       - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
+      - org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration
 
   security:
     oauth2:
@@ -203,6 +209,15 @@ rag:
       # dated aliases like gemini-2.5-flash/gemini-1.5-flash can 404 for this
       # account while the -latest alias resolves correctly.
       model: ${GEMINI_FALLBACK_MODEL:gemini-flash-latest}
+    # Multi-LLM Phase 2e (ADR 0045). Deliberately no ANTHROPIC_API_KEY has been
+    # generated for this yet (unlike OpenAI/Gemini's keys, obtained ahead of
+    # time) - a blank key here is an expected, permanent-until-decided-otherwise
+    # state, not a placeholder waiting to be filled in before this ships. The
+    # graceful-unavailable handling in RagQueryService.answerViaPublicLlmFallback
+    # is what makes that safe to leave blank.
+    anthropic:
+      api-key: ${ANTHROPIC_FALLBACK_API_KEY:}
+      model: ${ANTHROPIC_FALLBACK_MODEL:claude-haiku-4-5-20251001}
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
@@ -270,6 +285,16 @@ resilience4j:
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
           - org.springframework.web.client.HttpServerErrorException
+      # Multi-LLM Phase 2e (ADR 0045) - same reasoning as openai-fallback/
+      # gemini-fallback above: only retry "no response at all" or the provider's
+      # own transient 5xx, never a 4xx (invalid key, no credits) that a 500ms
+      # retry can't possibly resolve.
+      anthropic-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
   circuitbreaker:
     instances:
       ollama:
@@ -295,6 +320,12 @@ resilience4j:
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
       gemini-fallback:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      anthropic-fallback:
         sliding-window-size: 10
         minimum-number-of-calls: 5
         failure-rate-threshold: 50

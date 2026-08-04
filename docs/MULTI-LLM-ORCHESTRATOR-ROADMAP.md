@@ -26,7 +26,7 @@
 | 2b | Fallback trigger detection (local failed / insufficient) | ✅ Done — [ADR 0037](adr/0037-fallback-trigger-detection.md) | — |
 | 2c | Confirmation gate + non-grounded response contract | ✅ Done — [ADR 0038](adr/0038-fallback-confirmation-gate-response-contract.md) | — |
 | 2d | `web-ui`: confirmation dialog + provenance badge | ✅ Done — [ADR 0039](adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md) | — |
-| 2e | Fallback provider wiring: Anthropic | ⬜ Not started | Same pattern as 2a — do when the Anthropic key is provided |
+| 2e | Fallback provider wiring: Anthropic | ✅ Done, no key needed — [ADR 0045](adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md) | — |
 | 3 | `PlannerAgent` (decides which specialist handles a request) | ⬜ Not started | Phase 2 |
 | 4 | `ReflectionAgent` (compares/merges multiple models' answers) | ⬜ Not started | Phase 2/3 |
 | 5 | Long-term memory beyond pgvector (Redis) | ⬜ Not started | A concrete "what does Redis add" answer |
@@ -182,12 +182,13 @@ explicitly distinguished from a normal, cited answer.
 **Unblocked for 2 of 3 providers**: `OPENAI_API_KEY` and `GEMINI_API_KEY` are
 real, verified working keys (`GET /v1/models` / `GET /v1beta/models` both
 returned `200` with real model lists), already in
-`credenciais/multi-llm-fallback.env`. `ANTHROPIC_API_KEY` is deliberately
-deferred — the user will generate it "na hora de implementar" (when 2e
-actually starts), not before. Explicitly confirmed: free/cheapest tiers only,
-portfolio use, not production — a real spending cap should be set on the
-OpenAI and Anthropic consoles before 2a/2e ship (Gemini's tier is free with no
-card, no cap needed).
+`credenciais/multi-llm-fallback.env`. `ANTHROPIC_API_KEY` was never
+generated at all — 2e shipped anyway (ADR 0045): the user's actual
+instruction was to wire it and handle a missing key/no credits gracefully,
+not to acquire a key first. A real spending cap should still be set on the
+OpenAI and Anthropic consoles before any of this is used with real traffic
+(Gemini's tier is free with no card, no cap needed) — that's still true, just
+no longer a blocker to shipping the wiring itself.
 
 ### Why this is a deliberate exception to ADR 0004, not a violation of it
 
@@ -359,17 +360,33 @@ Then, as the negative-case check, uploaded a real document and asked a
 normal question about it — the badge correctly did **not** appear on that
 grounded answer.
 
-### Phase 2e — Fallback provider wiring: Anthropic ⬜
+### Phase 2e — Fallback provider wiring: Anthropic ✅
 
-**Not started, deferred on purpose** — the user will generate
-`ANTHROPIC_API_KEY` specifically when this sub-phase starts, not before
-(unlike OpenAI/Gemini, already provisioned ahead of time in 2a). Otherwise
-identical in shape to 2a: `spring-ai-starter-model-anthropic`, a qualified
-bean pair, `callAnthropicFallback` with its own breaker, plumbed into the same
-2b/2c/2d machinery already built by then — no new design work, just one more
-provider.
+**Done, without an `ANTHROPIC_API_KEY`** — the plan above assumed one would
+be generated first; the user's actual instruction when starting this phase
+was the opposite: wire it and handle a missing key/no credits gracefully,
+across every fallback provider, not just the new one. Otherwise identical
+in shape to 2a as planned: `spring-ai-starter-model-anthropic`, a
+manually-constructed `AnthropicApi`/`AnthropicChatModel` bean pair (its own
+autoconfiguration excluded, same as Mistral's, since the fallback's api-key
+lives under `rag.fallback-providers.anthropic.*` not `spring.ai.anthropic.*`),
+`callAnthropicFallback` with its own `"anthropic-fallback"` circuit
+breaker/retry instance, plumbed into the same 2b/2c/2d machinery.
 
-**Done when**: same criterion as 2a, for Anthropic specifically.
+Doing this surfaced a real, pre-existing gap the original plan didn't
+anticipate: OpenAI/Gemini's own auth/quota failures had no handling at all
+— either would propagate as a raw exception into a generic `500`. Fixed for
+all three providers at once: a pre-flight check skips the call entirely
+when a provider's key is blank, and a narrow rescue catch turns a real
+rejection (invalid key, no credits/quota) into a graceful
+`source: "public-llm-unavailable"` response — while still re-throwing
+genuine infrastructure signals (circuit open, bulkhead full, no response)
+unchanged. See [ADR 0045](adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md).
+
+**Verified for real**: against the running stack, Anthropic (genuinely no
+key) and OpenAI (the real zero-credits account from 2a) both now return a
+graceful `200` instead of a `500`; Gemini (default) still returns a real
+answer, unaffected.
 
 ### What changes elsewhere once Phase 2 exists
 

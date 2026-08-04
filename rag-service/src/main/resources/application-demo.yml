@@ -35,6 +35,12 @@ spring:
       - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
       - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
       - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
+      # Multi-LLM Phase 2e (ADR 0045) - same reason as the base application.yml:
+      # the fallback's own api-key/model live under rag.fallback-providers.anthropic.*,
+      # never spring.ai.anthropic.*. Every profile-specific exclude list must repeat
+      # every entry the base file has (see this file's own comment above), so this
+      # needs restating here too, not just in the base file.
+      - org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration
 
   ai:
     # Groq's API is OpenAI-compatible, so this reuses the exact same "openai"

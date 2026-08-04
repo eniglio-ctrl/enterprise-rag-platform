@@ -34,7 +34,7 @@ import java.time.Duration;
  */
 @ConfigurationProperties(prefix = "rag.fallback-providers")
 public record FallbackProviderProperties(
-        OpenAi openai, Gemini gemini, Duration connectTimeout, Duration readTimeout) {
+        OpenAi openai, Gemini gemini, Anthropic anthropic, Duration connectTimeout, Duration readTimeout) {
 
     public record OpenAi(String apiKey, String model) {
     }
@@ -49,5 +49,18 @@ public record FallbackProviderProperties(
      * {@code -latest} alias resolves correctly.
      */
     public record Gemini(String apiKey, String model) {
+    }
+
+    /**
+     * Multi-LLM Phase 2e (ADR 0045). Unlike OpenAI/Gemini, no {@code
+     * ANTHROPIC_API_KEY} has been generated for this project yet — {@code apiKey}
+     * is blank by default, on purpose and indefinitely, not a TODO. {@link
+     * com.eniglio.ragplatform.rag.service.RagQueryService#answerViaPublicLlmFallback}
+     * checks for a blank key before ever attempting a call, and treats an
+     * authentication/quota failure from the provider the same way — both return a
+     * clear, graceful response instead of a raw exception, exactly the behavior
+     * OpenAI's own real zero-credits state already required.
+     */
+    public record Anthropic(String apiKey, String model) {
     }
 }

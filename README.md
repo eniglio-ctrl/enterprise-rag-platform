@@ -500,8 +500,12 @@ vs. what's blocked on a decision or resource only the user can provide.
   follow-up got a real Gemini answer marked `source: "public-llm"`), and the
   `web-ui` confirmation dialog + provenance badge (ADR 0039 — tested live in the
   browser, both the badge showing on a real public-LLM answer and correctly staying
-  hidden on a normal grounded one) are done — this closes the entire Phase 2
-  fallback sequence except Anthropic; the Anthropic wiring, a planner/reflection
+  hidden on a normal grounded one), and Anthropic fallback wiring (ADR 0045 —
+  shipped with no `ANTHROPIC_API_KEY` at all; also closed a real pre-existing gap
+  where OpenAI/Gemini's own auth/quota failures had no graceful handling and would
+  have surfaced as a raw `500`, verified live: Anthropic and OpenAI's zero-credits
+  account both now answer gracefully with `source: "public-llm-unavailable"`) are
+  done — this closes the entire Phase 2 fallback sequence; a planner/reflection
   agent pair, MCP tools, event-driven architecture, an AWS deployment target, a
   Python/LangGraph agent layer, and LLM-specific observability (LangFuse/
   OpenTelemetry) are a much larger, explicitly staged initiative — see
@@ -581,6 +585,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0042 — `unaccent_simple` text search configuration: closes the hybrid search full-text leg's accent/diacritic gap, verified with an RRF score matching the exact "found in both legs" value](docs/adr/0042-unaccent-text-search-configuration.md)
 - [ADR 0043 — Operational resilience hardening: bulkheads, readiness/liveness probe split, timeout audit — verified with a real concurrent-request load test and a real `docker compose pause postgres`](docs/adr/0043-operational-resilience-hardening.md)
 - [ADR 0044 — Backups and disaster recovery: `pg_dumpall`/restore scripts, verified with a real backup restored into a genuinely fresh, isolated environment and a real question answered from it alone](docs/adr/0044-backups-and-disaster-recovery.md)
+- [ADR 0045 — Anthropic fallback wiring, shipped with no API key, plus graceful handling of a missing key/no credits for every fallback provider — verified live, turning a real pre-existing `500` (OpenAI's zero-credits account) into a graceful `200`](docs/adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md)
 
 ## License
 

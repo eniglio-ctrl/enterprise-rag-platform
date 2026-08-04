@@ -52,6 +52,9 @@ class RagQueryServiceTest {
     private ChatModel openAiFallbackChatModel;
 
     @Mock
+    private ChatModel anthropicFallbackChatModel;
+
+    @Mock
     private GeminiClient geminiClient;
 
     @Mock
@@ -63,10 +66,20 @@ class RagQueryServiceTest {
     private final CircuitBreakerRegistry circuitBreakerRegistry = CircuitBreakerRegistry.ofDefaults();
 
     private RagQueryService newService() {
+        return newService(new FallbackProviderProperties(
+                new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
+                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"),
+                new FallbackProviderProperties.Anthropic("test-anthropic-key", "claude-haiku-4-5-20251001"),
+                java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(30)));
+    }
+
+    private RagQueryService newService(FallbackProviderProperties fallbackProviderProperties) {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
         // Multi-LLM Phase 2a's fallback ChatClient, wired the same way the local ones
         // are - only exercised by the Phase 2c fallback tests below.
         ChatClient openAiFallbackChatClient = ChatClient.builder(openAiFallbackChatModel).build();
+        // Multi-LLM Phase 2e (ADR 0045) - same pattern as OpenAI's above.
+        ChatClient anthropicFallbackChatClient = ChatClient.builder(anthropicFallbackChatModel).build();
         // Mirrors production config (ADR 0025): "auto" is always first, resolveModel
         // substitutes it for the first concrete entry ("ollama" here) — every existing
         // test below that never requests a model exercises that exact substitution
@@ -74,14 +87,11 @@ class RagQueryServiceTest {
         List<RagProperties.AvailableModel> availableModels = List.of(
                 new RagProperties.AvailableModel("auto", "Automático (recomendado)", "auto"),
                 new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
-        FallbackProviderProperties fallbackProviderProperties = new FallbackProviderProperties(
-                new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
-                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"),
-                java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(30));
         // lmStudioChatClient is never exercised by these tests — every available model
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.
         return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, openAiFallbackChatClient,
+                anthropicFallbackChatClient,
                 geminiClient, new LlmGateway(), new RagProperties(5, 0.5, 15, availableModels),
                 fallbackProviderProperties, new FallbackTriggerEvaluator(circuitBreakerRegistry),
                 visionDescriptionService, new DocumentLookupTool(hybridSearchService), new SimpleMeterRegistry());
@@ -348,6 +358,87 @@ class RagQueryServiceTest {
         assertThat(response.model()).isEqualTo("gpt-4o-mini");
         verify(chatModel, never()).call(any(Prompt.class));
         verify(geminiClient, never()).generateContent(anyString());
+    }
+
+    @Test
+    void confirmedFallbackCallsAnthropicWhenExplicitlyRequested() {
+        // Multi-LLM Phase 2e (ADR 0045) - same shape as the OpenAI test above.
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("Resposta da Anthropic."))));
+        given(anthropicFallbackChatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null,
+                true, "anthropic");
+
+        assertThat(response.answer()).isEqualTo("Resposta da Anthropic.");
+        assertThat(response.source()).isEqualTo("public-llm");
+        assertThat(response.model()).isEqualTo("claude-haiku-4-5-20251001");
+        verify(chatModel, never()).call(any(Prompt.class));
+        verify(geminiClient, never()).generateContent(anyString());
+        verify(openAiFallbackChatModel, never()).call(any(Prompt.class));
+    }
+
+    @Test
+    void confirmedFallbackSkipsTheCallAndAnswersGracefullyWhenTheProviderHasNoApiKeyConfigured() {
+        // docs/ROADMAP.md item #12 / user request: a provider with no key configured
+        // (Anthropic's own real, current state - no ANTHROPIC_API_KEY exists yet,
+        // unlike OpenAI/Gemini) must never even attempt the call, and must answer
+        // gracefully instead of failing the request.
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        FallbackProviderProperties noAnthropicKey = new FallbackProviderProperties(
+                new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
+                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"),
+                new FallbackProviderProperties.Anthropic("", "claude-haiku-4-5-20251001"),
+                java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(30));
+
+        RagQueryService service = newService(noAnthropicKey);
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null,
+                true, "anthropic");
+
+        assertThat(response.source()).isEqualTo("public-llm-unavailable");
+        assertThat(response.answer()).containsIgnoringCase("Anthropic");
+        assertThat(response.citations()).isEmpty();
+        verify(anthropicFallbackChatModel, never()).call(any(Prompt.class));
+    }
+
+    @Test
+    void confirmedFallbackAnswersGracefullyWhenTheProviderRejectsTheRequest() {
+        // The real, confirmed OpenAI state as of ADR 0036: the key authenticates but
+        // the account has zero credits - a genuine 429/insufficient_quota-shaped
+        // failure from the provider itself, not a wiring bug. Must not become a raw
+        // 500; must answer gracefully instead, same as the no-key case above.
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(openAiFallbackChatModel.call(any(Prompt.class)))
+                .willThrow(new RuntimeException("429 - {\"error\": {\"code\": \"insufficient_quota\"}}"));
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null,
+                true, "openai");
+
+        assertThat(response.source()).isEqualTo("public-llm-unavailable");
+        assertThat(response.answer()).containsIgnoringCase("OpenAI");
+        assertThat(response.citations()).isEmpty();
+    }
+
+    @Test
+    void confirmedFallbackReThrowsACircuitBreakerOpenSignalInsteadOfSwallowingIt() {
+        // docs/ROADMAP.md item #17/#43: a genuine infrastructure signal (the
+        // "anthropic-fallback" circuit already open) must still propagate exactly as
+        // before this phase - GlobalExceptionHandlerSupport's existing, tested 503
+        // handling for it must not be bypassed by the new graceful-answer path above.
+        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(anthropicFallbackChatModel.call(any(Prompt.class)))
+                .willThrow(io.github.resilience4j.circuitbreaker.CallNotPermittedException.createCallNotPermittedException(
+                        io.github.resilience4j.circuitbreaker.CircuitBreaker.ofDefaults("anthropic-fallback")));
+
+        RagQueryService service = newService();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> service.answer(
+                        "Pergunta sem contexto na base", "default", false, false, null, true, "anthropic"))
+                .isInstanceOf(io.github.resilience4j.circuitbreaker.CallNotPermittedException.class);
     }
 
     @Test

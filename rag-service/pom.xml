@@ -55,6 +55,17 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-openai</artifactId>
         </dependency>
+        <!-- Multi-LLM Phase 2e (ADR 0045): a real Spring AI starter exists for
+             Anthropic, unlike Gemini (which has none, hence GeminiClient's own
+             hand-rolled REST client). Its own autoconfiguration is excluded
+             (application.yml) - same treatment as MistralAi - since the
+             fallback's own api-key/model live under rag.fallback-providers.anthropic.*,
+             not spring.ai.anthropic.*, so the autoconfigured bean would just sit in
+             the context unconfigured and unused. -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-anthropic</artifactId>
+        </dependency>
         <!--
             ADR 0020: the public demo deployment has no Ollama to reach, so it can't use
             nomic-embed-text for query-side embedding. Mistral AI's free-tier embedding

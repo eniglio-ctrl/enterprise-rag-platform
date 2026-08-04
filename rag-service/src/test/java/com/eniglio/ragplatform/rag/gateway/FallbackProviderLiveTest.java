@@ -48,6 +48,18 @@ import org.testcontainers.utility.DockerImageName;
  * that adding code here cannot fix. {@link #openAiFallbackAuthenticatesRegardlessOfCreditBalance}
  * is written to keep passing in both states (zero credits today, credits added
  * later) — it only fails on a genuine auth/wiring bug, not on a quota error.
+ *
+ * <p>Multi-LLM Phase 2e (ADR 0045) added Anthropic. Unlike OpenAI/Gemini, no
+ * {@code ANTHROPIC_API_KEY} has been generated for this project as of this
+ * writing — {@link #anthropicFallbackAuthenticatesRegardlessOfCreditBalance} is
+ * gated by its own {@code Assumptions.assumeTrue}, separate from the class-level
+ * {@link #requireRealKeys()} check, specifically so its absence never skips the
+ * OpenAI/Gemini tests above that already have real keys. Never run live this
+ * session (per the user's own explicit instruction: treat a missing key/missing
+ * credits as an expected, gracefully-handled state, not a blocker) — the
+ * graceful-unavailable behavior it would otherwise exercise here is instead
+ * covered for real by {@code RagQueryServiceTest}'s
+ * {@code confirmedFallbackSkipsTheCallAndAnswersGracefullyWhenTheProviderHasNoApiKeyConfigured}.
  */
 @Testcontainers
 @SpringBootTest(classes = RagServiceApplication.class)
@@ -69,6 +81,7 @@ class FallbackProviderLiveTest {
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("rag.fallback-providers.openai.api-key", () -> System.getenv("OPENAI_API_KEY"));
         registry.add("rag.fallback-providers.gemini.api-key", () -> System.getenv("GEMINI_API_KEY"));
+        registry.add("rag.fallback-providers.anthropic.api-key", () -> System.getenv("ANTHROPIC_API_KEY"));
     }
 
     @Autowired
@@ -80,6 +93,10 @@ class FallbackProviderLiveTest {
     @Autowired
     @Qualifier("openaiFallback")
     private ChatClient openAiFallbackChatClient;
+
+    @Autowired
+    @Qualifier("anthropicFallback")
+    private ChatClient anthropicFallbackChatClient;
 
     @Autowired
     private CircuitBreakerRegistry circuitBreakerRegistry;
@@ -124,6 +141,29 @@ class FallbackProviderLiveTest {
             // test intentionally does not fail on it.
             System.out.println("OpenAI fallback call failed (expected while the account has zero credits): "
                     + message);
+        }
+    }
+
+    @Test
+    void anthropicFallbackAuthenticatesRegardlessOfCreditBalance() {
+        // Multi-LLM Phase 2e (ADR 0045). Gated separately from requireRealKeys()
+        // (class-level @BeforeEach) on purpose - see the class javadoc.
+        Assumptions.assumeTrue(System.getenv("ANTHROPIC_API_KEY") != null, "ANTHROPIC_API_KEY not set, skipping");
+        try {
+            String answer = llmGateway.callAnthropicFallback(
+                    () -> anthropicFallbackChatClient.prompt("Responda apenas com a palavra: OK").call().content());
+            assertThat(answer).isNotBlank();
+        } catch (Exception e) {
+            String message = String.valueOf(e.getMessage());
+            boolean isAuthFailure = message.contains("authentication_error") || message.contains("401");
+            if (isAuthFailure) {
+                fail("Anthropic rejected the API key itself (auth failure), not a quota/billing error: " + message);
+            }
+            // A quota/billing/rate-limit error means the key authenticated fine; the
+            // account just can't complete the call right now - a real, external,
+            // user-actionable state, not a wiring bug, so this test intentionally does
+            // not fail on it (same reasoning as OpenAI's equivalent test above).
+            System.out.println("Anthropic fallback call failed (not an auth failure): " + message);
         }
     }
 

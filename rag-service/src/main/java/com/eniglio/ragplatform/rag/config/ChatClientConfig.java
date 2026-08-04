@@ -1,6 +1,9 @@
 package com.eniglio.ragplatform.rag.config;
 
 import java.time.Duration;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.anthropic.api.AnthropicApi;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
@@ -80,6 +83,38 @@ public class ChatClientConfig {
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(api)
                 .defaultOptions(OpenAiChatOptions.builder().model(properties.openai().model()).build())
+                .build();
+        return ChatClient.builder(chatModel).build();
+    }
+
+    /**
+     * Multi-LLM Phase 2e (ADR 0045): built the same way as {@link
+     * #openAiFallbackChatClient} above — {@code spring-ai-starter-model-anthropic}'s
+     * own autoconfiguration is excluded (application.yml) since it would otherwise
+     * build an unconfigured {@code anthropicChatModel} bean from {@code
+     * spring.ai.anthropic.*}, a prefix nothing here ever sets. {@code maxTokens} is
+     * required by Anthropic's Messages API (unlike OpenAI/Ollama, where it's
+     * optional) — a request without it is rejected outright, confirmed against
+     * Anthropic's own API documentation before writing this.
+     */
+    @Bean
+    @Qualifier("anthropicFallback")
+    public ChatClient anthropicFallbackChatClient(FallbackProviderProperties properties) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
+                .withConnectTimeout(properties.connectTimeout())
+                .withReadTimeout(properties.readTimeout());
+        RestClient.Builder anthropicRestClientBuilder = RestClient.builder()
+                .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings));
+        AnthropicApi api = AnthropicApi.builder()
+                .apiKey(properties.anthropic().apiKey())
+                .restClientBuilder(anthropicRestClientBuilder)
+                .build();
+        AnthropicChatModel chatModel = AnthropicChatModel.builder()
+                .anthropicApi(api)
+                .defaultOptions(AnthropicChatOptions.builder()
+                        .model(properties.anthropic().model())
+                        .maxTokens(1024)
+                        .build())
                 .build();
         return ChatClient.builder(chatModel).build();
     }
