@@ -63,6 +63,29 @@ it matters most.
 - A file whose bytes don't match its claimed type never reaches Tika, PDFBox,
   the vision model, or Whisper — it's rejected before any of those parsers are
   invoked.
+- **Update (2026-08-04): the DOCX gap flagged below is closed.** The original
+  DOCX check only confirmed the `PK\x03\x04` ZIP signature — proof of being
+  *a* ZIP, not a real DOCX. `UploadValidationService.validateDocxStructure`
+  now walks the archive for real via `ZipInputStream`: confirms
+  `word/document.xml` is actually present before Tika ever sees the file, and
+  bounds both entry count and total uncompressed size **while actually
+  decompressing** each entry (`ingestion.docx.max-entry-count`/
+  `max-uncompressed-bytes`, `IngestionProperties.Docx`) — not by trusting the
+  archive's own size fields, which an attacker fully controls. Verified for
+  real against the running `ingestion-service`, not just unit-tested: a real
+  ZIP archive renamed to `.docx` (built with `zip`, containing only an
+  unrelated `readme.txt`) returned a clean `422` with
+  `"DOCX file is missing word/document.xml"`; a real, valid minimal DOCX
+  (hand-built with the correct `word/document.xml`/`[Content_Types].xml`/
+  `_rels/.rels` structure) still ingests normally (`201`). 3 new tests in
+  `UploadValidationServiceTest` (29 total, up from 26) cover the missing-entry
+  case, an excessive-entry-count case, and a real zip-bomb-shaped case (a
+  small, highly-compressible payload that decompresses well past the
+  configured limit) — all three verified to fail *during decompression*, not
+  by inspecting a header. The pre-existing `docxBytes()` test fixture, which
+  had itself only ever been the bare `PK\x03\x04` signature with no real ZIP
+  structure — exactly the gap this closes — was replaced with a real
+  in-memory ZIP built via `ZipOutputStream`.
 - `DocumentReaderFactory` got simpler, not more complex: it no longer holds the
   `IMAGE_EXTENSIONS`/`AUDIO_EXTENSIONS` maps or does its own filename matching —
   it's now a single exhaustive `switch` over an already-known `DocumentKind`.

@@ -9,7 +9,7 @@
 | Phase | What | Status |
 |---|---|---|
 | 0 | Baseline ADR | ✅ Done — [ADR 0021](adr/0021-security-hardening-baseline.md) |
-| 1 | Upload content validation (magic bytes) | ✅ Done, one known gap open — [ADR 0022](adr/0022-upload-validation-hardening.md) |
+| 1 | Upload content validation (magic bytes) | ✅ Done, no open gap — [ADR 0022](adr/0022-upload-validation-hardening.md) |
 | 2 | Rate limiting / abuse prevention | ✅ Done — [ADR 0028](adr/0028-rate-limiting.md) |
 | 3 | Secrets, CORS, HTTP security headers | ✅ Done — [ADR 0029](adr/0029-secrets-cors-http-headers.md) |
 | 4 | Tenants/invitations + persistent JWT key | ✅ Done — [ADR 0031](adr/0031-tenant-invitations-and-persistent-jwt-key.md) |
@@ -93,7 +93,7 @@ layered rollout and the corrected premises above. Verify for yourself:
 should show a commit titled "Add upload content validation via magic bytes
 (Fase 0+1, ADR 0021/0022)".
 
-## Phase 1 — Upload content validation ✅ (one known gap open)
+## Phase 1 — Upload content validation ✅ (closed, including the DOCX gap)
 
 **Done**, verified against this exact repository, not assumed: `git log`
 shows commit `5e961e0` (message above) on `main`, already pushed and merged —
@@ -123,23 +123,23 @@ returns 422, an unsupported .exe extension returns 415, and a declared MIME
 type that's individually allow-listed but wrong for the extension (`.pdf` +
 `audio/mpeg`) returns 422.
 
-**Known gap, correctly flagged in review, not yet fixed**: the DOCX check only
-confirms the file starts with a ZIP local-file-header signature
-(`PK\x03\x04`). That proves it's *a* ZIP, not that it's a real DOCX — any
-arbitrary ZIP renamed to `.docx` currently passes validation and reaches
-`TikaDocumentReader`, which then either fails with an unhandled exception (a
-generic 500, not the clean 422 this phase is supposed to guarantee) or, worse,
-successfully parses whatever unexpected ZIP content Tika's auto-detection
-finds inside. Two follow-ups needed here, tracked as unstarted work under this
-phase rather than a new one (small enough to fold in): 1) after the ZIP
-signature check, open the archive's central directory and confirm
-`word/document.xml` (and ideally `[Content_Types].xml`) is present before
-accepting it as DOCX; 2) guard against a zip-bomb-style upload (a small file
-that decompresses to gigabytes, or an entry count high enough to exhaust
-memory/CPU during Tika's parse) by capping total uncompressed size and entry
-count read from the central directory *before* handing the archive to Tika —
-the same reasoning already applied to the 25MB compressed-upload limit, just
-also bounding the decompressed side, which that limit doesn't touch.
+**Update (2026-08-04): this gap is closed**, tracked as `docs/ROADMAP.md`
+Tier 1 #13. The DOCX check used to only confirm the file starts with a ZIP
+local-file-header signature (`PK\x03\x04`) — proof of being *a* ZIP, not a
+real DOCX. `UploadValidationService.validateDocxStructure` now opens the
+archive for real via `ZipInputStream`: confirms `word/document.xml` is
+present before Tika ever sees the file, and bounds both entry count and
+total uncompressed size *while actually decompressing* each entry
+(`ingestion.docx.max-entry-count`/`max-uncompressed-bytes`) — not by trusting
+the archive's own size headers, which an attacker fully controls. Verified
+for real against the running `ingestion-service`: a genuine ZIP archive
+renamed to `.docx` (built with the real `zip` CLI, containing only an
+unrelated file) returned a clean `422` with `"DOCX file is missing
+word/document.xml"`; a hand-built, real, valid minimal DOCX still ingests
+normally (`201`). See [ADR 0022](adr/0022-upload-validation-hardening.md)'s
+own "Update" section for the full account, including the 3 new tests
+(missing-entry, excessive-entry-count, and a genuine zip-bomb-shaped payload
+that decompresses well past the configured limit).
 
 Files touched: `UploadValidationService.java`, `ValidatedUpload.java`,
 `DocumentKind.java`, `InvalidUploadException.java` (all new),

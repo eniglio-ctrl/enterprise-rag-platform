@@ -184,34 +184,30 @@ around):
     shape as #8, once #8-#11 exist) — deliberately deferred: the user will
     generate `ANTHROPIC_API_KEY` specifically when this item starts, not
     before, unlike OpenAI/Gemini's keys which were obtained ahead of time.
-13. ⬜ **Close the DOCX upload validation gap (zip-as-docx + zip bomb)** —
-    the top remaining technical security risk this project's own docs
-    already flag as open. `UploadValidationService`'s `.docx` check
-    (`ingestion-service/.../UploadValidationService.java`) only confirms the
-    upload starts with the generic ZIP local-file-header signature
-    (`PK\x03\x04`, verified directly in the code) — any arbitrary ZIP
-    renamed to `.docx` passes validation today and reaches
-    `TikaDocumentReader`, which then either throws an unhandled exception
-    (a raw 500, not this phase's own guaranteed clean 422) or successfully
-    parses whatever unrelated ZIP content Tika's auto-detection happens to
-    find inside. Already described, with the exact fix shape, in
-    [ADR 0022](adr/0022-upload-validation-hardening.md)'s own "known gap,
-    correctly flagged in review, not yet fixed" section and in
-    `docs/SECURITY-HARDENING-ROADMAP.md`'s Phase 1 (currently "✅ Done, one
-    known gap open"): (1) after the ZIP signature check, open the archive's
-    central directory and confirm `word/document.xml` (and ideally
-    `[Content_Types].xml`) is actually present before accepting it as a real
-    DOCX; (2) cap total uncompressed size and entry count read from the
-    central directory *before* handing the archive to Tika, guarding against
-    a zip-bomb-style upload (a small file that decompresses to gigabytes, or
-    an entry count high enough to exhaust memory/CPU) — the same reasoning
-    already applied to the 25MB compressed-upload limit, just extended to
-    the decompressed side, which that limit doesn't touch. **Done when**: a
-    real ZIP file renamed to `.docx` (no `word/document.xml` inside) is
-    rejected with a clean 422, not a 500 or a silently-wrong parse; a
-    real, small-but-decompresses-huge ZIP (or one with an excessive entry
-    count) is also rejected before Tika ever runs — both verified against
-    the real running `ingestion-service`, not just unit-tested.
+13. ✅ **Close the DOCX upload validation gap (zip-as-docx + zip bomb)** —
+    done. `UploadValidationService.validateDocxStructure` walks the archive
+    for real via `ZipInputStream` after the existing signature check:
+    confirms `word/document.xml` is present before Tika ever sees the file,
+    and bounds entry count and total uncompressed size (`ingestion.docx.max
+    -entry-count`/`max-uncompressed-bytes`) **while actually decompressing**
+    each entry, not by trusting the archive's own attacker-controlled size
+    headers. **Verified for real against the running `ingestion-service`**:
+    a genuine ZIP archive renamed to `.docx` (built with the real `zip` CLI)
+    returned a clean `422` with `"DOCX file is missing word/document.xml"`;
+    a hand-built, real, valid minimal DOCX still ingests normally (`201`).
+    3 new tests (`UploadValidationServiceTest`, 26→29) cover the
+    missing-entry, excessive-entry-count, and a genuine zip-bomb-shaped case
+    (a small, highly-compressible payload decompressing well past the
+    configured limit) — the pre-existing `docxBytes()` test fixture, itself
+    only ever the bare signature bytes with no real ZIP structure (exactly
+    the gap this closed), was replaced with a real in-memory ZIP. Real,
+    unrelated infra hiccup hit and resolved along the way: Docker Desktop's
+    BuildKit backend started failing every build with "DeadlineExceeded"
+    mid-session; a full Docker Desktop restart (confirmed necessary — a
+    build-cache prune alone did not fix it) resolved it. See
+    [ADR 0022](adr/0022-upload-validation-hardening.md)'s "Update" section
+    and `docs/SECURITY-HARDENING-ROADMAP.md`'s Phase 1 (now "✅ Done, no
+    open gap") for the full account.
 14. ⬜ **Make the test suite portable across JDK vendors (Mockito as a
     Surefire Java agent)** — real finding: Mockito's inline mock maker
     self-attaches Byte Buddy at runtime by default, and the JDK itself

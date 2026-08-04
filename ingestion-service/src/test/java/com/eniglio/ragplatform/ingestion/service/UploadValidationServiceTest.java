@@ -7,13 +7,24 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class UploadValidationServiceTest {
+
+    private static final String DOCX_MIME =
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+    private static final IngestionProperties.Docx DOCX_LIMITS = new IngestionProperties.Docx(100, 10_000_000);
 
     private static final IngestionProperties PROPERTIES = new IngestionProperties(800, List.of(
             "application/pdf",
@@ -31,7 +42,7 @@ class UploadValidationServiceTest {
             "audio/x-m4a",
             "audio/ogg",
             "audio/flac",
-            "audio/webm"));
+            "audio/webm"), DOCX_LIMITS);
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final UploadValidationService service = new UploadValidationService(PROPERTIES, meterRegistry);
@@ -80,6 +91,62 @@ class UploadValidationServiceTest {
 
         assertThatThrownBy(() -> service.validate(file))
                 .isInstanceOf(InvalidUploadException.class);
+    }
+
+    // --- ADR 0022's "known gap", closed: a real ZIP renamed to .docx, and zip-bomb protection ---
+
+    @Test
+    void rejectsAnArbitraryZipRenamedToDocx() {
+        // A real, valid ZIP archive (passes the PK\x03\x04 signature check) that is
+        // not a DOCX at all - no word/document.xml anywhere inside it. This is
+        // exactly the gap ADR 0022 flagged: before the fix, this passed validation
+        // and reached Tika.
+        MockMultipartFile file = new MockMultipartFile("file", "not-a-docx.docx", DOCX_MIME,
+                docxBytesWithEntries(Map.of("readme.txt", "just a normal zip, not a Word document")));
+
+        assertThatThrownBy(() -> service.validate(file))
+                .isInstanceOf(InvalidUploadException.class);
+
+        assertThat(meterRegistry.get("security.upload.rejected").tag("reason", "docx_missing_document_xml")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void rejectsADocxWithTooManyZipEntries() {
+        IngestionProperties strictProperties = new IngestionProperties(800, PROPERTIES.allowedContentTypes(),
+                new IngestionProperties.Docx(2, 10_000_000));
+        UploadValidationService strictService = new UploadValidationService(strictProperties, meterRegistry);
+        MockMultipartFile file = new MockMultipartFile("file", "report.docx", DOCX_MIME,
+                docxBytesWithEntries(Map.of(
+                        "word/document.xml", "<w:document/>",
+                        "word/styles.xml", "<w:styles/>",
+                        "docProps/core.xml", "<coreProperties/>")));
+
+        assertThatThrownBy(() -> strictService.validate(file))
+                .isInstanceOf(InvalidUploadException.class);
+
+        assertThat(meterRegistry.get("security.upload.rejected").tag("reason", "docx_zip_bomb")
+                .counter().count()).isEqualTo(1.0);
+    }
+
+    @Test
+    void rejectsADocxThatDecompressesBeyondTheConfiguredSizeLimit() {
+        // A classic zip-bomb shape: a small compressed payload (a single repeated
+        // character compresses extremely well under DEFLATE) that decompresses to
+        // far more than a real DOCX ever would. The limit here (100 bytes) is
+        // deliberately tiny so the test fixture itself stays small - the real
+        // production limit (100MB) is configured in application.yml.
+        IngestionProperties strictProperties = new IngestionProperties(800, PROPERTIES.allowedContentTypes(),
+                new IngestionProperties.Docx(100, 100));
+        UploadValidationService strictService = new UploadValidationService(strictProperties, meterRegistry);
+        MockMultipartFile file = new MockMultipartFile("file", "report.docx", DOCX_MIME,
+                docxBytesWithEntries(Map.of("word/document.xml", "x".repeat(50_000))));
+
+        assertThatThrownBy(() -> strictService.validate(file))
+                .isInstanceOf(InvalidUploadException.class);
+
+        assertThat(meterRegistry.get("security.upload.rejected").tag("reason", "docx_zip_bomb")
+                .counter().count()).isEqualTo(1.0);
     }
 
     @Test
@@ -294,8 +361,30 @@ class UploadValidationServiceTest {
         return "%PDF-1.4\n%useless trailer".getBytes(StandardCharsets.UTF_8);
     }
 
+    // A real, minimal-but-valid DOCX: an actual ZIP archive containing
+    // word/document.xml, the one entry every real DOCX has regardless of Office
+    // version or content. Deliberately not just the PK\x03\x04 magic bytes alone
+    // (that was the exact ADR 0022 gap this phase closed) - a fake ZIP with only
+    // the signature bytes and no real structure is covered separately by
+    // rejectsAnArbitraryZipRenamedToDocx below.
     private static byte[] docxBytes() {
-        return new byte[]{0x50, 0x4B, 0x03, 0x04, 0, 0, 0, 0, 0, 0};
+        return docxBytesWithEntries(Map.of(
+                "[Content_Types].xml", "<Types/>",
+                "word/document.xml", "<w:document/>"));
+    }
+
+    private static byte[] docxBytesWithEntries(Map<String, String> entries) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out)) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return out.toByteArray();
     }
 
     private static byte[] pngBytes() {

@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.MimeType;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
@@ -21,6 +22,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * Confirms an uploaded file's extension, declared MIME type, and actual bytes all
@@ -114,9 +117,67 @@ public class UploadValidationService {
             throw reject("signature_mismatch", filename, "File content does not match its declared type: "
                     + filename, InvalidUploadException::new);
         }
+        if (spec.kind() == DocumentKind.DOCX) {
+            validateDocxStructure(bytes, filename);
+        }
 
         log.info("Upload accepted: filename={} kind={}", filename, spec.kind());
         return new ValidatedUpload(bytes, filename, spec.mimeType(), spec.kind());
+    }
+
+    private static final String DOCX_DOCUMENT_ENTRY = "word/document.xml";
+
+    /**
+     * ADR 0022's own "known gap", closed here: the signature check above only
+     * confirms the upload is <em>a</em> ZIP (the {@code PK\x03\x04} local-file-header
+     * magic bytes) — that's also true of every other ZIP-based format and of an
+     * arbitrary ZIP renamed to {@code .docx}. This walks the archive for real:
+     * confirms {@code word/document.xml} is actually present (the one entry every
+     * real DOCX has, regardless of Office version or content) before Tika ever sees
+     * it, and bounds both entry count and total uncompressed size <em>while actually
+     * decompressing</em> each entry — not by trusting the archive's own size fields,
+     * which an attacker fully controls and could simply lie in. A small file that
+     * decompresses to gigabytes (or an entry count high enough to exhaust memory/CPU
+     * during Tika's own parse) is rejected here first.
+     */
+    private void validateDocxStructure(byte[] bytes, String filename) {
+        int maxEntryCount = ingestionProperties.docx().maxEntryCount();
+        long maxUncompressedBytes = ingestionProperties.docx().maxUncompressedBytes();
+        boolean foundDocumentXml = false;
+        int entryCount = 0;
+        long totalUncompressedBytes = 0;
+        byte[] buffer = new byte[8192];
+
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(bytes))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                entryCount++;
+                if (entryCount > maxEntryCount) {
+                    throw reject("docx_zip_bomb", filename,
+                            "DOCX archive has too many entries: " + filename, InvalidUploadException::new);
+                }
+                if (DOCX_DOCUMENT_ENTRY.equals(entry.getName())) {
+                    foundDocumentXml = true;
+                }
+                int read;
+                while ((read = zip.read(buffer)) >= 0) {
+                    totalUncompressedBytes += read;
+                    if (totalUncompressedBytes > maxUncompressedBytes) {
+                        throw reject("docx_zip_bomb", filename,
+                                "DOCX archive decompresses beyond the allowed size limit: " + filename,
+                                InvalidUploadException::new);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw reject("docx_malformed_zip", filename,
+                    "DOCX file is not a valid ZIP archive: " + filename, InvalidUploadException::new);
+        }
+
+        if (!foundDocumentXml) {
+            throw reject("docx_missing_document_xml", filename,
+                    "DOCX file is missing " + DOCX_DOCUMENT_ENTRY + ": " + filename, InvalidUploadException::new);
+        }
     }
 
     /**

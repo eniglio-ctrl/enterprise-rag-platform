@@ -36,7 +36,7 @@
 
 | Phase | What | Status | Depends on |
 |---|---|---|---|
-| 1 | Close the upload validation gap (zip-as-docx + zip bomb) | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 1 #13 | — |
+| 1 | Close the upload validation gap (zip-as-docx + zip bomb) | ✅ Done — `docs/ROADMAP.md` Tier 1 #13, [ADR 0022](adr/0022-upload-validation-hardening.md)'s "Update" section | — |
 | 2 | Secrets and configuration management for production | ⬜ Not started | — |
 | 3 | Async ingestion (queue) + separate file storage | ⬜ Not started — the queue half already tracked as `docs/ROADMAP.md` Tier 2 #23 | Phase 2 (storage credentials need real secrets management first) |
 | 4 | Operational resilience hardening (timeouts, concurrency limits, readiness probes) | ⬜ Not started | — |
@@ -61,15 +61,16 @@ mentioned in the explicit sequence above.
 fresh `./mvnw clean verify` before relying on a status claim for anything
 that matters, same warning the other two roadmap files already carry.
 
-## Phase 1 — Close the upload validation gap (zip-as-docx + zip bomb) ⬜
+## Phase 1 — Close the upload validation gap (zip-as-docx + zip bomb) ✅
 
-Already fully scoped in `docs/ROADMAP.md` Tier 1 #13 and in
-[ADR 0022](adr/0022-upload-validation-hardening.md)'s own "known gap,
-correctly flagged in review, not yet fixed" section — not repeated here in
-full. Placed first in this file for the same reason the user placed it
-first: it's the most concrete, already-real security risk of everything on
-this list, with zero new infrastructure required to fix (a code change to
-`UploadValidationService`, not a new dependency).
+**Done**, closed the same day this file was written. Full account in
+`docs/ROADMAP.md` Tier 1 #13 and [ADR 0022](adr/0022-upload-validation-hardening.md)'s
+own "Update" section — not repeated here in full. Placed first in this file
+for the same reason the user placed it first: it was the most concrete,
+already-real security risk of everything on this list, and needed zero new
+infrastructure to fix (a code change to `UploadValidationService`, not a new
+dependency) — exactly the kind of item worth closing before anything else
+that does need a design decision or new infrastructure.
 
 ## Phase 2 — Secrets and configuration management for production ⬜
 

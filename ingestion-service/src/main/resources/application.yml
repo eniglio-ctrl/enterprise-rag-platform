@@ -168,6 +168,15 @@ ingestion:
     - audio/ogg
     - audio/flac
     - audio/webm
+  # ADR 0022's "known gap", closed: a real .docx has a small, bounded number of
+  # archive entries and total uncompressed size - a real Word document with
+  # embedded images still comes in well under these. Both limits are enforced
+  # by UploadValidationService actually reading/counting bytes during
+  # validation, not by trusting the ZIP's own size headers - that's what makes
+  # this a real zip-bomb defense, not a check an attacker could just lie past.
+  docx:
+    max-entry-count: 100
+    max-uncompressed-bytes: 104857600 # 100MB
   whisper:
     base-url: ${WHISPER_BASE_URL:http://localhost:9000}
     connect-timeout: 5s
