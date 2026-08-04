@@ -320,14 +320,24 @@ around):
     time, `/actuator/health/readiness` correctly went `503 DOWN` after
     HikariCP's own connection-timeout elapsed, and recovered immediately on
     unpause. See [ADR 0043](adr/0043-operational-resilience-hardening.md).
-18. ⬜ **Backups and disaster recovery** — see
+18. ✅ **Backups and disaster recovery** — see
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
-    Phase 9. Today's Postgres volume (local or Kubernetes) is the only copy
-    of every tenant's data, with no backup automation, no retention policy,
-    and no restore procedure ever actually exercised — the most concrete
-    "not yet a production system" gap on the whole production-readiness
-    list, precisely because it costs nothing to postpone until the day it's
-    needed, which is exactly the failure mode it exists to prevent.
+    Phase 9. Added `scripts/backup-postgres.sh` (`pg_dumpall`, not `pg_dump`
+    — the only tool that recreates roles/databases/extensions from nothing,
+    the real disaster-recovery scenario) and `scripts/restore-postgres.sh`.
+    **Verified with a real drill, not just scripts that exist**: rather than
+    `docker compose down -v` against the actual local dev environment (real
+    risk to this session's own data), took a real backup of the real
+    running Postgres, restored it alone into a brand-new, isolated
+    throwaway container (deliberately bootstrapped with *different*
+    credentials than production, so only the restore could make the real
+    role/database exist in it), ran real `auth-service`/`rag-service`
+    containers against that restored, isolated database, logged in for real
+    as a pre-existing user, and asked the same real question as before the
+    drill — got back the identical grounded answer (same RRF score) citing
+    a document that only existed via the restore. Confirmed the real stack
+    was completely untouched throughout. See
+    [ADR 0044](adr/0044-backups-and-disaster-recovery.md).
 
 ## Tier 2 — needs a design/infra decision first, no money
 

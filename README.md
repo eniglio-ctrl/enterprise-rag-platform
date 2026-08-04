@@ -385,6 +385,22 @@ and business metrics (documents ingested, chunks created, answers vs. diagrams
 generated, chat messages exchanged, average generation time per operation). See
 [ADR 0015](docs/adr/0015-observability-stack.md) for the design decisions.
 
+### Backups and disaster recovery
+
+```bash
+./scripts/backup-postgres.sh          # pg_dumpall -> backups/ragplatform-<timestamp>.sql
+./scripts/restore-postgres.sh backups/ragplatform-<timestamp>.sql [container] [superuser]
+```
+
+`pg_dumpall`, not `pg_dump`: it recreates roles/databases/extensions from
+nothing, which matters for restoring into a genuinely fresh instance, not
+just an already-provisioned empty one. Both the backup and the restore
+mechanism were verified for real — a real dump, restored alone into a
+brand-new, isolated container with different bootstrap credentials than
+production, running real `auth-service`/`rag-service` containers that
+answered a real question correctly using only the restored data. See
+[ADR 0044](docs/adr/0044-backups-and-disaster-recovery.md).
+
 ## Running the tests
 
 ```bash
@@ -497,14 +513,17 @@ vs. what's blocked on a decision or resource only the user can provide.
   ([docs/PRODUCTION-READINESS-ROADMAP.md](docs/PRODUCTION-READINESS-ROADMAP.md)) —
   a deliberately separate concern from the two roadmaps above: what this project
   would need to run for real, not to demonstrate AI-engineering skill. Phase 1
-  (closing the DOCX upload gap) and Phase 4 (operational resilience
+  (closing the DOCX upload gap), Phase 4 (operational resilience
   hardening — bulkheads, readiness/liveness probe split, a full timeout
-  audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)) are
-  done; the other seven (secrets/config management, async ingestion +
-  object storage, an API gateway, distributed tracing, Redis only once real
-  scale justifies it, resource-level authorization, and backups/disaster
-  recovery last) are still planning only as of 2026-08-04. Explicitly
-  **not** a claim
+  audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)), and
+  Phase 9 (backups and disaster recovery — a real `pg_dumpall` backup
+  restored into a genuinely fresh, isolated environment and verified with a
+  real question against a real document,
+  [ADR 0044](docs/adr/0044-backups-and-disaster-recovery.md)) are done; the
+  other six (secrets/config management, async ingestion + object storage,
+  an API gateway, distributed tracing, Redis only once real scale justifies
+  it, and resource-level authorization) are still planning only as of
+  2026-08-04. Explicitly **not** a claim
   that the current stack is unfinished: it's a working, honestly-scoped
   portfolio project today, and this file exists so the next evolution (if and
   when wanted) has a thought-through order instead of an ungrounded technology
@@ -561,6 +580,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0041 — Multi-turn conversation UI in `web-ui`: closes the self-admitted `chat-service` wiring gap, verified live with a context-only follow-up question ("E o que mais?")](docs/adr/0041-conversation-ui-in-web-ui.md)
 - [ADR 0042 — `unaccent_simple` text search configuration: closes the hybrid search full-text leg's accent/diacritic gap, verified with an RRF score matching the exact "found in both legs" value](docs/adr/0042-unaccent-text-search-configuration.md)
 - [ADR 0043 — Operational resilience hardening: bulkheads, readiness/liveness probe split, timeout audit — verified with a real concurrent-request load test and a real `docker compose pause postgres`](docs/adr/0043-operational-resilience-hardening.md)
+- [ADR 0044 — Backups and disaster recovery: `pg_dumpall`/restore scripts, verified with a real backup restored into a genuinely fresh, isolated environment and a real question answered from it alone](docs/adr/0044-backups-and-disaster-recovery.md)
 
 ## License
 

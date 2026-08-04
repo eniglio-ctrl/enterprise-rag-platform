@@ -20,3 +20,6 @@ kubernetes/base/jwt-signing-key.pem
 credenciais/
 ollama-data/
 postgres-data/
+# docs/ROADMAP.md item #18: a real pg_dumpall backup contains every tenant's
+# data, including bcrypt password hashes - never committed.
+backups/

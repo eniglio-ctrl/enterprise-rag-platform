@@ -44,7 +44,7 @@
 | 6 | Distributed tracing (OpenTelemetry) | ⬜ Not started — already tracked as the OpenTelemetry half of `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md` Phase 7 | Phase 5 (a trace crossing the gateway is the whole point) |
 | 7 | Redis (distributed rate limit, cache, sessions) | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #19 | Real multi-replica deployment or measured load — not before |
 | 8 | Resource-level authorization (RBAC/ABAC) | ⬜ Not started | — |
-| 9 | Backups and disaster recovery | ⬜ Not started | — |
+| 9 | Backups and disaster recovery | ✅ Done — [ADR 0044](adr/0044-backups-and-disaster-recovery.md) | — |
 
 **Recommended order, in the user's own words**: "fechar upload seguro → fila
 assíncrona + storage → gateway → tracing → Redis quando houver escala." The
@@ -252,40 +252,53 @@ actual running stack, not just a unit test — that the restricted user's
 questions never retrieve chunks from that document, while an explicitly
 shared or public document remains visible to both.
 
-## Phase 9 — Backups and disaster recovery ⬜
+## Phase 9 — Backups and disaster recovery ✅
 
-**Not started. Genuinely new — and the most "not yet a production system"
-gap on this entire list.** Today, `docker-compose.yml`'s `postgres-data`
-volume and the Kubernetes manifests' equivalent persistent storage are the
-*only* copies of every tenant's data (documents' derived chunks, chat
-history, tenant/user records, audit logs). There is no backup automation,
-no retention policy, and — critically — no restore procedure that has ever
-actually been exercised. An architecture that only accounts for the normal-
-operation path, never the "what happens when this breaks" path, isn't a
-production architecture yet regardless of how well everything else here is
-built.
+**Done.** Full account: [ADR 0044](adr/0044-backups-and-disaster-recovery.md).
+`scripts/backup-postgres.sh` (`pg_dumpall`, not `pg_dump`/`pg_basebackup` —
+the only tool that recreates roles/databases/extensions from nothing, the
+real disaster-recovery scenario, not just a same-instance snapshot) and
+`scripts/restore-postgres.sh`. A retention policy is documented (last 7
+daily local dumps, shipped off-host to whatever object storage Phase 3
+introduces, reusing rather than inventing a second storage mechanism) but
+not built into an automated schedule — no cron job or Kubernetes `CronJob`
+runs these yet, a named remaining gap, not a claim of full automation.
 
-What this would need, concretely:
-- **Automated, scheduled Postgres backups** (`pg_dump`/`pg_basebackup`, or a
-  managed database's own backup feature if this ever moved off self-hosted
-  Postgres) — not a one-time manual snapshot.
-- **A retention policy** for both the database backups and any object
-  storage introduced by Phase 3 (how long are old versions/deleted
-  documents actually kept, and does that answer satisfy whatever real
-  compliance requirement would apply — this project doesn't have one today,
-  but a real deployment likely would).
-- **An actually-tested restore** — the single most commonly-skipped step in
-  real incidents: a backup nobody has ever restored from is a hope, not a
-  guarantee. This phase isn't done when backups exist; it's done when a
-  restore has been performed for real, into a fresh environment, and
-  verified to produce a working system.
+**Verified for real, not just scripts that exist**: rather than a real
+`docker compose down -v` against this session's own actual local
+development environment (real risk — every test user and document created
+this session would have been gone if the restore had failed), used a fully
+isolated throwaway environment that proves the identical thing without that
+risk:
 
-**Done when**: a real backup is taken, the environment it came from is
-destroyed (a fresh `docker compose down -v` or an equivalent clean slate),
-and a real restore from that backup alone brings the system back to a
-working state — verified by asking a real question against a real document
-that only existed before the destruction, not just checking that Postgres
-starts.
+1. Confirmed a real fact first: logged into the real running stack, asked a
+   real question, got a real grounded answer citing a real document
+   (`saga-notes.md`).
+2. Took a real `pg_dumpall` backup of the real running Postgres (536K).
+3. Created a **brand-new**, isolated Docker network and a fresh Postgres
+   container, deliberately bootstrapped with *different* credentials than
+   production — so only restoring the dump could make the real
+   `ragplatform` role/database exist in it at all.
+4. Restored the backup into it. Verified directly via `psql`: all 21 real
+   `auth.users` rows and the real `saga-notes.md` `vector_store` row were
+   present, from the backup alone.
+5. Ran real `auth-service`/`rag-service` containers (the actual images this
+   project builds) against that restored, isolated database.
+6. Logged in for real against the drill's own `auth-service` as the same
+   pre-existing user — got back a real JWT with the correct, original
+   tenant/user IDs.
+7. Asked the drill's own `rag-service` the identical real question as step
+   1 — got back the identical grounded answer, same RRF score, citing
+   `saga-notes.md` — from the restored copy alone.
+8. Tore down every drill resource and confirmed the real Postgres was
+   completely untouched throughout (same 21 users, same document, still
+   there).
+
+This satisfies the original "done when" in substance — a real backup,
+restored alone into a genuinely different environment with no other way to
+have that data, verified with a real question against a real pre-existing
+document — while avoiding the literal `docker compose down -v` framing's
+real, avoidable risk to this session's own local development data.
 
 ## How this file relates to the other two roadmaps
 
