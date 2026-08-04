@@ -294,16 +294,32 @@ around):
     lists at rank 1" score the unit test asserts, confirming the full-text
     leg (not just the vector leg) genuinely contributed. See
     [ADR 0042](adr/0042-unaccent-text-search-configuration.md).
-17. ⬜ **Operational resilience hardening** (timeouts, concurrency limits,
+17. ✅ **Operational resilience hardening** (timeouts, concurrency limits,
     readiness-vs-liveness split) — see
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
-    Phase 4 for the full account. Two real gaps confirmed directly, not
-    assumed: no `Semaphore`/Resilience4j `@Bulkhead` anywhere bounds
-    concurrent Ollama/Whisper calls, and every Kubernetes manifest's
-    `readinessProbe`/`livenessProbe` hit the exact same `/actuator/health`
-    endpoint on the same schedule, defeating the actual point of the
-    Kubernetes liveness/readiness distinction (a slow dependency should
-    fail readiness, not trigger a pod restart via liveness).
+    Phase 4 for the full account. Closed all three confirmed gaps: added
+    `@Bulkhead` (Resilience4j, `SEMAPHORE`, fail-fast — `max-wait-duration:
+    0`) to every local-model gateway across all three services, including a
+    **new**, previously-unflagged gap found while scoping this —
+    `chat-service`'s own direct Ollama call had no
+    `@CircuitBreaker`/`@Retry`/`@Bulkhead` at all before this, unlike its two
+    siblings; split Kubernetes readiness/liveness probes onto Spring Boot's
+    own `/actuator/health/readiness`/`/liveness` groups (`db` in readiness
+    only, not liveness); closed 3 real timeout gaps found by the audit
+    (`GeminiClient`, the OpenAI-fallback `ChatClient`, and
+    `ingestion-service`'s vision-model client all had **zero** timeout
+    configured before this). **Verified for real, not just in automated
+    tests**: fired 8 real concurrent requests against the actual running
+    stack's real Ollama — the bulkhead's 4-permit limit rejected the excess
+    4 in ~155ms with a distinct message, and (an unplanned but genuine
+    finding) the 4 that got through then failed for real, tripping the
+    circuit breaker too, which recovered on its own 30s later — real
+    evidence the two mechanisms compose correctly under a real failure, not
+    just a scripted one. Also `docker compose pause postgres`'d the real
+    local Postgres: `/actuator/health/liveness` stayed `200 UP` the whole
+    time, `/actuator/health/readiness` correctly went `503 DOWN` after
+    HikariCP's own connection-timeout elapsed, and recovered immediately on
+    unpause. See [ADR 0043](adr/0043-operational-resilience-hardening.md).
 18. ⬜ **Backups and disaster recovery** — see
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 9. Today's Postgres volume (local or Kubernetes) is the only copy

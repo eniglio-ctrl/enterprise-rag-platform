@@ -97,6 +97,23 @@ management:
   endpoint:
     health:
       show-details: always
+      # docs/ROADMAP.md item #17: readiness and liveness used to hit the exact same
+      # /actuator/health endpoint from Kubernetes, defeating the actual point of the
+      # distinction — a slow-but-recovering Postgres should fail readiness (stop
+      # receiving new traffic) without also failing liveness (which restarts the
+      # pod, the wrong response to a transient slowdown, not an actual crash).
+      # readinessState/livenessState are Spring's own ApplicationAvailability
+      # signals (has the app finished starting / is it still running); "db" is
+      # added to readiness only — Postgres being slow should hold this pod out of
+      # the load balancer, not kill and restart it.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
   metrics:
     tags:
       application: ${spring.application.name}
@@ -172,6 +189,11 @@ rag:
   # simply fails at the real provider's own auth check if ever actually invoked,
   # which only happens once Phase 2c's confirmation flow exists to trigger it.
   fallback-providers:
+    # docs/ROADMAP.md item #17: neither cloud fallback client had any timeout
+    # configured before this — a hung request to either provider would block the
+    # calling thread indefinitely, unlike every local-model client in this codebase.
+    connect-timeout: 5s
+    read-timeout: 30s
     openai:
       api-key: ${OPENAI_FALLBACK_API_KEY:}
       model: ${OPENAI_FALLBACK_MODEL:gpt-4o-mini}
@@ -278,3 +300,18 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+  # docs/ROADMAP.md item #17 — bounds how many requests may call the local model
+  # server concurrently. max-wait-duration: 0 is deliberate, not an oversight: this
+  # must fail fast (a clean 503) the instant the limit is hit, not queue callers
+  # behind it — queueing would just move the pile-up from the model server into this
+  # service's own request threads instead of actually protecting anything. 4 is a
+  # starting point for a single local Ollama process, not a measured ceiling; tune
+  # via this property alone, no redeploy needed.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
+      lmstudio:
+        max-concurrent-calls: 4
+        max-wait-duration: 0

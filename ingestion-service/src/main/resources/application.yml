@@ -88,6 +88,17 @@ management:
   endpoint:
     health:
       show-details: always
+      # docs/ROADMAP.md item #17 — see rag-service's application.yml for the full
+      # rationale; identical setup here since this service has the same Postgres
+      # dependency and the same readiness-vs-liveness split need.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
   metrics:
     tags:
       application: ${spring.application.name}
@@ -144,6 +155,19 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+  # docs/ROADMAP.md item #17 — bounds concurrent calls to each local model server.
+  # max-wait-duration: 0 (fail fast with a clean 503, not queue) - same reasoning as
+  # rag-service's identical block. Whisper's limit is lower than Ollama's: CPU
+  # transcription is heavier per-call than a chat/embedding request, confirmed by
+  # this service's own read-timeout being 120s vs. Ollama's shorter calls here.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
+      whisper:
+        max-concurrent-calls: 2
+        max-wait-duration: 0
 
 ingestion:
   chunk-size-tokens: 800
@@ -183,6 +207,16 @@ ingestion:
     # Transcribing a longer audio file on CPU can take a while — same reasoning as
     # rag-service's Ollama read-timeout (ADR 0009's original finding).
     read-timeout: 120s
+  # docs/ROADMAP.md item #17's timeout audit found this had no explicit timeout
+  # configured at all before this - unlike every other outbound client in this
+  # codebase, ChatClientConfig.restClientBuilder() was built with no
+  # ClientHttpRequestFactorySettings, meaning the embedding/vision-description calls
+  # to Ollama could hang indefinitely on a stuck request. Same values as
+  # rag-service's rag.ollama.* (ADR 0009): 180s because CPU-bound local vision
+  # inference can legitimately take over a minute.
+  ollama:
+    connect-timeout: 5s
+    read-timeout: 180s
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

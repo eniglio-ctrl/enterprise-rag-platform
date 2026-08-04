@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.chat.service;
 import com.eniglio.ragplatform.chat.dto.MessageDto;
 import com.eniglio.ragplatform.chat.dto.SendMessageResponse;
 import com.eniglio.ragplatform.chat.exception.ConversationNotFoundException;
+import com.eniglio.ragplatform.chat.gateway.LlmGateway;
 import com.eniglio.ragplatform.chat.gateway.RagServiceGateway;
 import com.eniglio.ragplatform.chat.repository.ConversationRepository;
 import com.eniglio.ragplatform.common.web.Citation;
@@ -50,15 +51,18 @@ public class ConversationService {
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final RagServiceGateway ragServiceGateway;
+    private final LlmGateway llmGateway;
     private final ConversationRepository conversationRepository;
     private final Counter messagesExchangedCounter;
     private final Timer messageTimer;
 
     public ConversationService(ChatClient chatClient, ChatMemory chatMemory, RagServiceGateway ragServiceGateway,
-                                ConversationRepository conversationRepository, MeterRegistry meterRegistry) {
+                                LlmGateway llmGateway, ConversationRepository conversationRepository,
+                                MeterRegistry meterRegistry) {
         this.chatClient = chatClient;
         this.chatMemory = chatMemory;
         this.ragServiceGateway = ragServiceGateway;
+        this.llmGateway = llmGateway;
         this.conversationRepository = conversationRepository;
         this.messagesExchangedCounter = Counter.builder("chat.messages.exchanged")
                 .description("Number of chat messages answered")
@@ -90,12 +94,12 @@ public class ConversationService {
         List<RetrievedChunk> chunks = ragServiceGateway.retrieve(message, bearerToken);
         String context = buildContext(chunks);
 
-        String answer = chatClient.prompt()
+        String answer = llmGateway.callOllama(() -> chatClient.prompt()
                 .system(spec -> spec.text(SYSTEM_TEMPLATE).param("context", context))
                 .advisors(MessageChatMemoryAdvisor.builder(chatMemory).conversationId(conversationId).build())
                 .user(message)
                 .call()
-                .content();
+                .content());
 
         log.info("Answered message in conversation {} using {} retrieved chunks", conversationId, chunks.size());
 

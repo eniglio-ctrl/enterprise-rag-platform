@@ -76,7 +76,8 @@ class RagQueryServiceTest {
                 new RagProperties.AvailableModel("llama3.1", "Llama 3.1", "ollama"));
         FallbackProviderProperties fallbackProviderProperties = new FallbackProviderProperties(
                 new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
-                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"));
+                new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"),
+                java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(30));
         // lmStudioChatClient is never exercised by these tests — every available model
         // is "ollama" (resolveModel always resolves to that provider), so the second
         // client param can be null without any test needing to touch it.

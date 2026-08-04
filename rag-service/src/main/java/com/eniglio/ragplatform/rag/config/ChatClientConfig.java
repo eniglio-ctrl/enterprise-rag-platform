@@ -59,11 +59,23 @@ public class ChatClientConfig {
      * itself would otherwise use. Never added to {@code rag.available-models} — see
      * {@link FallbackProviderProperties}'s own javadoc for why.
      */
+    // docs/ROADMAP.md item #17: this client had no timeout at all before this -
+    // OpenAiApi.builder() defaults to whatever Spring AI's own default RestClient
+    // does internally, unlike every other client in this class. A fresh
+    // RestClient.Builder here, not the shared restClientBuilder() bean below: that
+    // bean's 180s read timeout is sized for local CPU-bound inference, which would
+    // be far too tolerant of a hung *cloud* API call.
     @Bean
     @Qualifier("openaiFallback")
     public ChatClient openAiFallbackChatClient(FallbackProviderProperties properties) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
+                .withConnectTimeout(properties.connectTimeout())
+                .withReadTimeout(properties.readTimeout());
+        RestClient.Builder openAiRestClientBuilder = RestClient.builder()
+                .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings));
         OpenAiApi api = OpenAiApi.builder()
                 .apiKey(properties.openai().apiKey())
+                .restClientBuilder(openAiRestClientBuilder)
                 .build();
         OpenAiChatModel chatModel = OpenAiChatModel.builder()
                 .openAiApi(api)

@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.common.web;
 
+import io.github.resilience4j.bulkhead.BulkheadFullException;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -29,6 +30,18 @@ public abstract class GlobalExceptionHandlerSupport {
         log.warn("Ollama circuit breaker is open, rejecting request without attempting it: {}", ex.getMessage());
         return build(HttpStatus.SERVICE_UNAVAILABLE,
                 "O serviço de IA está temporariamente indisponível. Tente novamente em instantes.", request);
+    }
+
+    // docs/ROADMAP.md item #17: a saturated bulkhead means "already at the
+    // configured concurrency limit for this dependency", a different situation
+    // from the circuit breaker being open (dependency judged unhealthy) - both
+    // map to the same 503 from the caller's point of view (retry later), but are
+    // logged distinctly so the two failure modes stay distinguishable in practice.
+    @ExceptionHandler(BulkheadFullException.class)
+    public ResponseEntity<ErrorResponse> handleBulkheadFull(BulkheadFullException ex, HttpServletRequest request) {
+        log.warn("Bulkhead full, rejecting request instead of queueing it: {}", ex.getMessage());
+        return build(HttpStatus.SERVICE_UNAVAILABLE,
+                "O serviço de IA está sob alta demanda. Tente novamente em instantes.", request);
     }
 
     @ExceptionHandler(ResourceAccessException.class)

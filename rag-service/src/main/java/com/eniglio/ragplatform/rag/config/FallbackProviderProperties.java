@@ -2,6 +2,8 @@ package com.eniglio.ragplatform.rag.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
+
 /**
  * Multi-LLM Phase 2a: deliberately a separate config section from {@link
  * RagProperties#availableModels()}, not a couple more entries in that list. Every
@@ -19,9 +21,20 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * callGeminiFallback} simply fail at the real provider's own auth check if ever
  * actually invoked with one, which only happens once Phase 2c's confirmation flow
  * exists to trigger it.
+ * <p>
+ * docs/ROADMAP.md item #17's timeout audit found both cloud clients (OpenAI's own
+ * SDK-built client, and {@link com.eniglio.ragplatform.rag.gateway.GeminiClient}'s
+ * hand-built one) had no explicit timeout at all, unlike every local-model client in
+ * this codebase. {@code connectTimeout}/{@code readTimeout} here are shared between
+ * both providers rather than one pair per provider — same simplification already
+ * used for {@code rag.ollama.*} covering both Ollama and LM Studio: these are both
+ * cloud APIs with similar latency characteristics, and a much shorter read timeout
+ * than local inference's — a cloud API hanging for 180s like a local model
+ * legitimately can is itself a signal something is wrong, not normal latency.
  */
 @ConfigurationProperties(prefix = "rag.fallback-providers")
-public record FallbackProviderProperties(OpenAi openai, Gemini gemini) {
+public record FallbackProviderProperties(
+        OpenAi openai, Gemini gemini, Duration connectTimeout, Duration readTimeout) {
 
     public record OpenAi(String apiKey, String model) {
     }

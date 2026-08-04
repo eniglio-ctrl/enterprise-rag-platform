@@ -1,6 +1,8 @@
 package com.eniglio.ragplatform.rag.gateway;
 
 import com.eniglio.ragplatform.rag.config.FallbackProviderProperties;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -43,9 +45,18 @@ public class GeminiClient {
     // constructor line.
     public GeminiClient(FallbackProviderProperties properties) {
         this.model = properties.gemini().model();
+        // docs/ROADMAP.md item #17: this client had no timeout at all before this,
+        // the one confirmed real gap the phase's own audit found - a hung request to
+        // Gemini would have blocked the calling thread indefinitely. .detect() is
+        // fine here (unlike the Ollama/Whisper clients pinned to .simple()): this is
+        // a plain JSON POST, not multipart, so there's no h2c-corrupts-the-body risk.
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
+                .withConnectTimeout(properties.connectTimeout())
+                .withReadTimeout(properties.readTimeout());
         this.restClient = RestClient.builder()
                 .baseUrl("https://generativelanguage.googleapis.com")
                 .defaultHeader("x-goog-api-key", properties.gemini().apiKey())
+                .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings))
                 .build();
     }
 

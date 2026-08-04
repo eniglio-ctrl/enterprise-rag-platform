@@ -68,14 +68,15 @@ spec:
           # specifically to absorb a slow first-boot Ollama model pull racing the
           # liveness probe (see rag-service.yaml); auth-service never touches Ollama,
           # so its boot time doesn't have that failure mode.
+          # docs/ROADMAP.md item #17 — see rag-service.yaml for the full rationale.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8084
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8084
             periodSeconds: 20
           resources:

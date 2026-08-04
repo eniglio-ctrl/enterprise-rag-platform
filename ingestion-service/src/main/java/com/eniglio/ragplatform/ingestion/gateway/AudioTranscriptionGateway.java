@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.ingestion.gateway;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +54,7 @@ public class AudioTranscriptionGateway {
 
     @CircuitBreaker(name = "whisper")
     @Retry(name = "whisper")
+    @Bulkhead(name = "whisper")
     public String transcribe(byte[] audioBytes, String filename) {
         // filename()/contentType() set explicitly on the part builder, not left to a
         // Resource subclass overriding getFilename(): relying on the Resource alone

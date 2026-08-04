@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.chat.service;
 import com.eniglio.ragplatform.chat.dto.MessageDto;
 import com.eniglio.ragplatform.chat.dto.SendMessageResponse;
 import com.eniglio.ragplatform.chat.exception.ConversationNotFoundException;
+import com.eniglio.ragplatform.chat.gateway.LlmGateway;
 import com.eniglio.ragplatform.chat.gateway.RagServiceGateway;
 import com.eniglio.ragplatform.chat.repository.ConversationRepository;
 import com.eniglio.ragplatform.common.web.RetrievedChunk;
@@ -43,8 +44,8 @@ class ConversationServiceTest {
 
     private ConversationService newService() {
         ChatClient chatClient = ChatClient.builder(chatModel).build();
-        return new ConversationService(chatClient, chatMemory, ragServiceGateway, conversationRepository,
-                new SimpleMeterRegistry());
+        return new ConversationService(chatClient, chatMemory, ragServiceGateway, new LlmGateway(),
+                conversationRepository, new SimpleMeterRegistry());
     }
 
     @Test

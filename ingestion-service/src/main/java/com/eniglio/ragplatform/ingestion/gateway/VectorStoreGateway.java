@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.ingestion.gateway;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.ai.document.Document;
@@ -26,6 +27,7 @@ public class VectorStoreGateway {
 
     @CircuitBreaker(name = "ollama")
     @Retry(name = "ollama")
+    @Bulkhead(name = "ollama")
     public void add(List<Document> chunks) {
         vectorStore.add(chunks);
     }

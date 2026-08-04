@@ -1,10 +1,14 @@
 package com.eniglio.ragplatform.ingestion.config;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
+
+import java.time.Duration;
 
 /**
  * ingestion-service's only chat model is used for describing uploaded images (ADR
@@ -29,9 +33,17 @@ public class ChatClientConfig {
     // the real container — to sometimes mishandle, silently dropping the image
     // from the request or failing with "unexpected EOF". .simple() sends the
     // identical bytes without the upgrade attempt and was verified reliable.
+    // docs/ROADMAP.md item #17's timeout audit found this bean had no timeout
+    // settings at all before this - the one confirmed gap in this service, unlike
+    // every other outbound client here (Whisper already had one, ADR 0019).
     @Bean
-    public RestClient.Builder restClientBuilder() {
+    public RestClient.Builder restClientBuilder(
+            @Value("${ingestion.ollama.connect-timeout:5s}") Duration connectTimeout,
+            @Value("${ingestion.ollama.read-timeout:180s}") Duration readTimeout) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.defaults()
+                .withConnectTimeout(connectTimeout)
+                .withReadTimeout(readTimeout);
         return RestClient.builder()
-                .requestFactory(ClientHttpRequestFactoryBuilder.simple().build());
+                .requestFactory(ClientHttpRequestFactoryBuilder.simple().build(settings));
     }
 }

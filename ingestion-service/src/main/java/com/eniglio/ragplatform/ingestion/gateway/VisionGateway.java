@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.ingestion.gateway;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Component;
@@ -19,6 +20,7 @@ public class VisionGateway {
 
     @CircuitBreaker(name = "ollama")
     @Retry(name = "ollama")
+    @Bulkhead(name = "ollama")
     public <T> T call(Supplier<T> visionCall) {
         return visionCall.get();
     }

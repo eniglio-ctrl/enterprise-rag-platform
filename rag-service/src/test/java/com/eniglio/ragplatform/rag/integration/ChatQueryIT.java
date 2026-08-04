@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -31,7 +32,13 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
@@ -64,6 +71,15 @@ class ChatQueryIT {
         registry.add("spring.datasource.url", postgres::getJdbcUrl);
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
+        // docs/ROADMAP.md item #17: overridden down from application.yml's real
+        // default (4) to exactly 1 for this whole test class, deliberately, so
+        // bulkheadRejectsAConcurrentOllamaCallWhenTheLimitIsAlreadySaturated below
+        // can make a deterministic assertion without racing a higher real limit.
+        // Harmless for every other test in this class: none of them issue two
+        // requests concurrently, so a limit of 1 never conflicts with anything else
+        // here - each request finishes before the next one starts.
+        registry.add("resilience4j.bulkhead.instances.ollama.max-concurrent-calls", () -> "1");
+        registry.add("resilience4j.bulkhead.instances.ollama.max-wait-duration", () -> "0");
     }
 
     @Autowired
@@ -367,6 +383,48 @@ class ChatQueryIT {
                         .content("{\"question\":\"Como está o e-commerce da empresa?\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("ecommerce-doc.md")));
+    }
+
+    @Test
+    void bulkheadRejectsAConcurrentOllamaCallWhenTheLimitIsAlreadySaturated() throws Exception {
+        // docs/ROADMAP.md item #17's own "done when": a load test with an
+        // artificially small worker pool (1, via the class's own
+        // @DynamicPropertySource override above) shows the bulkhead rejecting an
+        // excess request cleanly (503) instead of letting it queue indefinitely
+        // behind the one already in flight.
+        CountDownLatch firstCallStarted = new CountDownLatch(1);
+        CountDownLatch releaseFirstCall = new CountDownLatch(1);
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            firstCallStarted.countDown();
+            assertThat(releaseFirstCall.await(5, TimeUnit.SECONDS)).isTrue();
+            return new ChatResponse(List.of(new Generation(new AssistantMessage("O padrão SAGA coordena transações distribuídas [1]"))));
+        });
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<MvcResult> firstCallResult = executor.submit(() -> mockMvc.perform(post("/api/v1/chat")
+                            .with(jwtFor("default"))
+                            .contentType("application/json")
+                            .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
+                    .andReturn());
+
+            // Without this wait, the second request below could race ahead of the
+            // first one actually reaching (and holding) the bulkhead's one permit,
+            // making the assertion meaningless either way it happened to land.
+            assertThat(firstCallStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+            mockMvc.perform(post("/api/v1/chat")
+                            .with(jwtFor("default"))
+                            .contentType("application/json")
+                            .content("{\"question\":\"Como funciona o padrão SAGA?\"}"))
+                    .andExpect(status().isServiceUnavailable());
+
+            releaseFirstCall.countDown();
+            MvcResult firstResult = firstCallResult.get(5, TimeUnit.SECONDS);
+            assertThat(firstResult.getResponse().getStatus()).isEqualTo(200);
+        } finally {
+            executor.shutdown();
+        }
     }
 
     @Test

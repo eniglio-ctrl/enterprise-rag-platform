@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.rag.gateway;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import org.springframework.stereotype.Component;
@@ -29,18 +30,28 @@ import java.util.function.Supplier;
  * providers above — a cloud outage or quota exhaustion is a different failure mode
  * than a local server being down, and Phase 2b's fallback-trigger logic needs to be
  * able to tell them apart.
+ * <p>
+ * docs/ROADMAP.md item #17 added {@code @Bulkhead} to {@code callOllama}/{@code
+ * callLmStudio} only, not the two cloud fallbacks: this is specifically about
+ * protecting a local, single-process model server with genuinely limited concurrent
+ * capacity from being overwhelmed by this application's own traffic — a cloud
+ * provider scales independently of anything this bulkhead could do about it, and
+ * the fallback path already has its own circuit breaker guarding against that
+ * provider's outages/quota exhaustion.
  */
 @Component
 public class LlmGateway {
 
     @CircuitBreaker(name = "ollama")
     @Retry(name = "ollama")
+    @Bulkhead(name = "ollama")
     public <T> T callOllama(Supplier<T> chatCall) {
         return chatCall.get();
     }
 
     @CircuitBreaker(name = "lmstudio")
     @Retry(name = "lmstudio")
+    @Bulkhead(name = "lmstudio")
     public <T> T callLmStudio(Supplier<T> chatCall) {
         return chatCall.get();
     }

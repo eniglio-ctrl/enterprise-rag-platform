@@ -86,14 +86,20 @@ spec:
               port: 8082
             failureThreshold: 30
             periodSeconds: 10
+          # docs/ROADMAP.md item #17: readiness and liveness used to hit the exact
+          # same /actuator/health, defeating the point of the distinction - a slow
+          # Postgres should fail readiness (stop receiving traffic) without also
+          # failing liveness (which restarts the pod, the wrong response to a
+          # transient dependency slowdown). management.endpoint.health.group.*
+          # (application.yml) puts "db" only in the readiness group.
           readinessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/readiness
               port: 8082
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /actuator/health
+              path: /actuator/health/liveness
               port: 8082
             periodSeconds: 20
           resources:

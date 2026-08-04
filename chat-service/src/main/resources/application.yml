@@ -55,6 +55,17 @@ management:
   endpoint:
     health:
       show-details: always
+      # docs/ROADMAP.md item #17 — see rag-service's application.yml for the full
+      # rationale; identical setup here since this service has the same Postgres
+      # dependency and the same readiness-vs-liveness split need.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
   metrics:
     tags:
       application: ${spring.application.name}
@@ -99,6 +110,15 @@ resilience4j:
         wait-duration: 500ms
         retry-exceptions:
           - org.springframework.web.client.ResourceAccessException
+      # docs/ROADMAP.md item #17: this service's own direct Ollama chat call
+      # (ConversationService -> LlmGateway) had no retry/circuit-breaker/bulkhead
+      # instance at all before this - a real, unflagged gap, unlike rag-service and
+      # ingestion-service's equivalent local-model calls.
+      ollama:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
   circuitbreaker:
     instances:
       rag-service:
@@ -107,6 +127,19 @@ resilience4j:
         failure-rate-threshold: 50
         wait-duration-in-open-state: 30s
         permitted-number-of-calls-in-half-open-state: 3
+      ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  # max-wait-duration: 0 (fail fast, not queue) - same reasoning as rag-service's
+  # identical block.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
 
 web-ui:
   allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}

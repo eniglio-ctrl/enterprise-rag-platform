@@ -39,7 +39,7 @@
 | 1 | Close the upload validation gap (zip-as-docx + zip bomb) | ✅ Done — `docs/ROADMAP.md` Tier 1 #13, [ADR 0022](adr/0022-upload-validation-hardening.md)'s "Update" section | — |
 | 2 | Secrets and configuration management for production | ⬜ Not started | — |
 | 3 | Async ingestion (queue) + separate file storage | ⬜ Not started — the queue half already tracked as `docs/ROADMAP.md` Tier 2 #23 | Phase 2 (storage credentials need real secrets management first) |
-| 4 | Operational resilience hardening (timeouts, concurrency limits, readiness probes) | ⬜ Not started | — |
+| 4 | Operational resilience hardening (timeouts, concurrency limits, readiness probes) | ✅ Done — [ADR 0043](adr/0043-operational-resilience-hardening.md) | — |
 | 5 | API Gateway / BFF at the edge | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #24 | Phase 4 (the gateway is where centralized timeout/rate-limit policy would live) |
 | 6 | Distributed tracing (OpenTelemetry) | ⬜ Not started — already tracked as the OpenTelemetry half of `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md` Phase 7 | Phase 5 (a trace crossing the gateway is the whole point) |
 | 7 | Redis (distributed rate limit, cache, sessions) | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #19 | Real multi-replica deployment or measured load — not before |
@@ -148,48 +148,45 @@ through `PENDING → PROCESSING → READY`, a deliberately-killed worker mid-job
 leaves the document retriable (not silently lost), and the original file
 bytes are recoverable from object storage independent of what's in pgvector.
 
-## Phase 4 — Operational resilience hardening ⬜
+## Phase 4 — Operational resilience hardening ✅
 
-**Not started. Genuinely new** — this project already has real resilience
-work (ADR 0009's circuit breakers/retries, extended in ADR 0036/0037/0038
-for the fallback providers), so this phase is explicitly about the gaps
-*around* that existing work, verified for real before writing this phase
-rather than assumed:
+**Done.** All three gaps below, confirmed for real before writing any code
+rather than assumed, are closed. Full account:
+[ADR 0043](adr/0043-operational-resilience-hardening.md).
 
-- **No concurrency limit anywhere on LLM/Whisper calls** — confirmed by
-  grep: no `Semaphore`, no Resilience4j `@Bulkhead`, nothing bounding how
-  many simultaneous requests hit Ollama or the Whisper server. Today's
-  single-user/portfolio load never exercises this; a real deployment with
-  concurrent users could exhaust the local model server's own capacity with
-  no backpressure at this project's own layer to protect it (or itself)
-  from an overload cascade.
+- **No concurrency limit anywhere on LLM/Whisper calls** — closed:
+  `@Bulkhead` (Resilience4j, `SEMAPHORE`, `max-wait-duration: 0` — fail fast,
+  never queue) added to every local-model gateway across all three services
+  (rag-service's `LlmGateway`, ingestion-service's `VectorStoreGateway`/
+  `VisionGateway`/`AudioTranscriptionGateway`, and a **new** `LlmGateway` in
+  chat-service — scoping this surfaced that chat-service's own direct Ollama
+  call had no resilience wrapping *at all* before this, a real gap beyond
+  what this phase originally set out to find).
 - **Readiness and liveness probes point at the exact same endpoint** —
-  confirmed in `kubernetes/base/*.yaml`: every service's `readinessProbe`
-  and `livenessProbe` both hit plain `/actuator/health` on the same
-  `periodSeconds`. This defeats the actual point of the Kubernetes
-  liveness/readiness distinction — a slow-but-recovering dependency (e.g.
-  Postgres under load) should fail *readiness* (stop receiving new traffic)
-  without also failing *liveness* (which restarts the pod, the wrong
-  response to a transient slowdown). Spring Boot Actuator supports exactly
-  this split natively (`management.endpoint.health.group.readiness`/
-  `.liveness`, or the built-in Kubernetes probe groups via
-  `management.health.probes.enabled=true`) — not yet configured anywhere in
-  this project.
-- **Timeouts exist but aren't uniformly audited** — `rag.ollama.connect
-  -timeout`/`read-timeout` are real and configured (ADR 0009), but a full
-  audit of every outbound call in the system (chat-service → rag-service,
-  ingestion-service → Whisper, the fallback providers' own HTTP clients)
-  against one documented, deliberate timeout policy hasn't been done as its
-  own piece of work.
+  closed: `management.health.probes.enabled: true` plus
+  `management.endpoint.health.group.readiness.include: readinessState, db` /
+  `.liveness.include: livenessState` in all four services;
+  `kubernetes/base/*.yaml` now point `readinessProbe` at
+  `/actuator/health/readiness` and `livenessProbe` at
+  `/actuator/health/liveness`.
+- **Timeouts exist but aren't uniformly audited** — closed: the audit found
+  and fixed three real gaps with **zero** timeout configured before this —
+  `GeminiClient`, the OpenAI-fallback `ChatClient`, and (unexpectedly)
+  ingestion-service's own vision-model `RestClient.Builder`, the one
+  local-model client in the whole codebase missing one, unlike its Whisper
+  sibling in the same service.
 
-**Done when**: a real load test against a local Ollama instance with an
-artificially small worker pool shows the bulkhead/concurrency limit
-rejecting excess requests cleanly (a 503 with a clear reason) instead of
-letting them queue indefinitely; a real Postgres slowdown (simulated via
-`pg_sleep` in a lock or similar) fails the readiness probe without
-triggering a pod restart via the liveness probe; every outbound HTTP call in
-the system has an explicit, documented timeout traceable to one place, not
-scattered defaults.
+**Verified for real, not just in automated tests**: fired 8 real concurrent
+requests against the actual running stack's real Ollama — the bulkhead
+rejected the excess 4 in ~155ms with a clean, distinct 503; the 4 that got
+through then genuinely failed for real (this machine's Ollama couldn't
+reliably complete 4 truly-concurrent `llama3.1` calls), tripping the circuit
+breaker too, which recovered on its own 30s later — real evidence the two
+mechanisms compose correctly under an actual failure, not a scripted one.
+`docker compose pause postgres`'d the real local Postgres:
+`/actuator/health/liveness` stayed `200 UP` throughout;
+`/actuator/health/readiness` correctly went `503 DOWN` once HikariCP's own
+connection-timeout elapsed, and recovered immediately on unpause.
 
 ## Phase 5 — API Gateway / BFF at the edge ⬜
 
