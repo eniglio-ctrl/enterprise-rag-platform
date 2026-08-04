@@ -398,6 +398,61 @@ button.secondary:hover:not(:disabled) {
   height: auto;
 }
 
+#conversation-start-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+#conversation-start-row button {
+  margin-top: 0;
+}
+
+#conversation-id-label {
+  font-family: monospace;
+  font-size: 0.78rem;
+}
+
+.conversation-thread {
+  margin-top: 1.25rem;
+}
+
+.conversation-messages {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+
+.conversation-message {
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  font-size: 0.9rem;
+  max-width: 85%;
+}
+
+.conversation-message.role-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.conversation-message.role-assistant {
+  align-self: flex-start;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+.conversation-message .conversation-sources {
+  margin-top: 0.4rem;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+}
+
 .app-footer {
   text-align: center;
   color: var(--color-muted);

@@ -229,24 +229,33 @@ around):
     `success` in 4m1s, confirming Temurin (CI's pinned vendor) behaves
     identically to Oracle's JDK (the local development machine) — see
     [ADR 0040](adr/0040-mockito-javaagent-jdk-portability.md).
-15. ⬜ **Wire `chat-service` into `web-ui` — a real multi-turn conversation
-    UI** — closes a real, self-admitted gap: `README.md` says outright
+15. ✅ **Wire `chat-service` into `web-ui` — a real multi-turn conversation
+    UI** — closed a real, self-admitted gap: `README.md` said outright
     "`chat-service` isn't wired into `web-ui` yet ... it's reachable today
-    via its own API." That leaves a fully-built, tested capability
+    via its own API." That left a fully-built, tested capability
     (conversation memory on top of retrieval, ADR 0013) with zero visible
     demonstration in the one flow anyone reviewing this project actually
     clicks through — a real portfolio-narrative gap, not just a technical
-    one. Confirmed while scoping this: `chat-service` has real but thin
-    test coverage (2 test files) relative to the other services, worth
-    padding out alongside the UI work rather than treating this as
-    frontend-only. Scope: a minimal multi-turn chat panel in `web-ui`
-    (create/continue a conversation, send a message, show the running
-    history) calling `chat-service`'s own existing endpoints directly — no
-    new backend design, `chat-service` already does everything this needs.
-    **Done when**: tested for real in the browser — starting a conversation,
-    asking a follow-up question that only makes sense with the prior
-    message's context (e.g. "e o que mais?"), and getting back an answer
-    that's actually using that context, not just the isolated last message.
+    one. Added a minimal multi-turn chat panel to `web-ui` (start/continue a
+    conversation, send a message, see the running history with a
+    per-message "Sources: ..." citation line), calling `chat-service`'s own
+    existing endpoints directly — no new backend design needed, kept hidden
+    under `DEMO_MODE` (same as upload/invite) since `chat-service` isn't
+    part of the public demo deployment (ADR 0020). Also padded
+    `chat-service`'s own thin test coverage: 2 new `ConversationIT` cases
+    (GET on an unknown conversation now 404s, same as POST; a blank message
+    now 400s, proving the existing `@NotBlank` is actually enforced, not
+    just typed) — module test count 8→10. **Verified for real, not just
+    assumed**: registered a fresh user, uploaded a real Markdown document
+    about the SAGA pattern, started a conversation in the browser, asked
+    "Quais são os dois modelos principais de SAGA?" (got back
+    Choreography/Orchestration with a "Sources: saga-notes.md" citation),
+    then asked the deliberately context-only follow-up "E o que mais?" —
+    the answer correctly discussed **compensação** (a topic from the same
+    document, never mentioned in either message so far), proving the
+    question was resolved using the prior turn's context and the running
+    conversation history, not answered in isolation. See
+    [ADR 0041](adr/0041-conversation-ui-in-web-ui.md).
 16. ⬜ **Hybrid search: accent/diacritic-insensitive full-text matching** —
     a real gap found while using the fallback flow: `HybridSearchService`'s
     full-text leg indexes `content_tsv` via `to_tsvector('simple', ...)`

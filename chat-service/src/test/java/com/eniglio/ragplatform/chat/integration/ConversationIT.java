@@ -123,6 +123,30 @@ class ConversationIT {
     }
 
     @Test
+    void listingMessagesForAnUnknownConversationReturnsNotFound() throws Exception {
+        // Real gap this phase's own scope called out to close (docs/ROADMAP.md #15):
+        // unknownConversationReturnsNotFound above only ever exercised the POST
+        // messages endpoint, never GET - a caller who never sent a message but tries
+        // to list one deserves the same 404, not a silent empty list.
+        mockMvc.perform(get("/api/v1/conversations/" + java.util.UUID.randomUUID() + "/messages").with(testJwt()))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void sendingABlankMessageReturnsBadRequest() throws Exception {
+        // SendMessageRequest's @NotBlank was never exercised by a real HTTP request
+        // before this - a validation annotation with no test proving it's actually
+        // enforced at the controller layer isn't verified, it's just typed.
+        String conversationId = createConversation();
+
+        mockMvc.perform(post("/api/v1/conversations/" + conversationId + "/messages")
+                        .with(testJwt())
+                        .contentType("application/json")
+                        .content("{\"message\":\"\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void sixthMessageEvictsTheOldestTurnOnceTheWindowIsExceeded() throws Exception {
         String conversationId = createConversation();
 

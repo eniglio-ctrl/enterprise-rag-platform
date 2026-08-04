@@ -139,6 +139,35 @@
         <ul id="diagram-citations" class="citations"></ul>
       </div>
     </section>
+
+    <!-- ADR 0013's conversation memory, previously reachable only via chat-service's
+         own API - a minimal multi-turn panel: create/continue a conversation, send a
+         message, see the running history. chat-service isn't deployed in the public
+         demo (ADR 0020), so this panel stays hidden there, same as upload/invite. -->
+    <section class="panel panel-wide" id="conversation-panel">
+      <h2>3. Conversation</h2>
+      <p class="hint">Multi-turn chat with memory (<code>chat-service</code>, ADR 0013) —
+        unlike "Ask" above, each message here remembers the whole conversation, so a
+        follow-up like "e o que mais?" resolves using the prior message's context, not
+        just the question in isolation. <code>chat-service</code> forwards your own
+        bearer token to <code>rag-service</code> for retrieval rather than
+        re-implementing it.</p>
+
+      <div id="conversation-start-row">
+        <button type="button" id="start-conversation-button">Start a new conversation</button>
+        <span id="conversation-id-label" class="hint" hidden></span>
+      </div>
+
+      <div id="conversation-thread" class="conversation-thread" hidden>
+        <ul id="conversation-messages" class="conversation-messages"></ul>
+
+        <form id="conversation-form">
+          <textarea id="conversation-input" placeholder="Send a message in this conversation..." rows="2" required></textarea>
+          <button type="submit" id="conversation-send-button">Send</button>
+        </form>
+        <div id="conversation-status" class="status" hidden></div>
+      </div>
+    </section>
   </main>
 
   <footer class="app-footer">

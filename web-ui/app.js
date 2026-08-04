@@ -1,6 +1,10 @@
 const INGESTION_BASE = window.RAG_PLATFORM_CONFIG?.ingestionBaseUrl ?? "http://localhost:8081";
 const RAG_BASE = window.RAG_PLATFORM_CONFIG?.ragBaseUrl ?? "http://localhost:8082";
 const AUTH_BASE = window.RAG_PLATFORM_CONFIG?.authBaseUrl ?? "http://localhost:8084";
+// chat-service isn't part of the public demo deployment (ADR 0020) - only reached
+// when DEMO_MODE is false, same condition the conversation panel itself is hidden
+// under (renderAuthState() below).
+const CHAT_BASE = window.RAG_PLATFORM_CONFIG?.chatBaseUrl ?? "http://localhost:8083";
 // ADR 0020: the free public demo has no auth-service and no upload — rag-service's
 // own "demo" Spring profile treats every request as one fixed tenant regardless of
 // headers sent, so there's nothing for a login form or bearer token to accomplish
@@ -70,6 +74,7 @@ function renderAuthState() {
     authBar.hidden = true;
     document.getElementById("upload-panel").hidden = true;
     document.getElementById("invite-panel").hidden = true;
+    document.getElementById("conversation-panel").hidden = true;
     document.getElementById("demo-banner").hidden = false;
     document.getElementById("ask-heading").textContent = "Ask";
     loadModels();
@@ -225,11 +230,22 @@ const diagramOutput = document.getElementById("diagram-output");
 const diagramCitations = document.getElementById("diagram-citations");
 let diagramCounter = 0;
 
+// ADR 0013 conversation memory, wired into web-ui here for the first time.
+const startConversationButton = document.getElementById("start-conversation-button");
+const conversationIdLabel = document.getElementById("conversation-id-label");
+const conversationThread = document.getElementById("conversation-thread");
+const conversationMessages = document.getElementById("conversation-messages");
+const conversationForm = document.getElementById("conversation-form");
+const conversationInput = document.getElementById("conversation-input");
+const conversationSendButton = document.getElementById("conversation-send-button");
+const conversationStatus = document.getElementById("conversation-status");
+let currentConversationId = null;
+
 mermaid.initialize({ startOnLoad: false });
 
 document.getElementById("config-summary").textContent = DEMO_MODE
   ? `rag-service: ${RAG_BASE} · public demo (ADR 0020)`
-  : `ingestion-service: ${INGESTION_BASE} · rag-service: ${RAG_BASE} · auth-service: ${AUTH_BASE}`;
+  : `ingestion-service: ${INGESTION_BASE} · rag-service: ${RAG_BASE} · auth-service: ${AUTH_BASE} · chat-service: ${CHAT_BASE}`;
 
 function setStatus(el, message, kind) {
   el.textContent = message;
@@ -504,6 +520,95 @@ async function renderDiagram({ mermaid: definition, citations }) {
 
   renderCitations(diagramCitations, citations);
   diagramCard.hidden = false;
+}
+
+// ADR 0013 conversation memory, wired into web-ui for the first time here - a
+// minimal multi-turn panel calling chat-service's own existing endpoints
+// directly, no new backend design needed.
+
+startConversationButton.addEventListener("click", async () => {
+  startConversationButton.disabled = true;
+  setStatus(conversationStatus, "Starting a new conversation...");
+  try {
+    const response = await fetch(`${CHAT_BASE}/api/v1/conversations`, {
+      method: "POST",
+      headers: authHeader(),
+    });
+
+    if (response.status === 401) {
+      clearAuth("Your session expired. Please log in again.");
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Could not start a conversation (status ${response.status}).`);
+    }
+
+    const body = await response.json();
+    currentConversationId = body.conversationId;
+    conversationIdLabel.textContent = `Conversation ${currentConversationId}`;
+    conversationIdLabel.hidden = false;
+    conversationMessages.innerHTML = "";
+    conversationThread.hidden = false;
+    setStatus(conversationStatus, "");
+    conversationInput.focus();
+  } catch (error) {
+    setStatus(conversationStatus, error.message ?? "Could not start a conversation.", "error");
+  } finally {
+    startConversationButton.disabled = false;
+  }
+});
+
+conversationForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const message = conversationInput.value.trim();
+  if (!message || !currentConversationId) {
+    return;
+  }
+
+  appendConversationMessage("user", message);
+  conversationInput.value = "";
+  conversationSendButton.disabled = true;
+  setStatus(conversationStatus, "Thinking...");
+
+  try {
+    const response = await fetch(
+      `${CHAT_BASE}/api/v1/conversations/${currentConversationId}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify({ message }),
+      }
+    );
+
+    if (response.status === 401) {
+      clearAuth("Your session expired. Please log in again.");
+      return;
+    }
+
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.message ?? `Request failed with status ${response.status}`);
+    }
+
+    appendConversationMessage("assistant", body.answer, body.citations);
+    setStatus(conversationStatus, "");
+  } catch (error) {
+    setStatus(conversationStatus, error.message ?? "Something went wrong.", "error");
+  } finally {
+    conversationSendButton.disabled = false;
+  }
+});
+
+function appendConversationMessage(role, content, citations) {
+  const item = document.createElement("li");
+  item.className = `conversation-message role-${role}`;
+  item.innerHTML = `<div>${escapeHtml(content)}</div>`;
+  if (citations && citations.length > 0) {
+    const sources = citations.map((citation) => escapeHtml(citation.source)).join(", ");
+    item.innerHTML += `<div class="conversation-sources">Sources: ${sources}</div>`;
+  }
+  conversationMessages.appendChild(item);
+  conversationMessages.scrollTop = conversationMessages.scrollHeight;
 }
 
 function escapeHtml(value) {

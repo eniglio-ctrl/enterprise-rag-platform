@@ -60,9 +60,12 @@ flowchart LR
     CHAT -- "conversation memory" --> PG
 ```
 
-`chat-service` isn't wired into `web-ui` yet (`web-ui` still talks to `rag-service`
-directly) — it's reachable today via its own API, see
-[Multi-turn conversations](#multi-turn-conversations) below.
+`chat-service` is wired into `web-ui`'s "3. Conversation" panel (a minimal
+multi-turn chat UI on top of the existing API, ADR 0041) — `web-ui`'s "2. Ask"
+panel still talks to `rag-service` directly for single-shot questions; the two
+flows are independent, see [Multi-turn conversations](#multi-turn-conversations)
+below. The panel is hidden in the public demo, same as upload/invite, since
+`chat-service` isn't deployed there (ADR 0020).
 
 Full ingestion/query sequence diagrams and the reasoning behind each architectural
 choice live in [docs/architecture.md](docs/architecture.md) and [docs/adr](docs/adr).
@@ -332,7 +335,10 @@ doesn't describe an architecture, process or flow, `mermaid` comes back as a sin
 
 `chat-service` (port 8083) delegates retrieval to `rag-service` and adds conversation
 memory on top — it never re-implements embedding or search itself. See
-[ADR 0013](docs/adr/0013-chat-service-conversation-memory.md).
+[ADR 0013](docs/adr/0013-chat-service-conversation-memory.md). `web-ui`'s
+"3. Conversation" panel drives this same API from the browser (ADR 0041); the
+curl walkthrough below is the direct-API path, useful for scripting or for
+exercising the endpoints without a browser.
 
 ```bash
 CONVERSATION_ID=$(curl -s -X POST http://localhost:8083/api/v1/conversations \
@@ -549,6 +555,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0038 — Confirmation gate + non-grounded response contract: two-step `useFallback` flow, `source`/`fallbackAvailable` fields, verified live against the running stack (Gemini answered for real)](docs/adr/0038-fallback-confirmation-gate-response-contract.md)
 - [ADR 0039 — `web-ui` fallback confirmation dialog + provenance badge: tested live in the browser, both the positive (badge shown) and negative (badge absent on a normal answer) cases](docs/adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)
 - [ADR 0040 — Mockito as an explicit Surefire Java agent for JDK-vendor portability: closes a real, live warning present on every test run this session](docs/adr/0040-mockito-javaagent-jdk-portability.md)
+- [ADR 0041 — Multi-turn conversation UI in `web-ui`: closes the self-admitted `chat-service` wiring gap, verified live with a context-only follow-up question ("E o que mais?")](docs/adr/0041-conversation-ui-in-web-ui.md)
 
 ## License
 
