@@ -548,6 +548,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0037 — Fallback trigger detection: circuit-breaker state + empty retrieval, not keyword matching; corrected the roadmap's own premise about the RRF score's scale](docs/adr/0037-fallback-trigger-detection.md)
 - [ADR 0038 — Confirmation gate + non-grounded response contract: two-step `useFallback` flow, `source`/`fallbackAvailable` fields, verified live against the running stack (Gemini answered for real)](docs/adr/0038-fallback-confirmation-gate-response-contract.md)
 - [ADR 0039 — `web-ui` fallback confirmation dialog + provenance badge: tested live in the browser, both the positive (badge shown) and negative (badge absent on a normal answer) cases](docs/adr/0039-webui-fallback-confirmation-dialog-provenance-badge.md)
+- [ADR 0040 — Mockito as an explicit Surefire Java agent for JDK-vendor portability: closes a real, live warning present on every test run this session](docs/adr/0040-mockito-javaagent-jdk-portability.md)
 
 ## License
 

@@ -208,26 +208,22 @@ around):
     [ADR 0022](adr/0022-upload-validation-hardening.md)'s "Update" section
     and `docs/SECURITY-HARDENING-ROADMAP.md`'s Phase 1 (now "✅ Done, no
     open gap") for the full account.
-14. ⬜ **Make the test suite portable across JDK vendors (Mockito as a
-    Surefire Java agent)** — real finding: Mockito's inline mock maker
-    self-attaches Byte Buddy at runtime by default, and the JDK itself
-    already warns on every test run (confirmed for real, this exact
-    session, Java 21.0.7 Oracle Corporation on macOS): *"Dynamic loading of
-    agents will be disallowed by default in a future release."* Not
-    reproduced as an outright test failure in this same JDK/OS combination
-    when checked directly (`./mvnw -pl platform-common test` passed clean,
-    `RateLimitFilterTest`/`CorrelationIdFilterTest` included) — but a real,
-    confirmed blind spot exists regardless: `.github/workflows/ci.yml` pins
-    **Temurin**, not Oracle's JDK, so CI has never exercised whatever
-    vendor-specific self-attach behavior a real Oracle-JDK machine (or a
-    future JDK release that actually enforces the warning above) would hit.
-    Fix: configure Mockito explicitly as a `-javaagent` on the Surefire
-    plugin's `argLine` (the officially documented fix, linked directly from
-    the warning text itself) instead of relying on runtime self-attach, so
-    the build's test behavior stops depending on which JDK vendor/version
-    happens to run it. **Done when**: `./mvnw test` passes with zero
-    Mockito self-attach warnings in the log, on both Temurin (CI) and
-    whatever JDK vendor a contributor's machine actually has.
+14. ✅ **Make the test suite portable across JDK vendors (Mockito as a
+    Surefire Java agent)** — done. Root `pom.xml`'s `pluginManagement` gained
+    a `maven-dependency-plugin:properties` execution (bound to `initialize`)
+    that resolves `${org.mockito:mockito-core:jar}`, and Surefire's `argLine`
+    now reads `@{argLine} -javaagent:${org.mockito:mockito-core:jar}` — the
+    `@{...}` delayed-evaluation syntax (not `${...}`) is what lets this
+    combine correctly with `jacoco-maven-plugin`'s own dynamic `argLine`
+    injection instead of racing it. All 5 modules gained a bare
+    `<plugin>` reference for `maven-dependency-plugin`, mirroring the exact
+    pattern already used for `jacoco-maven-plugin` (neither is
+    default-lifecycle-bound). **Verified for real**: `./mvnw clean verify`
+    across all 5 modules — 179 tests, 0 failures, **zero** occurrences of
+    "self-attaching"/"Dynamic loading of agents" anywhere in the build log
+    (previously present on every single test run this entire session); all
+    5 modules' `jacoco.xml` reports still generated correctly, confirming
+    the two javaagents (JaCoCo's + Mockito's) coexist without conflict.
 15. ⬜ **Wire `chat-service` into `web-ui` — a real multi-turn conversation
     UI** — closes a real, self-admitted gap: `README.md` says outright
     "`chat-service` isn't wired into `web-ui` yet ... it's reachable today

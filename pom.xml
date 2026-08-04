@@ -134,6 +134,26 @@
                         <excludes>
                             <exclude>**/*IT.java</exclude>
                         </excludes>
+                        <!--
+                            Mockito's inline mock maker self-attaches Byte Buddy at
+                            runtime by default - already warned about directly in a real
+                            build log this same session ("Dynamic loading of agents will
+                            be disallowed by default in a future release"), and CI's
+                            Temurin pin has never exercised whatever vendor-specific
+                            self-attach behavior a real Oracle JDK build would hit.
+                            Loading Mockito as a proper -javaagent (its own officially
+                            documented fix, linked directly from that warning) makes the
+                            build's test behavior independent of JDK vendor/version. The
+                            "@{argLine}" (not "${argLine}") delayed-evaluation syntax is
+                            required here specifically because jacoco-maven-plugin's
+                            prepare-agent goal (below) also writes into this same argLine
+                            property - "@{...}" defers resolution to Surefire's own
+                            execution instead of at POM-parse time, so this correctly
+                            picks up whatever JaCoCo already put there instead of racing
+                            it. ${org.mockito:mockito-core:jar} is populated by
+                            maven-dependency-plugin's properties goal, also below.
+                        -->
+                        <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
                     </configuration>
                     <executions>
                         <execution>
@@ -150,6 +170,28 @@
                                     <include>**/*IT.java</include>
                                 </includes>
                             </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!--
+                        Resolves org.mockito:mockito-core's own jar path into the
+                        ${org.mockito:mockito-core:jar} property Surefire's argLine
+                        (above) references for the -javaagent flag. Bound to initialize,
+                        well before Surefire's own test phase reads argLine. Not a
+                        default-lifecycle-bound plugin, so each service module's own
+                        pom.xml still needs a bare <plugin> entry, same as jacoco below.
+                    -->
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.11.0</version>
+                    <executions>
+                        <execution>
+                            <id>resolve-mockito-agent</id>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>properties</goal>
+                            </goals>
                         </execution>
                     </executions>
                 </plugin>
