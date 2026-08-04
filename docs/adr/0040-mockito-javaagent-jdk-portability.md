@@ -66,14 +66,14 @@ Mockito's inline-mock-maker agent — coexist on the same `argLine` without
 conflict, exactly as the `@{argLine}` combination pattern is meant to
 guarantee.
 
-### Not yet independently verified on Temurin (CI)
-This machine only has Oracle's JDK 21 to test against locally. The fix is
-JDK-vendor-independent by construction (an explicit, statically-configured
-`-javaagent` no longer depends on any vendor-specific self-attach behavior at
-all), so it should behave identically on Temurin — but the roadmap's own
-"done when" criterion named both vendors explicitly, and this ADR does not
-claim to have observed CI's own log for this specific change. The next CI
-run against this commit is the actual confirmation for the Temurin half.
+### Verified on Temurin too, not just assumed
+The roadmap's own "done when" criterion named both vendors explicitly, so
+this wasn't left as an assumption: GitHub Actions' `CI` workflow run for this
+exact commit (`8584926`, run `30910100402`) completed `success` in 4m1s —
+confirming for real, not just by construction, that the fix behaves
+identically on Temurin (CI's pinned vendor) and Oracle's JDK (this project's
+local development machine). Both halves of the "done when" criterion are now
+independently observed.
 
 ### Scope: build configuration only, no test code changed
 No test file needed any change — the fix lives entirely in `pom.xml` (root)

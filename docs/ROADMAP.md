@@ -224,6 +224,11 @@ around):
     (previously present on every single test run this entire session); all
     5 modules' `jacoco.xml` reports still generated correctly, confirming
     the two javaagents (JaCoCo's + Mockito's) coexist without conflict.
+    **Both halves of the "done when" criterion confirmed, not just one**:
+    GitHub Actions' `CI` workflow run for this exact commit completed
+    `success` in 4m1s, confirming Temurin (CI's pinned vendor) behaves
+    identically to Oracle's JDK (the local development machine) — see
+    [ADR 0040](adr/0040-mockito-javaagent-jdk-portability.md).
 15. ⬜ **Wire `chat-service` into `web-ui` — a real multi-turn conversation
     UI** — closes a real, self-admitted gap: `README.md` says outright
     "`chat-service` isn't wired into `web-ui` yet ... it's reachable today
