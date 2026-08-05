@@ -136,6 +136,45 @@ blocks everything.
   visibility to Public there.
 - If a fresh site returns `401` with a "Login Redirect" page pointing at
   `app.netlify.com/edge-access`, that's this exact issue, not a bug in the app.
+- **A free team's production-deploy allowance ("operational credits") can run
+  out mid-billing-cycle** — hit for real on 2026-08-05, iterating on the
+  `web-ui` redesign with several small pushes straight to `main`, each one a
+  separate production deploy. Once exhausted, Netlify's dashboard shows *"Your
+  published sites are still live, but production deploys ... are paused"* —
+  the live site keeps serving whatever was last actually deployed (not taken
+  down), but every further push to `main` silently stops updating it, with no
+  error in GitHub Actions or anywhere else in this repo's own CI — the only
+  place this shows up is Netlify's own dashboard banner. Recovery is either
+  waiting for the next billing cycle or upgrading the team; there is no
+  code-side fix. See the workflow below to avoid repeating this.
+
+### Workflow while iterating on `web-ui`: use Deploy Previews, not repeated production deploys
+
+Netlify builds a separate **Deploy Preview** (its own throwaway URL, e.g.
+`deploy-preview-12--web-ui-rag.netlify.app`) for every pull request against
+the production branch, automatically, without publishing to the real site or
+consuming the production-deploy allowance the same way a direct push to
+`main` does. The incident above happened specifically because iteration
+happened via direct pushes to `main` — each push is its own production
+deploy, and a redesign this size took many of them.
+
+**From now on, push `web-ui` changes to a feature branch and open a PR
+instead of committing straight to `main`:**
+
+```bash
+git checkout -b web-ui/some-change
+# ... edit web-ui/*, commit, push ...
+git push -u origin web-ui/some-change
+gh pr create --title "..." --body "..."
+```
+
+Opening the PR gets you a Deploy Preview URL in the PR's checks — iterate
+against that (repeated pushes to the same PR branch just rebuild the same
+preview, not a new production deploy) until it looks right, exactly the same
+way local `docker compose up -d --build web-ui` is used for the
+`docker-compose` deployment. **Only merging the PR into `main` triggers the
+one production deploy** that actually needs to count against the allowance —
+one deploy per finished change, not one per iteration.
 
 ## Seeding the database
 
