@@ -1,30 +1,25 @@
+/* Enterprise RAG — dark, dashboard-style theme (redesign inspired by a reference
+   screenshot, not a pixel copy of it). Committed to a single dark theme rather than
+   keeping the old prefers-color-scheme light/dark split — the reference is entirely
+   dark, and a real redesign reads more coherent as one considered theme than two. */
 :root {
-  --color-bg: #f5f7fa;
-  --color-surface: #ffffff;
-  --color-border: #dde3ea;
-  --color-text: #1a2233;
-  --color-muted: #5c6b7a;
-  --color-primary: #2f5fda;
-  --color-primary-hover: #2549ad;
-  --color-success: #1a7f4b;
-  --color-error: #c23b3b;
-  --radius: 10px;
-  color-scheme: light;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #10141c;
-    --color-surface: #171d29;
-    --color-border: #2a3242;
-    --color-text: #e7ecf3;
-    --color-muted: #97a3b6;
-    --color-primary: #6f93f5;
-    --color-primary-hover: #91adf8;
-    --color-success: #4fd48a;
-    --color-error: #ff8080;
-    color-scheme: dark;
-  }
+  --color-bg: #0a0e17;
+  --color-bg-elevated: #0d1220;
+  --color-sidebar: #090c14;
+  --color-surface: #121829;
+  --color-surface-2: #171f33;
+  --color-border: #232c42;
+  --color-text: #e9edf5;
+  --color-muted: #8b94ac;
+  --color-muted-2: #5f6885;
+  --color-accent-a: #4f7cff;
+  --color-accent-b: #8b5cf6;
+  --color-accent-grad: linear-gradient(135deg, var(--color-accent-a), var(--color-accent-b));
+  --color-success: #34d399;
+  --color-error: #f87171;
+  --radius: 12px;
+  --radius-sm: 8px;
+  color-scheme: dark;
 }
 
 * {
@@ -32,9 +27,8 @@
 }
 
 /* Any element toggled via the `hidden` attribute must actually hide, even if it (or
-   a class on it, e.g. .auth-bar's `display: flex`) sets its own `display` — the
-   attribute selector and a class selector tie on specificity, and without this the
-   later-declared class rule silently wins, leaving a "hidden" element visible. */
+   a class on it) sets its own `display` - the attribute selector and a class
+   selector tie on specificity without this, leaving a "hidden" element visible. */
 [hidden] {
   display: none !important;
 }
@@ -46,93 +40,418 @@ body {
   color: var(--color-text);
 }
 
-.app-header {
-  padding: 2rem 1.5rem 1rem;
-  max-width: 960px;
-  margin: 0 auto;
+button, input, textarea, select {
+  font: inherit;
 }
 
-.app-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.6rem;
-}
-
-.app-header p {
-  margin: 0;
-  color: var(--color-muted);
-}
-
-.demo-banner {
-  margin-top: 0.75rem !important;
-  padding: 0.6rem 0.9rem;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  font-size: 0.85rem;
-}
-
-.layout {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1rem 1.5rem 3rem;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-
-@media (max-width: 720px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 1.5rem;
-}
-
-.panel h2 {
-  margin-top: 0;
-  font-size: 1.1rem;
-}
-
-.panel-wide {
-  grid-column: 1 / -1;
+a {
+  color: var(--color-accent-a);
 }
 
 .hint {
   color: var(--color-muted);
   font-size: 0.85rem;
-  margin-top: -0.5rem;
+  line-height: 1.5;
 }
 
-.dropzone {
+/* ---------------------------------------------------------------------- */
+/* Auth screen (before login)                                             */
+/* ---------------------------------------------------------------------- */
+.auth-shell {
+  min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2rem;
+  padding: 2rem 1rem;
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-grad);
+  color: white;
+  flex-shrink: 0;
+}
+
+.brand-mark svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+}
+
+.auth-card h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.auth-card hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1.5rem 0;
+}
+
+/* ---------------------------------------------------------------------- */
+/* App shell: sidebar + main column                                       */
+/* ---------------------------------------------------------------------- */
+.app-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+  padding: 1.25rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 700;
+  padding: 0.4rem 0.5rem 1.5rem;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: transparent;
+  color: var(--color-muted);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-align: left;
+  cursor: pointer;
+  margin-top: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nav-item:hover:not(:disabled) {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.nav-item.active {
+  background: color-mix(in srgb, var(--color-accent-a) 16%, transparent);
+  color: var(--color-text);
+  box-shadow: inset 2px 0 0 var(--color-accent-a);
+}
+
+.nav-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+}
+
+.main-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.top-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.system-health {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+}
+
+.health-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--color-muted-2);
+}
+
+.health-dot.online {
+  background: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success) 25%, transparent);
+}
+
+.health-dot.offline {
+  background: var(--color-error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 25%, transparent);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.lang-toggle {
+  display: flex;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.2rem;
+}
+
+.lang-option {
+  background: transparent;
+  border: none;
+  color: var(--color-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 0;
+  letter-spacing: 0.02em;
+}
+
+.lang-option.active {
+  background: var(--color-accent-grad);
+  color: white;
+}
+
+.user-menu {
+  position: relative;
+}
+
+.user-menu-button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  cursor: pointer;
+  color: var(--color-text);
+  margin-top: 0;
+}
+
+.user-avatar {
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: var(--color-accent-grad);
+  display: inline-block;
+}
+
+.user-menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  min-width: 220px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  z-index: 20;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.user-menu-email {
+  font-weight: 600;
+  font-size: 0.88rem;
+  word-break: break-all;
+}
+
+.user-menu-tenant {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+}
+
+.role-badge {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent-a) 20%, transparent);
+  color: var(--color-accent-a);
+}
+
+.user-menu-dropdown button {
+  width: 100%;
+  margin-top: 0.85rem;
+}
+
+.demo-banner {
+  margin: 1rem 1.75rem 0;
+  padding: 0.7rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.content {
+  flex: 1;
+  padding: 1.75rem;
+  max-width: 1180px;
+  width: 100%;
+}
+
+.view h1 {
+  margin: 0 0 0.3rem;
+  font-size: 1.7rem;
+}
+
+.view .subheading {
+  margin: 0 0 1.5rem;
+  color: var(--color-muted);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+.view-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0.75rem;
+  }
+  .sidebar-brand {
+    display: none;
+  }
+  .nav-item span:last-child {
+    display: none;
+  }
+  .view-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Knowledge base stats card                                              */
+/* ---------------------------------------------------------------------- */
+.knowledge-stats {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+.knowledge-stats h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+}
+
+.stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.85rem;
+}
+
+.stat-row:first-of-type {
+  border-top: none;
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+}
+
+.badge-active {
+  background: color-mix(in srgb, var(--color-success) 20%, transparent);
+  color: var(--color-success);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Forms                                                                   */
+/* ---------------------------------------------------------------------- */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
   text-align: center;
-  min-height: 110px;
+  min-height: 130px;
   border: 2px dashed var(--color-border);
   border-radius: var(--radius);
   cursor: pointer;
   padding: 1rem;
   margin-bottom: 0.75rem;
+  color: var(--color-muted);
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.dropzone svg {
+  width: 1.6rem;
+  height: 1.6rem;
 }
 
 .dropzone:hover,
 .dropzone.dragover {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-}
-
-textarea,
-input,
-select,
-button {
-  font: inherit;
+  border-color: var(--color-accent-a);
+  background: color-mix(in srgb, var(--color-accent-a) 8%, transparent);
+  color: var(--color-text);
 }
 
 textarea,
@@ -143,18 +462,18 @@ select {
   width: 100%;
   resize: vertical;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: 0.75rem;
-  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.85rem;
+  background: var(--color-bg-elevated);
   color: var(--color-text);
   margin-bottom: 0.6rem;
 }
 
-.model-label {
-  display: block;
-  color: var(--color-muted);
-  font-size: 0.85rem;
-  margin-bottom: 0.3rem;
+textarea:focus,
+input:focus,
+select:focus {
+  outline: 2px solid color-mix(in srgb, var(--color-accent-a) 60%, transparent);
+  outline-offset: 1px;
 }
 
 .ask-input-row {
@@ -163,28 +482,48 @@ select {
 
 .ask-input-row textarea {
   padding-right: 3rem;
+  margin-bottom: 0.6rem;
+}
+
+.ask-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ask-controls select {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.ask-controls button {
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 .attach-button {
   position: absolute;
-  right: 0.5rem;
-  top: 0.5rem;
+  right: 0.6rem;
+  top: 0.6rem;
   width: 2rem;
   height: 2rem;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
   color: var(--color-muted);
   transition: background 0.15s ease, color 0.15s ease;
 }
 
+.attach-button svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
 .attach-button:hover {
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
-  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-accent-a) 12%, transparent);
+  color: var(--color-accent-a);
 }
 
 .attachment-preview {
@@ -194,9 +533,9 @@ select {
   gap: 0.5rem;
   font-size: 0.85rem;
   color: var(--color-muted);
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 0.4rem 0.6rem;
   margin-bottom: 0.6rem;
 }
@@ -215,49 +554,72 @@ select {
   background: none;
 }
 
-.auth-bar {
-  margin-top: 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  font-size: 0.85rem;
-  color: var(--color-muted);
-}
-
-.auth-panel {
-  max-width: 960px;
-  margin: 0 auto 1.5rem;
-}
-
-.auth-panel hr {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 1.5rem 0;
-}
-
+/* ---------------------------------------------------------------------- */
+/* Buttons                                                                 */
+/* ---------------------------------------------------------------------- */
 button {
   margin-top: 0.75rem;
-  background: var(--color-primary);
+  background: var(--color-accent-grad);
   color: white;
   border: none;
-  border-radius: var(--radius);
-  padding: 0.6rem 1.2rem;
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 1.3rem;
   cursor: pointer;
   font-weight: 600;
+  transition: filter 0.15s ease, opacity 0.15s ease;
 }
 
 button:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+  filter: brightness(1.1);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  filter: none;
 }
 
+button.secondary {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+button.secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  filter: none;
+}
+
+.icon-button {
+  margin-top: 0;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-muted);
+  padding: 0.4rem;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-button svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.icon-button:hover:not(:disabled) {
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  filter: none;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Status, history, citations                                             */
+/* ---------------------------------------------------------------------- */
 .status {
   margin-top: 0.75rem;
   font-size: 0.9rem;
+  color: var(--color-muted);
 }
 
 .status.success {
@@ -279,12 +641,14 @@ button:disabled {
 
 .history li {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 0.6rem 0.8rem;
   font-size: 0.85rem;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 0.5rem;
+  background: var(--color-bg-elevated);
 }
 
 .history li .source {
@@ -308,6 +672,17 @@ button:disabled {
   gap: 0.6rem;
 }
 
+.admin-document-controls select {
+  width: auto;
+  flex: 1;
+  min-width: 180px;
+  margin-bottom: 0;
+}
+
+.admin-document-controls button {
+  margin-top: 0;
+}
+
 .admin-shared-with {
   display: flex;
   flex-wrap: wrap;
@@ -319,6 +694,7 @@ button:disabled {
   align-items: center;
   gap: 0.3rem;
   font-size: 0.85rem;
+  color: var(--color-muted);
 }
 
 .fallback-confirm-card {
@@ -326,7 +702,7 @@ button:disabled {
   padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+  background: color-mix(in srgb, var(--color-accent-a) 8%, transparent);
 }
 
 .fallback-confirm-card p {
@@ -343,22 +719,12 @@ button:disabled {
   margin-top: 0;
 }
 
-button.secondary {
-  background: transparent;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-}
-
-button.secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-text) 8%, transparent);
-}
-
 .provenance-badge {
   display: inline-block;
   margin-bottom: 0.75rem;
   padding: 0.4rem 0.7rem;
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-error) 18%, transparent);
   color: var(--color-error);
   font-size: 0.85rem;
   font-weight: 600;
@@ -370,15 +736,21 @@ button.secondary:hover:not(:disabled) {
   border-top: 1px solid var(--color-border);
 }
 
-.answer-card h3,
-.answer-card h4 {
-  margin-bottom: 0.4rem;
+.answer-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.answer-card-head h3 {
+  margin: 0;
 }
 
 .answer-card h4 {
-  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--color-muted);
   margin-top: 1.25rem;
 }
@@ -394,9 +766,10 @@ button.secondary:hover:not(:disabled) {
 
 .citations li {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 0.6rem 0.8rem;
   font-size: 0.85rem;
+  background: var(--color-bg-elevated);
 }
 
 .citations .citation-head {
@@ -464,12 +837,12 @@ button.secondary:hover:not(:disabled) {
 
 .conversation-message.role-user {
   align-self: flex-end;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--color-accent-a) 18%, transparent);
 }
 
 .conversation-message.role-assistant {
   align-self: flex-start;
-  background: var(--color-bg);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
 }
 
@@ -481,7 +854,7 @@ button.secondary:hover:not(:disabled) {
 
 .app-footer {
   text-align: center;
-  color: var(--color-muted);
-  font-size: 0.78rem;
-  padding-bottom: 2rem;
+  color: var(--color-muted-2);
+  font-size: 0.75rem;
+  padding: 1rem 0 1.75rem;
 }

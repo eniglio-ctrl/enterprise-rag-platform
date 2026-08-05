@@ -14,3 +14,15 @@
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
+
+# No content hashing in this static, no-build-step web-ui, so index.html/style.css/
+# app.js keep the same URL across deploys. Netlify's CDN (and browsers) can then
+# keep serving an old style.css/app.js against a freshly deployed HTML shell unless
+# told to always revalidate — the exact staleness this project already hit once
+# with the demo serving an outdated build (ADR 0033).
+/index.html
+  Cache-Control: no-cache, must-revalidate
+/style.css
+  Cache-Control: no-cache, must-revalidate
+/app.js
+  Cache-Control: no-cache, must-revalidate

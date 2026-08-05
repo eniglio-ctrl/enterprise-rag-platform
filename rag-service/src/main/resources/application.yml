@@ -100,6 +100,13 @@ management:
     web:
       exposure:
         include: health, info, prometheus, metrics
+      # web-ui's system-health badge (app.js checkSystemHealth) polls this
+      # cross-origin from the browser. addCorsMappings() in CorsConfig only
+      # covers "/api/**"'s RequestMappingHandlerMapping, not actuator's own
+      # handler mapping, so it needs this separate, actuator-specific config.
+      cors:
+        allowed-origins: ${WEB_UI_ORIGIN:http://localhost:3000}
+        allowed-methods: GET
   endpoint:
     health:
       show-details: always

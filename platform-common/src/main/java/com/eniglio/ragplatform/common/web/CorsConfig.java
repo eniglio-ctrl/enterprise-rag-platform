@@ -21,5 +21,10 @@ public class CorsConfig implements WebMvcConfigurer {
                 // this API actually needs (origin and methods were already this
                 // narrow before this phase).
                 .allowedHeaders("Authorization", "Content-Type");
+
+        // Actuator endpoints are served by their own WebMvcEndpointHandlerMapping,
+        // not the RequestMappingHandlerMapping this registry configures - a mapping
+        // added here for /actuator/** has no effect on them. See application.yml's
+        // management.endpoints.web.cors.* for the browser-facing health badge's CORS.
     }
 }

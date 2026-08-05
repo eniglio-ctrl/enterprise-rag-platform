@@ -554,6 +554,17 @@ vs. what's blocked on a decision or resource only the user can provide.
   evolution**, not **production-ready complete** — see that ADR and
   `docs/PRODUCTION-READINESS-ROADMAP.md`'s own remaining phases for exactly
   what that distinction means here.
+- ~~web-ui visual redesign~~ — done: a dark-themed sidebar shell (Knowledge/
+  Conversations/Documents/Settings), a real PT/EN toggle (not decoration —
+  every frontend-controlled string, persisted across reloads), and a
+  system-health badge backed by a real `/actuator/health` poll. Live
+  verification caught and fixed three real bugs in the process: stale
+  `style.css`/`app.js` served past a deploy (no `Cache-Control` on either
+  local nginx or the Netlify demo — the exact ADR 0033 failure mode,
+  reproduced locally), the new health badge blocked by a CORS gap specific
+  to actuator endpoints, and a temporal-dead-zone crash that silently
+  disabled Ask/Upload/Conversation on every page load. Full account in
+  [ADR 0050](docs/adr/0050-web-ui-redesign-and-real-i18n.md).
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
@@ -612,6 +623,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0047 — A tenant-scoped ADMIN role, bootstrapped automatically, that can override any document's sharing and manage tenant membership from a new `web-ui` admin panel](docs/adr/0047-tenant-admin-role.md)
 - [ADR 0048 — HashiCorp Vault (dev mode) sources the JWT signing key; two designs that looked correct on paper (`@RefreshScope`, then `ObjectProvider`) were disproved by actually running them before landing on reading `Environment` directly, verified by a Testcontainers-backed rotation test](docs/adr/0048-vault-for-the-jwt-signing-key.md)
 - [ADR 0049 — Closing a final portfolio review's three findings (non-transactional registration, unbounded question/message size, a stale public demo) and declaring the project "production-minded," not "production-ready complete"](docs/adr/0049-closing-the-portfolio-review-gaps.md)
+- [ADR 0050 — web-ui dark-theme redesign and real PT/EN i18n; live verification caught and fixed a stale-cache deploy gap, a CORS gap on the new health badge, and a temporal-dead-zone crash that had silently disabled Ask/Upload/Conversation on every page load](docs/adr/0050-web-ui-redesign-and-real-i18n.md)
 
 ## License
 

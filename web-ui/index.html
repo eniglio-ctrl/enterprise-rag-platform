@@ -1,194 +1,275 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Enterprise RAG Platform</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>Enterprise RAG</title>
+  <!-- No build step/content hashing here, so a manual version query on style.css/
+       app.js forces a fresh fetch on deploy instead of depending on every client
+       and CDN edge to respect Cache-Control immediately. Bump on real changes. -->
+  <link rel="stylesheet" href="style.css?v=2026-08-05" />
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
 </head>
 <body>
-  <header class="app-header">
-    <h1>Enterprise RAG Platform</h1>
-    <p>Upload documents, they're embedded and indexed automatically, then ask questions grounded in what you uploaded.</p>
-    <p id="demo-banner" class="demo-banner" hidden>Public demo — a fixed set of documents is already
-      indexed below; there's no login and no permanent document upload here (see the README for how to
-      run the full stack locally with your own files). You can still attach an image to a single
-      question using the 📎 button below.</p>
-    <div id="auth-bar" class="auth-bar" hidden>
-      <span id="auth-summary"></span>
-      <button id="logout-button" type="button">Log out</button>
+  <section class="auth-shell" id="auth-panel">
+    <div class="auth-brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/></svg>
+      </span>
+      <span data-i18n="header.brand">Enterprise RAG</span>
     </div>
-  </header>
 
-  <section class="panel auth-panel" id="auth-panel">
-    <h2>Log in</h2>
-    <p class="hint">Everything you upload and every question you ask is scoped to your tenant. Registering with no
-      invitation token creates a brand-new tenant just for you; a teammate joins yours with an invitation you send
-      them from the "Invite a teammate" panel after logging in.</p>
+    <div class="auth-card">
+      <h2 data-i18n="auth.loginHeading">Log in</h2>
+      <p class="hint" data-i18n="auth.loginHint">Everything you upload is scoped to your tenant.</p>
 
-    <form id="login-form">
-      <input type="email" id="login-email" placeholder="Email" autocomplete="email" required />
-      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password" required />
-      <button type="submit">Log in</button>
-    </form>
-    <div id="login-status" class="status" hidden></div>
+      <form id="login-form">
+        <input type="email" id="login-email" data-i18n-placeholder="auth.emailPlaceholder" placeholder="Email" autocomplete="email" required />
+        <input type="password" id="login-password" data-i18n-placeholder="auth.passwordPlaceholder" placeholder="Password" autocomplete="current-password" required />
+        <button type="submit" data-i18n="auth.loginButton">Log in</button>
+      </form>
+      <div id="login-status" class="status" hidden></div>
 
-    <hr />
+      <hr />
 
-    <h2>Register</h2>
-    <form id="register-form">
-      <input type="email" id="register-email" placeholder="Email" autocomplete="email" required />
-      <input type="password" id="register-password" placeholder="Password (min 8 characters)"
-        autocomplete="new-password" minlength="8" required />
-      <input type="text" id="register-invitation" placeholder="Invitation token (leave blank to create a new organization)" />
-      <button type="submit">Register</button>
-    </form>
-    <div id="register-status" class="status" hidden></div>
+      <h2 data-i18n="auth.registerHeading">Register</h2>
+      <form id="register-form">
+        <input type="email" id="register-email" data-i18n-placeholder="auth.emailPlaceholder" placeholder="Email" autocomplete="email" required />
+        <input type="password" id="register-password" data-i18n-placeholder="auth.registerPasswordPlaceholder" placeholder="Password (min 8 characters)"
+          autocomplete="new-password" minlength="8" required />
+        <input type="text" id="register-invitation" data-i18n-placeholder="auth.invitationPlaceholder" placeholder="Invitation token" />
+        <button type="submit" data-i18n="auth.registerButton">Register</button>
+      </form>
+      <div id="register-status" class="status" hidden></div>
+    </div>
   </section>
 
-  <main class="layout" id="app-layout" hidden>
-    <section class="panel" id="upload-panel">
-      <h2>1. Upload a document</h2>
-      <p class="hint">PDF, DOCX, Markdown, plain text, an image (PNG/JPEG/GIF/WebP —
-        described by a vision model), or audio (MP3/WAV/M4A/OGG/FLAC — transcribed by a
-        local Whisper server). Either way, the derived text is what gets indexed into
-        pgvector, automatically after upload.</p>
+  <div class="app-shell" id="app-shell" hidden>
+    <nav class="sidebar">
+      <div class="sidebar-brand">
+        <span class="brand-mark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/></svg>
+        </span>
+        <span data-i18n="header.brand">Enterprise RAG</span>
+      </div>
 
-      <form id="upload-form">
-        <label class="dropzone" id="dropzone" for="file-input">
-          <span id="dropzone-label">Drag a file here or click to choose</span>
-          <input type="file" id="file-input" name="file"
-            accept=".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.ogg,.flac" hidden />
-        </label>
-        <button type="submit" id="upload-button" disabled>Upload &amp; index</button>
-      </form>
+      <button class="nav-item active" data-view="knowledge" type="button">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        <span data-i18n="nav.knowledge">Knowledge</span>
+      </button>
+      <button class="nav-item" data-view="conversations" type="button">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        <span data-i18n="nav.conversations">Conversations</span>
+      </button>
+      <button class="nav-item" data-view="documents" type="button">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5z"/><path d="M14 2v6h6"/><path d="M9 13h6"/><path d="M9 17h6"/></svg>
+        <span data-i18n="nav.documents">Documents</span>
+      </button>
+      <button class="nav-item" data-view="settings" type="button">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+        <span data-i18n="nav.settings">Settings</span>
+      </button>
+    </nav>
 
-      <div id="upload-status" class="status" hidden></div>
-
-      <ul id="upload-history" class="history"></ul>
-    </section>
-
-    <section class="panel" id="invite-panel">
-      <h2>Invite a teammate</h2>
-      <p class="hint">Creates a single-use invitation for your own tenant, valid for a limited time. Share the
-        token with your teammate — they paste it into the "Invitation token" field when registering.</p>
-      <form id="invite-form">
-        <input type="email" id="invite-email" placeholder="Teammate's email" autocomplete="off" required />
-        <button type="submit">Create invitation</button>
-      </form>
-      <div id="invite-status" class="status" hidden></div>
-    </section>
-
-    <section class="panel panel-wide" id="admin-panel" hidden>
-      <h2>Admin</h2>
-      <p class="hint">Visible only to a tenant admin (ADR 0047). Promote a teammate to admin, or restrict a
-        document to specific teammates instead of the whole tenant.</p>
-
-      <h3>Team</h3>
-      <ul id="admin-users-list" class="history"></ul>
-      <div id="admin-users-status" class="status" hidden></div>
-
-      <h3>Documents</h3>
-      <ul id="admin-documents-list" class="history admin-documents-list"></ul>
-      <div id="admin-documents-status" class="status" hidden></div>
-    </section>
-
-    <section class="panel panel-wide">
-      <h2 id="ask-heading">2. Ask</h2>
-      <p class="hint">Ask a question about what you uploaded, or ask for a diagram/drawing/flow of an
-        architecture or process described in it — the same box handles both, based on what you ask.
-        Running on a local model with no GPU, so a diagram can take a minute or two. You can also attach
-        an image (PNG/JPEG/GIF/WebP) to a single question — click 📎 or just paste a screenshot
-        (Cmd/Ctrl+V) straight into the question box — described by a vision model to help answer just
-        that question, never stored or indexed.</p>
-
-      <form id="ask-form">
-        <div class="ask-input-row">
-          <textarea id="question-input" placeholder="e.g. What are the two SAGA models? or Draw the disaster recovery architecture described" rows="3" required></textarea>
-          <label class="attach-button" for="image-input" title="Attach an image to this question">
-            📎
-            <input type="file" id="image-input" name="image" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
-          </label>
+    <div class="main-column">
+      <header class="top-header">
+        <div class="system-health" id="system-health">
+          <span class="health-dot" id="system-health-dot"></span>
+          <span id="system-health-label" data-i18n="header.online">System online</span>
         </div>
-        <div id="image-attachment-preview" class="attachment-preview" hidden>
-          <span id="image-attachment-name"></span>
-          <button type="button" id="image-attachment-clear" aria-label="Remove attached image">&times;</button>
+
+        <div class="header-right">
+          <div class="lang-toggle">
+            <button type="button" class="lang-option" data-lang="pt">PT</button>
+            <button type="button" class="lang-option" data-lang="en">EN</button>
+          </div>
+
+          <div class="user-menu" id="user-menu" hidden>
+            <button type="button" class="user-menu-button" id="user-menu-button">
+              <span class="user-avatar" id="user-avatar"></span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div class="user-menu-dropdown" id="user-menu-dropdown" hidden>
+              <div class="user-menu-email" id="user-menu-email"></div>
+              <div class="user-menu-tenant" id="user-menu-tenant"></div>
+              <span class="role-badge" id="user-menu-role" hidden></span>
+              <button type="button" id="logout-button" data-i18n="header.logout">Log out</button>
+            </div>
+          </div>
         </div>
-        <label for="model-select" class="model-label">Model</label>
-        <select id="model-select"></select>
-        <button type="submit" id="ask-button">Ask</button>
-      </form>
+      </header>
 
-      <div id="ask-status" class="status" hidden></div>
+      <p id="demo-banner" class="demo-banner" hidden data-i18n="demo.banner"></p>
 
-      <!-- Multi-LLM Phase 2c/2d (ADR 0038): shown instead of an answer when the
-           backend's fallbackAvailable: true fires - no LLM (local or public) has
-           been called yet, so this offers the choice rather than assuming it. -->
-      <div id="fallback-confirm-card" class="fallback-confirm-card" hidden>
-        <p>Não encontrei uma resposta nos seus documentos. Buscar em um modelo de
-          IA pública (OpenAI/Gemini)? A resposta não será baseada nos seus
-          documentos, e isso usa uma API paga/com limite de uso.</p>
-        <div class="fallback-confirm-actions">
-          <button type="button" id="fallback-confirm-yes">Buscar em IA pública</button>
-          <button type="button" id="fallback-confirm-no" class="secondary">Cancelar</button>
-        </div>
-      </div>
+      <main class="content">
+        <section class="view" id="view-knowledge">
+          <div class="view-grid">
+            <div class="view-main">
+              <h1 data-i18n="knowledge.heading">Ask your knowledge base</h1>
+              <p class="subheading" data-i18n="knowledge.subheading">Reliable answers with verifiable sources.</p>
 
-      <div id="answer-card" class="answer-card" hidden>
-        <h3>Answer</h3>
-        <!-- Only shown when source === "public-llm" (Phase 2c) - visibly distinct
-             from a normal grounded answer so it can't be mistaken for one. -->
-        <div id="answer-provenance-badge" class="provenance-badge" hidden>
-          ⚠️ Resposta de IA pública, não verificada com seus documentos
-        </div>
-        <p id="answer-text"></p>
+              <div class="card ask-card">
+                <p class="hint" data-i18n="knowledge.hint"></p>
 
-        <h4>Citations</h4>
-        <ul id="citations-list" class="citations"></ul>
-      </div>
+                <form id="ask-form">
+                  <div class="ask-input-row">
+                    <textarea id="question-input" data-i18n-placeholder="knowledge.questionPlaceholder" rows="3" required></textarea>
+                    <label class="attach-button" for="image-input" data-i18n-title="knowledge.attachTitle">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                      <input type="file" id="image-input" name="image" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
+                    </label>
+                  </div>
+                  <div id="image-attachment-preview" class="attachment-preview" hidden>
+                    <span id="image-attachment-name"></span>
+                    <button type="button" id="image-attachment-clear" aria-label="Remove attached image">&times;</button>
+                  </div>
+                  <div class="ask-controls">
+                    <select id="model-select"></select>
+                    <button type="submit" id="ask-button" data-i18n="knowledge.askButton">Ask</button>
+                  </div>
+                </form>
 
-      <div id="diagram-card" class="diagram-card" hidden>
-        <div id="diagram-output" class="diagram-output"></div>
-        <ul id="diagram-citations" class="citations"></ul>
-      </div>
-    </section>
+                <div id="ask-status" class="status" hidden></div>
 
-    <!-- ADR 0013's conversation memory, previously reachable only via chat-service's
-         own API - a minimal multi-turn panel: create/continue a conversation, send a
-         message, see the running history. chat-service isn't deployed in the public
-         demo (ADR 0020), so this panel stays hidden there, same as upload/invite. -->
-    <section class="panel panel-wide" id="conversation-panel">
-      <h2>3. Conversation</h2>
-      <p class="hint">Multi-turn chat with memory (<code>chat-service</code>, ADR 0013) —
-        unlike "Ask" above, each message here remembers the whole conversation, so a
-        follow-up like "e o que mais?" resolves using the prior message's context, not
-        just the question in isolation. <code>chat-service</code> forwards your own
-        bearer token to <code>rag-service</code> for retrieval rather than
-        re-implementing it.</p>
+                <!-- Multi-LLM Phase 2c/2d (ADR 0038): shown instead of an answer when the
+                     backend's fallbackAvailable: true fires - no LLM (local or public) has
+                     been called yet, so this offers the choice rather than assuming it. -->
+                <div id="fallback-confirm-card" class="fallback-confirm-card" hidden>
+                  <p data-i18n="knowledge.fallbackPrompt"></p>
+                  <div class="fallback-confirm-actions">
+                    <button type="button" id="fallback-confirm-yes" data-i18n="knowledge.fallbackYes">Search public AI</button>
+                    <button type="button" id="fallback-confirm-no" class="secondary" data-i18n="knowledge.fallbackNo">Cancel</button>
+                  </div>
+                </div>
 
-      <div id="conversation-start-row">
-        <button type="button" id="start-conversation-button">Start a new conversation</button>
-        <span id="conversation-id-label" class="hint" hidden></span>
-      </div>
+                <div id="answer-card" class="answer-card" hidden>
+                  <div class="answer-card-head">
+                    <h3 data-i18n="knowledge.answerHeading">Answer</h3>
+                    <button type="button" class="icon-button" id="copy-answer-button" data-i18n-title="knowledge.copyAnswer">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                  <!-- Only shown when source === "public-llm" (Phase 2c) - visibly distinct
+                       from a normal grounded answer so it can't be mistaken for one. -->
+                  <div id="answer-provenance-badge" class="provenance-badge" hidden data-i18n="knowledge.provenanceBadge"></div>
+                  <p id="answer-text"></p>
 
-      <div id="conversation-thread" class="conversation-thread" hidden>
-        <ul id="conversation-messages" class="conversation-messages"></ul>
+                  <h4 data-i18n="knowledge.citationsHeading">Sources consulted</h4>
+                  <ul id="citations-list" class="citations"></ul>
+                </div>
 
-        <form id="conversation-form">
-          <textarea id="conversation-input" placeholder="Send a message in this conversation..." rows="2" required></textarea>
-          <button type="submit" id="conversation-send-button">Send</button>
-        </form>
-        <div id="conversation-status" class="status" hidden></div>
-      </div>
-    </section>
-  </main>
+                <div id="diagram-card" class="diagram-card" hidden>
+                  <div id="diagram-output" class="diagram-output"></div>
+                  <ul id="diagram-citations" class="citations"></ul>
+                </div>
+              </div>
+            </div>
 
-  <footer class="app-footer">
-    <span id="config-summary"></span>
-  </footer>
+            <aside class="knowledge-stats" id="knowledge-stats">
+              <h2 data-i18n="stats.heading">Knowledge base</h2>
+              <div class="stat-row">
+                <span data-i18n="stats.hybridSearch">Hybrid search</span>
+                <span class="badge badge-active" data-i18n="stats.active">Active</span>
+              </div>
+              <div class="stat-row">
+                <span data-i18n="stats.tenant">Tenant</span>
+                <span id="stats-tenant">—</span>
+              </div>
+              <div class="stat-row">
+                <span data-i18n="stats.model">Model in use</span>
+                <span id="stats-model">—</span>
+              </div>
+              <div class="stat-row" id="stats-documents-row" hidden>
+                <span data-i18n="stats.documents">Documents</span>
+                <span id="stats-documents-count">0</span>
+              </div>
+            </aside>
+          </div>
+        </section>
 
-  <script src="config.js"></script>
-  <script src="app.js"></script>
+        <!-- ADR 0013's conversation memory - a minimal multi-turn panel: create/continue a
+             conversation, send a message, see the running history. chat-service isn't
+             deployed in the public demo (ADR 0020), so this nav item stays hidden there. -->
+        <section class="view" id="view-conversations" hidden>
+          <h1 data-i18n="conversations.heading">Conversations</h1>
+          <p class="subheading" data-i18n="conversations.hint"></p>
+
+          <div class="card">
+            <div id="conversation-start-row">
+              <button type="button" id="start-conversation-button" data-i18n="conversations.startButton">Start a new conversation</button>
+              <span id="conversation-id-label" class="hint" hidden></span>
+            </div>
+
+            <div id="conversation-thread" class="conversation-thread" hidden>
+              <ul id="conversation-messages" class="conversation-messages"></ul>
+
+              <form id="conversation-form">
+                <textarea id="conversation-input" data-i18n-placeholder="conversations.inputPlaceholder" rows="2" required></textarea>
+                <button type="submit" id="conversation-send-button" data-i18n="conversations.sendButton">Send</button>
+              </form>
+              <div id="conversation-status" class="status" hidden></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-documents" hidden>
+          <h1 data-i18n="documents.heading">Documents</h1>
+
+          <div class="card" id="upload-panel">
+            <p class="hint" data-i18n="documents.uploadHint"></p>
+
+            <form id="upload-form">
+              <label class="dropzone" id="dropzone" for="file-input">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 16l-4-4-4 4"/><path d="M12 12v9"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                <span id="dropzone-label" data-i18n="documents.dropzoneLabel">Drag a file here or click to choose</span>
+                <input type="file" id="file-input" name="file"
+                  accept=".pdf,.docx,.md,.txt,.png,.jpg,.jpeg,.gif,.webp,.mp3,.wav,.m4a,.ogg,.flac" hidden />
+              </label>
+              <button type="submit" id="upload-button" disabled data-i18n="documents.uploadButton">Upload &amp; index</button>
+            </form>
+
+            <div id="upload-status" class="status" hidden></div>
+
+            <ul id="upload-history" class="history"></ul>
+          </div>
+
+          <div class="card" id="admin-documents-section" hidden>
+            <h2 data-i18n="documents.adminHeading">Manage sharing</h2>
+            <p class="hint" data-i18n="documents.adminHint"></p>
+            <ul id="admin-documents-list" class="history admin-documents-list"></ul>
+            <div id="admin-documents-status" class="status" hidden></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-settings" hidden>
+          <h1 data-i18n="settings.heading">Settings</h1>
+
+          <div class="card" id="invite-panel">
+            <h2 data-i18n="settings.inviteHeading">Invite a teammate</h2>
+            <p class="hint" data-i18n="settings.inviteHint"></p>
+            <form id="invite-form">
+              <input type="email" id="invite-email" data-i18n-placeholder="settings.inviteEmailPlaceholder" placeholder="Teammate's email" autocomplete="off" required />
+              <button type="submit" data-i18n="settings.inviteButton">Create invitation</button>
+            </form>
+            <div id="invite-status" class="status" hidden></div>
+          </div>
+
+          <div class="card" id="admin-team-section" hidden>
+            <h2 data-i18n="settings.teamHeading">Team</h2>
+            <p class="hint" data-i18n="settings.teamHint"></p>
+            <ul id="admin-users-list" class="history"></ul>
+            <div id="admin-users-status" class="status" hidden></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span id="config-summary"></span>
+      </footer>
+    </div>
+  </div>
+
+  <script src="config.js?v=2026-08-05b"></script>
+  <script src="app.js?v=2026-08-05b"></script>
 </body>
 </html>
