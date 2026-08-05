@@ -409,13 +409,30 @@ exactly what that decision is):
     sequenced here by size, not a real technical blocker, exactly as this
     entry originally said — closing it didn't need anything else to land
     first.
-24. ⬜ **Resource-level authorization (RBAC vs. ABAC)** — decide which model
-    fits before implementing either; they solve different real shapes of
-    "who can share what with whom" and shouldn't be conflated. See
-    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
-    Phase 8 — today's authorization is tenant-only (ADR 0007), with no
-    per-document/group/user permission model on top of it, a reasonable
-    scope for a portfolio project but a real gap for anything beyond one.
+24. ✅ **Resource-level authorization (RBAC vs. ABAC)** — done. Decision:
+    ABAC (a lightweight owner + visibility + explicit-share-list model),
+    not RBAC — the roadmap's own "done when" is about per-document sharing
+    ("can this specific user see this specific document"), a shape RBAC
+    only answers by degrading into a role per document-user pair. Reuses
+    the `"userId"` metadata key already stamped at upload as the owner; a
+    new `PATCH /api/v1/documents/{documentId}/sharing` endpoint
+    (ingestion-service, owner-only) is the one write path; enforcement is a
+    Java-level check (`DocumentVisibility.isVisibleTo`, `platform-common`,
+    shared between both services) applied uniformly to all three retrieval
+    paths — the hybrid search vector leg, its full-text leg, and
+    `DocumentLookupTool`'s exact-match lookup (Multi-LLM Phase 9) — before
+    RRF fusion runs, not filtered out after. **Verified for real against
+    the running stack, exactly matching this item's own "done when"**:
+    registered two real users into the *same* tenant via the real
+    invitation flow (ADR 0031), uploaded a document as one, restricted it,
+    confirmed the other user's questions never retrieved it while the
+    owner still saw it, then shared it explicitly and confirmed the other
+    user could now see it too. Two real bugs found and fixed by writing
+    real tests, not assumed away: a missing `@PathVariable` name (this
+    build has no `-parameters` flag) and a Postgres `uuid = character
+    varying` type mismatch in the sharing repository's `UPDATE`.
+    ingestion-service 47→51 tests, rag-service 76→78 tests. See
+    [ADR 0046](adr/0046-resource-level-authorization-abac.md).
 25. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
 26. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs

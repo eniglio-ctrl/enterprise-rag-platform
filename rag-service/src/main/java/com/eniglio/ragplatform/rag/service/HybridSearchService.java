@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.rag.service;
 
+import com.eniglio.ragplatform.common.authorization.DocumentVisibility;
 import com.eniglio.ragplatform.rag.config.RagProperties;
 import com.eniglio.ragplatform.rag.gateway.VectorStoreGateway;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -95,8 +96,19 @@ public class HybridSearchService {
      * digit before joining, so it can't produce invalid tsquery syntax from arbitrary
      * user input), so a document matching even one rare term ranks in via
      * {@code ts_rank}, without needing every common word around it too.
+     * <p>
+     * docs/ROADMAP.md item #24: {@code userId} enforces the ABAC check
+     * ({@link DocumentVisibility#isVisibleTo}) on top of the {@code tenantId} filter
+     * above — applied in Java, to both legs' candidate lists, <em>before</em> RRF
+     * fusion runs, not after. Filtering first means a restricted chunk the caller
+     * can't see never occupies one of {@code topK}'s slots in the fused result at
+     * all; filtering the vector leg here in Java rather than via Spring AI's own
+     * filter DSL was a deliberate choice — that DSL's {@code in}/{@code nin}
+     * operators check a scalar metadata field against a list of candidate values,
+     * not "does this document's own {@code sharedWith} array contain this one
+     * caller ID," the opposite direction this check actually needs.
      */
-    public List<Document> search(String question, String tenantId, int topK) {
+    public List<Document> search(String question, String tenantId, String userId, int topK) {
         int poolSize = ragProperties.rerankCandidatePoolSize();
 
         SearchRequest vectorRequest = SearchRequest.builder()
@@ -105,8 +117,8 @@ public class HybridSearchService {
                 .similarityThreshold(ragProperties.similarityThreshold())
                 .filterExpression(tenantFilter(tenantId))
                 .build();
-        List<Document> vectorResults = vectorStoreGateway.search(vectorRequest);
-        List<Document> textResults = fullTextSearch(question, tenantId, poolSize);
+        List<Document> vectorResults = filterVisible(vectorStoreGateway.search(vectorRequest), userId);
+        List<Document> textResults = filterVisible(fullTextSearch(question, tenantId, poolSize), userId);
 
         List<Document> fused = fuseWithRrf(vectorResults, textResults, topK);
         log.info("Hybrid search: {} vector hits, {} full-text hits, {} after RRF fusion",
@@ -118,18 +130,28 @@ public class HybridSearchService {
      * Multi-LLM Phase 9: backs {@code DocumentLookupTool}, the model-invokable
      * {@code @Tool} that fetches a whole document by its exact source filename —
      * distinct from {@link #search} (similarity-ranked, partial, never exact-match).
-     * {@code tenantId} always comes from server-side {@code ToolContext}, never from
-     * the model - the tenant boundary this enforces is the entire reason this method
-     * takes it as a parameter here rather than trusting the source string alone.
+     * {@code tenantId}/{@code userId} always come from server-side {@code
+     * ToolContext}, never from the model - the boundary this enforces is the entire
+     * reason this method takes them as parameters here rather than trusting the
+     * source string alone. docs/ROADMAP.md item #24: a restricted document's chunks
+     * are filtered out here exactly as in {@link #search}, so an LLM tool call can't
+     * bypass the ABAC check that a normal question is already subject to.
      */
-    public List<Document> findBySource(String source, String tenantId) {
-        return jdbcTemplate.query(LOOKUP_BY_SOURCE_SQL,
+    public List<Document> findBySource(String source, String tenantId, String userId) {
+        List<Document> chunks = jdbcTemplate.query(LOOKUP_BY_SOURCE_SQL,
                 (rs, rowNum) -> Document.builder()
                         .id(rs.getString("id"))
                         .text(rs.getString("content"))
                         .metadata(parseMetadata(rs.getString("metadata")))
                         .build(),
                 source, tenantId);
+        return filterVisible(chunks, userId);
+    }
+
+    private List<Document> filterVisible(List<Document> documents, String userId) {
+        return documents.stream()
+                .filter(document -> DocumentVisibility.isVisibleTo(document.getMetadata(), userId))
+                .toList();
     }
 
     private List<Document> fullTextSearch(String question, String tenantId, int limit) {

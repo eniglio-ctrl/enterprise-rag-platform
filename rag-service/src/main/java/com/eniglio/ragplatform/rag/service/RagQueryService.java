@@ -217,7 +217,7 @@ public class RagQueryService {
      * {@link #ROUTING_SYSTEM_TEMPLATE} for why a keyword check isn't reliable enough.
      */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
-        return ask(question, tenantId, grounded, rerank, model, null, null, false, null);
+        return ask(question, tenantId, null, grounded, rerank, model, null, null, false, null);
     }
 
     /**
@@ -226,10 +226,22 @@ public class RagQueryService {
      * confirmation flow's two fields — see {@link com.eniglio.ragplatform.rag.dto.ChatRequest}'s
      * javadoc for the full contract. Never affects diagram routing; only the
      * text-answer path checks these.
+     * <p>
+     * docs/ROADMAP.md item #24: {@code userId} threads the ABAC check down into
+     * {@link HybridSearchService}/{@link DocumentLookupTool} — {@code null} is a
+     * legitimate value (means "no additional per-document restriction beyond
+     * tenant," the pre-#24 behavior every other overload here still gets), not an
+     * error state.
      */
+    public AskResponse ask(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                            String model, boolean useFallback, String fallbackProvider) {
+        return ask(question, tenantId, userId, grounded, rerank, model, null, null, useFallback, fallbackProvider);
+    }
+
+    /** Same as the 8-arg overload above, {@code userId} defaulting to {@code null} — kept for existing callers that predate item #24. */
     public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
                             boolean useFallback, String fallbackProvider) {
-        return ask(question, tenantId, grounded, rerank, model, null, null, useFallback, fallbackProvider);
+        return ask(question, tenantId, null, grounded, rerank, model, useFallback, fallbackProvider);
     }
 
     /**
@@ -239,21 +251,28 @@ public class RagQueryService {
      * path ({@link #answer}/{@link #diagram}) the question routes to). {@code
      * imageBytes}/{@code imageMimeType} are both null when no image was attached.
      */
-    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                            byte[] imageBytes, MimeType imageMimeType) {
-        return ask(question, tenantId, grounded, rerank, model, imageBytes, imageMimeType, false, null);
+    public AskResponse ask(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                            String model, byte[] imageBytes, MimeType imageMimeType) {
+        return ask(question, tenantId, userId, grounded, rerank, model, imageBytes, imageMimeType, false, null);
     }
 
-    private AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                             byte[] imageBytes, MimeType imageMimeType, boolean useFallback, String fallbackProvider) {
+    /** Same as the 7-arg overload above, {@code userId} defaulting to {@code null} — kept for existing callers that predate item #24. */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                            byte[] imageBytes, MimeType imageMimeType) {
+        return ask(question, tenantId, null, grounded, rerank, model, imageBytes, imageMimeType);
+    }
+
+    private AskResponse ask(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                             String model, byte[] imageBytes, MimeType imageMimeType, boolean useFallback,
+                             String fallbackProvider) {
         String imageDescription = describeImage(imageBytes, imageMimeType);
         AvailableModel resolvedModel = resolveModel(model);
         if (wantsDiagram(question, imageDescription, resolvedModel)) {
-            DiagramResponse diagram = diagram(question, tenantId, model, imageDescription);
+            DiagramResponse diagram = diagram(question, tenantId, userId, model, imageDescription);
             return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model(),
                     null, "local");
         }
-        ChatResponse chat = answer(question, tenantId, grounded, rerank, model, imageDescription, useFallback,
+        ChatResponse chat = answer(question, tenantId, userId, grounded, rerank, model, imageDescription, useFallback,
                 fallbackProvider);
         return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model(),
                 chat.fallbackAvailable(), chat.source());
@@ -293,32 +312,42 @@ public class RagQueryService {
     }
 
     public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
-        return answer(question, tenantId, grounded, rerank, model, null, false, null);
+        return answer(question, tenantId, null, grounded, rerank, model, null, false, null);
     }
 
     /**
      * Multi-LLM Phase 2c (ADR 0038): same as the 5-arg
      * {@link #answer(String, String, boolean, boolean, String)}, plus the fallback
-     * confirmation flow's two fields.
+     * confirmation flow's two fields. docs/ROADMAP.md item #24: see {@link #ask}'s
+     * equivalent overload's javadoc for what {@code userId} does and why {@code null}
+     * is a legitimate value, not an error state.
      */
-    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                                boolean useFallback, String fallbackProvider) {
-        return answer(question, tenantId, grounded, rerank, model, null, useFallback, fallbackProvider);
+    public ChatResponse answer(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                                String model, boolean useFallback, String fallbackProvider) {
+        return answer(question, tenantId, userId, grounded, rerank, model, null, useFallback, fallbackProvider);
     }
 
-    private ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                                 String imageDescription, boolean useFallback, String fallbackProvider) {
+    /** Same as the 8-arg overload above, {@code userId} defaulting to {@code null} — kept for existing callers that predate item #24. */
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                                boolean useFallback, String fallbackProvider) {
+        return answer(question, tenantId, null, grounded, rerank, model, useFallback, fallbackProvider);
+    }
+
+    private ChatResponse answer(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                                 String model, String imageDescription, boolean useFallback,
+                                 String fallbackProvider) {
         ChatResponse response = answerTimer.record(
-                () -> doAnswer(question, tenantId, grounded, rerank, model, imageDescription, useFallback,
+                () -> doAnswer(question, tenantId, userId, grounded, rerank, model, imageDescription, useFallback,
                         fallbackProvider));
         answersGeneratedCounter.increment();
         return response;
     }
 
-    private ChatResponse doAnswer(String question, String tenantId, boolean grounded, boolean rerank, String model,
-                                   String imageDescription, boolean useFallback, String fallbackProvider) {
+    private ChatResponse doAnswer(String question, String tenantId, String userId, boolean grounded, boolean rerank,
+                                   String model, String imageDescription, boolean useFallback,
+                                   String fallbackProvider) {
         int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
-        List<Document> retrieved = hybridSearchService.search(question, tenantId, limit);
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, limit);
         if (rerank) {
             retrieved = llmRerankService.rerank(question, retrieved, ragProperties.topK());
         }
@@ -353,13 +382,18 @@ public class RagQueryService {
 
         // Multi-LLM Phase 9: tenantId comes from ToolContext, a server-side channel
         // the model never sees or controls - see DocumentLookupTool's own javadoc for
-        // why that boundary matters here specifically.
+        // why that boundary matters here specifically. docs/ROADMAP.md item #24 added
+        // userId alongside it, same channel, same reasoning - the model must not be
+        // able to supply or override either.
+        Map<String, Object> toolContext = userId == null
+                ? Map.of("tenantId", tenantId)
+                : Map.of("tenantId", tenantId, "userId", userId);
         String answer = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
                 .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
                 .user(question)
                 .options(modelOptions(resolvedModel, null))
                 .tools(documentLookupTool)
-                .toolContext(Map.of("tenantId", tenantId))
+                .toolContext(toolContext)
                 .call()
                 .content());
 
@@ -570,7 +604,12 @@ public class RagQueryService {
      * generation context needs the whole chunk, not a display-sized preview.
      */
     public List<RetrievedChunk> retrieve(String question, String tenantId) {
-        List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
+        return retrieve(question, tenantId, null);
+    }
+
+    /** docs/ROADMAP.md item #24: see {@link #ask}'s equivalent overload's javadoc for what {@code userId} does. */
+    public List<RetrievedChunk> retrieve(String question, String tenantId, String userId) {
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, ragProperties.topK());
         return retrieved.stream()
                 .map(doc -> new RetrievedChunk(
                         String.valueOf(doc.getMetadata().getOrDefault("source", "unknown")),
@@ -651,17 +690,26 @@ public class RagQueryService {
     }
 
     public DiagramResponse diagram(String question, String tenantId, String model) {
-        return diagram(question, tenantId, model, null);
+        return diagram(question, tenantId, null, model, null);
     }
 
-    private DiagramResponse diagram(String question, String tenantId, String model, String imageDescription) {
-        DiagramResponse response = diagramTimer.record(() -> doDiagram(question, tenantId, model, imageDescription));
+    /** docs/ROADMAP.md item #24: see {@link #ask}'s equivalent overload's javadoc for what {@code userId} does. */
+    public DiagramResponse diagram(String question, String tenantId, String userId, String model) {
+        return diagram(question, tenantId, userId, model, null);
+    }
+
+    /** docs/ROADMAP.md item #24: see {@link #ask}'s equivalent overload's javadoc for what {@code userId} does. */
+    private DiagramResponse diagram(String question, String tenantId, String userId, String model,
+                                     String imageDescription) {
+        DiagramResponse response = diagramTimer.record(
+                () -> doDiagram(question, tenantId, userId, model, imageDescription));
         diagramsGeneratedCounter.increment();
         return response;
     }
 
-    private DiagramResponse doDiagram(String question, String tenantId, String model, String imageDescription) {
-        List<Document> retrieved = hybridSearchService.search(question, tenantId, ragProperties.topK());
+    private DiagramResponse doDiagram(String question, String tenantId, String userId, String model,
+                                       String imageDescription) {
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, ragProperties.topK());
 
         // Same reasoning as doAnswer: an attached image (e.g. a screenshot of an
         // architecture) can supply everything needed to draw a diagram even with zero

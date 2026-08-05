@@ -519,15 +519,17 @@ vs. what's blocked on a decision or resource only the user can provide.
   would need to run for real, not to demonstrate AI-engineering skill. Phase 1
   (closing the DOCX upload gap), Phase 4 (operational resilience
   hardening — bulkheads, readiness/liveness probe split, a full timeout
-  audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)), and
-  Phase 9 (backups and disaster recovery — a real `pg_dumpall` backup
+  audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)),
+  Phase 8 (resource-level authorization — a lightweight ABAC model, owner +
+  visibility + explicit sharing, verified live with two real users in the
+  same tenant, [ADR 0046](docs/adr/0046-resource-level-authorization-abac.md)),
+  and Phase 9 (backups and disaster recovery — a real `pg_dumpall` backup
   restored into a genuinely fresh, isolated environment and verified with a
   real question against a real document,
   [ADR 0044](docs/adr/0044-backups-and-disaster-recovery.md)) are done; the
-  other six (secrets/config management, async ingestion + object storage,
-  an API gateway, distributed tracing, Redis only once real scale justifies
-  it, and resource-level authorization) are still planning only as of
-  2026-08-04. Explicitly **not** a claim
+  other five (secrets/config management, async ingestion + object storage,
+  an API gateway, distributed tracing, and Redis only once real scale
+  justifies it) are still planning only as of 2026-08-05. Explicitly **not** a claim
   that the current stack is unfinished: it's a working, honestly-scoped
   portfolio project today, and this file exists so the next evolution (if and
   when wanted) has a thought-through order instead of an ungrounded technology
@@ -586,6 +588,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0043 — Operational resilience hardening: bulkheads, readiness/liveness probe split, timeout audit — verified with a real concurrent-request load test and a real `docker compose pause postgres`](docs/adr/0043-operational-resilience-hardening.md)
 - [ADR 0044 — Backups and disaster recovery: `pg_dumpall`/restore scripts, verified with a real backup restored into a genuinely fresh, isolated environment and a real question answered from it alone](docs/adr/0044-backups-and-disaster-recovery.md)
 - [ADR 0045 — Anthropic fallback wiring, shipped with no API key, plus graceful handling of a missing key/no credits for every fallback provider — verified live, turning a real pre-existing `500` (OpenAI's zero-credits account) into a graceful `200`](docs/adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md)
+- [ADR 0046 — Resource-level authorization: a lightweight ABAC model (owner + visibility + explicit sharing), enforced uniformly across every retrieval path, verified live with two real users in the same tenant](docs/adr/0046-resource-level-authorization-abac.md)
 
 ## License
 

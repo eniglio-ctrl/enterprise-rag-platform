@@ -43,7 +43,7 @@
 | 5 | API Gateway / BFF at the edge | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #24 | Phase 4 (the gateway is where centralized timeout/rate-limit policy would live) |
 | 6 | Distributed tracing (OpenTelemetry) | ⬜ Not started — already tracked as the OpenTelemetry half of `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md` Phase 7 | Phase 5 (a trace crossing the gateway is the whole point) |
 | 7 | Redis (distributed rate limit, cache, sessions) | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #19 | Real multi-replica deployment or measured load — not before |
-| 8 | Resource-level authorization (RBAC/ABAC) | ⬜ Not started | — |
+| 8 | Resource-level authorization (RBAC/ABAC) | ✅ Done — ABAC — [ADR 0046](adr/0046-resource-level-authorization-abac.md) | — |
 | 9 | Backups and disaster recovery | ✅ Done — [ADR 0044](adr/0044-backups-and-disaster-recovery.md) | — |
 
 **Recommended order, in the user's own words**: "fechar upload seguro → fila
@@ -225,32 +225,38 @@ operational complexity once a second replica actually exists. Building this
 before that point would be exactly the "collection of technologies without
 real necessity" the user explicitly said this sequence exists to avoid.
 
-## Phase 8 — Resource-level authorization (RBAC/ABAC) ⬜
+## Phase 8 — Resource-level authorization (RBAC/ABAC) ✅
 
-**Not started. Genuinely new.** Today's authorization model (ADR 0007) is
-tenant-only: any authenticated user within a tenant can read/write every
-document that tenant owns, with no finer-grained concept of ownership,
-groups, or per-document sharing. That's a reasonable, honestly-scoped
-choice for a portfolio project demonstrating multi-tenant isolation — it
-would not be reasonable for a real deployment where "everyone in the same
-company sees every document" is rarely the actual requirement.
+**Done.** Decision: ABAC (owner + visibility + explicit-share-list), not
+RBAC — matches this phase's own framing exactly: the "done when" below is
+a per-document sharing question ("can this specific user see this specific
+document"), a shape RBAC only answers by degrading into a role per
+document-user pair. Full account:
+[ADR 0046](adr/0046-resource-level-authorization-abac.md).
 
-What a real version of this would need: a `documentId` → `{owner, group,
-visibility}` model (extending the existing `vector_store`/`documents`
-schema, not replacing it), an authorization check in `HybridSearchService`/
-`DocumentLookupTool` (the Phase 9 `@Tool`, ADR 0035, is a second place this
-would need to apply — it already enforces tenant isolation via
-`ToolContext`, the same mechanism would need to carry finer-grained
-permission data too) alongside the existing tenant filter, and a decision
-between RBAC (roles determine access) and ABAC (attributes/policies
-determine access) — the two solve different real shapes of "who can share
-what with whom" and shouldn't be conflated as one design question.
+No new `vector_store` schema/migration needed: the model reuses the
+`"userId"` metadata key `DocumentIngestionService` already stamped on every
+chunk as the owner, and adds `"visibility"`/`"sharedWith"` keys to that same
+existing metadata JSON — a Java-level check
+(`DocumentVisibility.isVisibleTo`, `platform-common`, shared between
+`ingestion-service` and `rag-service` so both agree on the exact same
+string values) filters every retrieval path (hybrid search's vector and
+full-text legs, and `DocumentLookupTool`'s exact-match lookup, Phase 9)
+before RRF fusion runs. A new `PATCH /api/v1/documents/{documentId}/sharing`
+endpoint (`ingestion-service`, owner-only) is the one write path — every
+document still starts `TENANT`-visible at upload, unchanged from before
+this phase.
 
-**Done when**: two users in the same tenant, one of whom is explicitly not
-granted access to a specific document, can be shown for real — via the
-actual running stack, not just a unit test — that the restricted user's
-questions never retrieve chunks from that document, while an explicitly
-shared or public document remains visible to both.
+**Done when, verified for real**: registered two real users into the
+*same* tenant via the real invitation flow (ADR 0031), uploaded a document
+as one, restricted it via the new endpoint, and confirmed against the
+actual running stack that the other user's questions never retrieved a
+citation for it while the owner still saw it — then shared it explicitly
+and confirmed the other user could now see it too. Two real bugs found and
+fixed by writing real tests, not assumed away: a missing `@PathVariable`
+name (this build has no `-parameters` flag, so Spring couldn't infer it)
+and a Postgres `uuid = character varying` type mismatch in the sharing
+repository's `UPDATE` (`vector_store.id` is `uuid`, V1 migration).
 
 ## Phase 9 — Backups and disaster recovery ✅
 

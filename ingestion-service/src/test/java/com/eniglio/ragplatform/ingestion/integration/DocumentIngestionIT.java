@@ -36,11 +36,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Random;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.test.web.servlet.MvcResult;
+
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -72,6 +76,9 @@ class DocumentIngestionIT {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @MockitoBean
     private EmbeddingModel embeddingModel;
@@ -158,6 +165,75 @@ class DocumentIngestionIT {
         mockMvc.perform(multipart("/api/v1/documents").file(file)
                         .with(jwt().jwt(token -> token.subject("user-1").claim("tenantId", "acme"))))
                 .andExpect(status().isUnprocessableEntity());
+    }
+
+    @Test
+    void ownerCanRestrictAndShareTheirOwnDocument() throws Exception {
+        // docs/ROADMAP.md item #24: the one write path for the ABAC model - real
+        // Postgres round trip, not a mock, since the whole point is proving the
+        // UPDATE across every chunk row actually lands.
+        stubEmbeddingModel();
+        String documentId = uploadMarkdown("aula12.md", "user-owner", "acme");
+
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", documentId)
+                        .with(jwt().jwt(token -> token.subject("user-owner").claim("tenantId", "acme")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest(
+                                        "RESTRICTED", List.of("user-shared")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.documentId").value(documentId))
+                .andExpect(jsonPath("$.visibility").value("RESTRICTED"))
+                .andExpect(jsonPath("$.sharedWith[0]").value("user-shared"));
+    }
+
+    @Test
+    void aNonOwnerCannotChangeAnotherUsersDocumentSharing() throws Exception {
+        stubEmbeddingModel();
+        String documentId = uploadMarkdown("aula12.md", "user-owner", "acme");
+
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", documentId)
+                        // Same tenant, different user - tenant membership alone must not be
+                        // enough to change someone else's document's sharing.
+                        .with(jwt().jwt(token -> token.subject("user-other").claim("tenantId", "acme")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest("RESTRICTED", List.of()))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void changingSharingForAnUnknownDocumentReturns404() throws Exception {
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", "does-not-exist")
+                        .with(jwt().jwt(token -> token.subject("user-owner").claim("tenantId", "acme")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest("RESTRICTED", List.of()))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aVisibilityValueOtherThanTenantOrRestrictedReturns400() throws Exception {
+        stubEmbeddingModel();
+        String documentId = uploadMarkdown("aula12.md", "user-owner", "acme");
+
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", documentId)
+                        .with(jwt().jwt(token -> token.subject("user-owner").claim("tenantId", "acme")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest("PUBLIC", List.of()))))
+                .andExpect(status().isBadRequest());
+    }
+
+    private String uploadMarkdown(String filename, String userId, String tenantId) throws Exception {
+        String markdown = "# Aula 12\n\nO padrão SAGA coordena transações distribuídas via choreography ou orchestration.";
+        MockMultipartFile file = new MockMultipartFile("file", filename, "text/markdown",
+                markdown.getBytes(StandardCharsets.UTF_8));
+        MvcResult result = mockMvc.perform(multipart("/api/v1/documents").file(file)
+                        .with(jwt().jwt(token -> token.subject(userId).claim("tenantId", tenantId))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("documentId").asText();
     }
 
     private void stubEmbeddingModel() {

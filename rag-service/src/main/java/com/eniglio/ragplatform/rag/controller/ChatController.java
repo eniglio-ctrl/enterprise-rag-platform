@@ -39,8 +39,9 @@ public class ChatController {
             description = "Single entry point: answers in text, or generates an architecture diagram instead when the question itself asks for one (e.g. mentions \"diagram\", \"draw\", \"flow\")")
     @PostMapping(value = "/api/v1/ask", consumes = MediaType.APPLICATION_JSON_VALUE)
     public AskResponse ask(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
-        return ragQueryService.ask(request.question(), JwtClaims.tenantId(jwt), request.isGrounded(), request.isRerank(),
-                request.model(), request.isUseFallback(), request.fallbackProvider());
+        return ragQueryService.ask(request.question(), JwtClaims.tenantId(jwt), JwtClaims.userId(jwt),
+                request.isGrounded(), request.isRerank(), request.model(), request.isUseFallback(),
+                request.fallbackProvider());
     }
 
     @Operation(summary = "Ask anything, with an image attached",
@@ -61,29 +62,32 @@ public class ChatController {
                 ? imageAttachmentValidator.validate(image)
                 : null;
         byte[] imageBytes = validatedImage == null ? null : validatedImage.bytes();
-        return ragQueryService.ask(question, JwtClaims.tenantId(jwt), Boolean.TRUE.equals(grounded),
-                Boolean.TRUE.equals(rerank), model, imageBytes,
+        return ragQueryService.ask(question, JwtClaims.tenantId(jwt), JwtClaims.userId(jwt),
+                Boolean.TRUE.equals(grounded), Boolean.TRUE.equals(rerank), model, imageBytes,
                 validatedImage == null ? null : validatedImage.mimeType());
     }
 
     @Operation(summary = "Ask a question", description = "Retrieves relevant chunks and generates a cited answer")
     @PostMapping("/api/v1/chat")
     public ChatResponse chat(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
-        return ragQueryService.answer(request.question(), JwtClaims.tenantId(jwt), request.isGrounded(), request.isRerank(),
-                request.model(), request.isUseFallback(), request.fallbackProvider());
+        return ragQueryService.answer(request.question(), JwtClaims.tenantId(jwt), JwtClaims.userId(jwt),
+                request.isGrounded(), request.isRerank(), request.model(), request.isUseFallback(),
+                request.fallbackProvider());
     }
 
     @Operation(summary = "Generate an architecture diagram from ingested data",
             description = "Retrieves relevant chunks and generates a Mermaid.js diagram describing the architecture/flow found in them")
     @PostMapping("/api/v1/diagrams")
     public DiagramResponse diagram(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
-        return ragQueryService.diagram(request.question(), JwtClaims.tenantId(jwt), request.model());
+        return ragQueryService.diagram(request.question(), JwtClaims.tenantId(jwt), JwtClaims.userId(jwt),
+                request.model());
     }
 
     @Operation(summary = "Retrieve relevant chunks without generating an answer",
             description = "Used by chat-service to get citations for a question while it generates its own conversation-aware answer (ADR 0013)")
     @PostMapping("/api/v1/retrieve")
     public RetrieveResponse retrieve(@Valid @RequestBody ChatRequest request, @AuthenticationPrincipal Jwt jwt) {
-        return new RetrieveResponse(ragQueryService.retrieve(request.question(), JwtClaims.tenantId(jwt)));
+        return new RetrieveResponse(
+                ragQueryService.retrieve(request.question(), JwtClaims.tenantId(jwt), JwtClaims.userId(jwt)));
     }
 }

@@ -32,6 +32,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -105,7 +106,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
@@ -141,7 +142,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
@@ -162,7 +163,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
@@ -190,7 +191,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
@@ -213,7 +214,7 @@ class RagQueryServiceTest {
                 .build();
         Document reranked = original.mutate().score(0.9).build();
 
-        given(hybridSearchService.search("Como funciona o SAGA?", "default", 15)).willReturn(List.of(original));
+        given(hybridSearchService.search("Como funciona o SAGA?", "default", null, 15)).willReturn(List.of(original));
         given(llmRerankService.rerank("Como funciona o SAGA?", List.of(original), 5)).willReturn(List.of(reranked));
 
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -236,7 +237,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
             String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
@@ -260,7 +261,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
             String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
@@ -278,7 +279,7 @@ class RagQueryServiceTest {
 
     @Test
     void returnsFallbackMessageWhenNothingIsRetrieved() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
 
         RagQueryService service = newService();
         ChatResponse response = service.answer("Pergunta sem contexto na base", "default", false, false, null);
@@ -302,7 +303,7 @@ class RagQueryServiceTest {
                 .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
                 .score(0.87)
                 .build();
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
         circuitBreakerRegistry.circuitBreaker("ollama").transitionToOpenState();
 
         RagQueryService service = newService();
@@ -318,7 +319,7 @@ class RagQueryServiceTest {
 
     @Test
     void confirmedFallbackCallsGeminiByDefaultAndSendsOnlyTheRawQuestion() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(geminiClient.generateContent(anyString())).willReturn("Resposta pública, não fundamentada.");
 
         RagQueryService service = newService();
@@ -343,7 +344,7 @@ class RagQueryServiceTest {
 
     @Test
     void confirmedFallbackCallsOpenAiWhenExplicitlyRequested() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("Resposta da OpenAI."))));
@@ -363,7 +364,7 @@ class RagQueryServiceTest {
     @Test
     void confirmedFallbackCallsAnthropicWhenExplicitlyRequested() {
         // Multi-LLM Phase 2e (ADR 0045) - same shape as the OpenAI test above.
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("Resposta da Anthropic."))));
@@ -387,7 +388,7 @@ class RagQueryServiceTest {
         // (Anthropic's own real, current state - no ANTHROPIC_API_KEY exists yet,
         // unlike OpenAI/Gemini) must never even attempt the call, and must answer
         // gracefully instead of failing the request.
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         FallbackProviderProperties noAnthropicKey = new FallbackProviderProperties(
                 new FallbackProviderProperties.OpenAi("test-openai-key", "gpt-4o-mini"),
                 new FallbackProviderProperties.Gemini("test-gemini-key", "gemini-flash-latest"),
@@ -410,7 +411,7 @@ class RagQueryServiceTest {
         // the account has zero credits - a genuine 429/insufficient_quota-shaped
         // failure from the provider itself, not a wiring bug. Must not become a raw
         // 500; must answer gracefully instead, same as the no-key case above.
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(openAiFallbackChatModel.call(any(Prompt.class)))
                 .willThrow(new RuntimeException("429 - {\"error\": {\"code\": \"insufficient_quota\"}}"));
 
@@ -429,7 +430,7 @@ class RagQueryServiceTest {
         // "anthropic-fallback" circuit already open) must still propagate exactly as
         // before this phase - GlobalExceptionHandlerSupport's existing, tested 503
         // handling for it must not be bypassed by the new graceful-answer path above.
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(anthropicFallbackChatModel.call(any(Prompt.class)))
                 .willThrow(io.github.resilience4j.circuitbreaker.CallNotPermittedException.createCallNotPermittedException(
                         io.github.resilience4j.circuitbreaker.CircuitBreaker.ofDefaults("anthropic-fallback")));
@@ -449,7 +450,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3] --> C[AWS Lambda]";
         String expectedMermaid = "flowchart LR\n    A[\"Cliente\"] --> B[\"Amazon S3\"] --> C[\"AWS Lambda\"]";
@@ -473,7 +474,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Banco de Dados] --> B[Multi-AZ (alta disponibilidade)]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -496,7 +497,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Producao] -->|Backup|> B[S3]";
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
@@ -513,7 +514,7 @@ class RagQueryServiceTest {
 
     @Test
     void returnsEmptyDiagramWhenNothingIsRetrieved() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
 
         RagQueryService service = newService();
         DiagramResponse response = service.diagram("Pergunta sem contexto na base", "default", null);
@@ -548,7 +549,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation ->
@@ -570,7 +571,7 @@ class RagQueryServiceTest {
                 .score(0.87)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> routeThenRespond(invocation.getArgument(0),
                 "RESPOSTA", "O padrão SAGA é usado para transações distribuídas [1]"));
@@ -591,7 +592,7 @@ class RagQueryServiceTest {
                 .score(0.9)
                 .build();
 
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
 
         String rawMermaid = "flowchart LR\n    A[Cliente] --> B[Amazon S3]";
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation ->
@@ -605,7 +606,7 @@ class RagQueryServiceTest {
 
     @Test
     void askWithAnAttachedImageAnswersEvenWithNoRetrievedChunks() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(visionDescriptionService.describe(any(byte[].class), any()))
                 .willReturn("Um diagrama mostrando um cliente chamando uma API através de um API Gateway.");
 
@@ -633,7 +634,7 @@ class RagQueryServiceTest {
      */
     @Test
     void askingWhatIsInTheAttachedImageRoutesToAnswerNotDiagram() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(visionDescriptionService.describe(any(byte[].class), any()))
                 .willReturn("Um quadrado vermelho centralizado em um fundo azul.");
 
@@ -651,7 +652,7 @@ class RagQueryServiceTest {
 
     @Test
     void askWithAnAttachedImageFoldsItsDescriptionIntoTheSystemPromptAsANonNumberedBlock() {
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of());
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of());
         given(visionDescriptionService.describe(any(byte[].class), any()))
                 .willReturn("Uma captura de tela de um dashboard do Grafana.");
 
@@ -681,7 +682,7 @@ class RagQueryServiceTest {
                 .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
                 .score(0.87)
                 .build();
-        given(hybridSearchService.search(anyString(), anyString(), anyInt())).willReturn(List.of(document));
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
         org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
                 new org.springframework.ai.chat.model.ChatResponse(
                         List.of(new Generation(new AssistantMessage("O padrão SAGA [1]"))));

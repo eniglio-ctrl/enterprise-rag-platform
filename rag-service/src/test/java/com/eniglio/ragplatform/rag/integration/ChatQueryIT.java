@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.rag.integration;
 
+import com.eniglio.ragplatform.common.authorization.DocumentVisibility;
 import com.eniglio.ragplatform.rag.RagServiceApplication;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -165,7 +166,12 @@ class ChatQueryIT {
 
     /** Every JWT in this test class carries the same claim shape auth-service issues (ADR 0016). */
     private static org.springframework.test.web.servlet.request.RequestPostProcessor jwtFor(String tenantId) {
-        return jwt().jwt(token -> token.subject("user-1").claim("tenantId", tenantId));
+        return jwtFor(tenantId, "user-1");
+    }
+
+    /** docs/ROADMAP.md item #24: a distinct userId, for tests that need two different users in the same tenant. */
+    private static org.springframework.test.web.servlet.request.RequestPostProcessor jwtFor(String tenantId, String userId) {
+        return jwt().jwt(token -> token.subject(userId).claim("tenantId", tenantId));
     }
 
     @Test
@@ -198,6 +204,47 @@ class ChatQueryIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.citations.length()").value(1))
                 .andExpect(jsonPath("$.citations[0].source").value("tenant-a-doc.md"));
+    }
+
+    @Test
+    void restrictedDocumentIsInvisibleToANonOwnerNonSharedUserButVisibleToItsOwnerAndASharedUser() throws Exception {
+        // docs/ROADMAP.md item #24 - the roadmap's own "done when": two users in the
+        // same tenant, one explicitly not granted access, proven via the real
+        // running stack (this HTTP round trip), not just a unit test of the filter
+        // logic in isolation.
+        vectorStore.add(List.of(Document.builder()
+                .text("O projeto Quetzalcoatlus é um documento confidencial sobre a nova arquitetura interna.")
+                .metadata(Map.of(
+                        "source", "quetzalcoatlus-doc.md", "documentId", "doc-restricted", "chunkIndex", 0,
+                        "tenantId", "default", "userId", "owner-1",
+                        DocumentVisibility.VISIBILITY_KEY, DocumentVisibility.RESTRICTED,
+                        DocumentVisibility.SHARED_WITH_KEY, List.of("shared-user")))
+                .build()));
+
+        // Same tenant, neither the owner nor explicitly shared with - must never see it.
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default", "other-user"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"O que é o projeto Quetzalcoatlus?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source",
+                        org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("quetzalcoatlus-doc.md"))));
+
+        // The owner must still see their own restricted document.
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default", "owner-1"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"O que é o projeto Quetzalcoatlus?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("quetzalcoatlus-doc.md")));
+
+        // Explicitly shared-with must also see it.
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default", "shared-user"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"O que é o projeto Quetzalcoatlus?\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.citations[*].source", org.hamcrest.Matchers.hasItem("quetzalcoatlus-doc.md")));
     }
 
     @Test

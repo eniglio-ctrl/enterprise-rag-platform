@@ -1,5 +1,6 @@
 package com.eniglio.ragplatform.ingestion.service;
 
+import com.eniglio.ragplatform.common.authorization.DocumentVisibility;
 import com.eniglio.ragplatform.ingestion.dto.IngestResponse;
 import com.eniglio.ragplatform.ingestion.gateway.VectorStoreGateway;
 import io.micrometer.core.instrument.Counter;
@@ -65,13 +66,19 @@ public class DocumentIngestionService {
         String source = file.getOriginalFilename();
         Instant ingestedAt = Instant.now();
 
+        // docs/ROADMAP.md item #24: every document starts out TENANT-visible (the
+        // original, unchanged authorization model, ADR 0007) - restricting it to the
+        // owner plus specific users is a deliberate, separate action taken afterward
+        // via DocumentSharingService, never an upload-time choice. Keeps this
+        // endpoint's own contract unchanged.
         pages.forEach(page -> page.getMetadata().putAll(java.util.Map.of(
                 "documentId", documentId,
                 "source", source,
                 "contentType", upload.mimeType().toString(),
                 "ingestedAt", ingestedAt.toString(),
                 "tenantId", tenantId,
-                "userId", userId
+                "userId", userId,
+                DocumentVisibility.VISIBILITY_KEY, DocumentVisibility.TENANT
         )));
 
         List<Document> chunks = tokenTextSplitter.apply(pages);

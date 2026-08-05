@@ -19,11 +19,17 @@ import java.util.stream.Collectors;
  * "summarize document X" — a summary needs the whole document, not just the pieces
  * that happen to look similar to the word "summarize").
  * <p>
- * {@code tenantId} is bound from {@link ToolContext}, supplied server-side by {@code
- * RagQueryService} when it registers this tool for a call - never a model-controlled
- * parameter. The model choosing which tenant to query would defeat the entire
- * per-tenant isolation contract (ADR 0007) this project enforces everywhere else;
- * the tool's own {@code @Tool}-visible signature only exposes {@code source}.
+ * {@code tenantId}/{@code userId} are bound from {@link ToolContext}, supplied
+ * server-side by {@code RagQueryService} when it registers this tool for a call -
+ * never model-controlled parameters. The model choosing which tenant to query would
+ * defeat the entire per-tenant isolation contract (ADR 0007) this project enforces
+ * everywhere else; the tool's own {@code @Tool}-visible signature only exposes
+ * {@code source}. docs/ROADMAP.md item #24: {@code userId} additionally lets {@link
+ * HybridSearchService#findBySource} apply the same per-document ABAC check a normal
+ * question is already subject to - without it, this tool would have been a way to
+ * read a restricted document's content the model was never supposed to have access
+ * to, bypassing the exact restriction {@link #lookupDocumentBySource} would
+ * otherwise respect.
  */
 @Component
 public class DocumentLookupTool {
@@ -45,7 +51,8 @@ public class DocumentLookupTool {
                     + "(ex: 'saga-pattern.txt')") String source,
             ToolContext toolContext) {
         String tenantId = (String) toolContext.getContext().get("tenantId");
-        List<Document> chunks = hybridSearchService.findBySource(source, tenantId);
+        String userId = (String) toolContext.getContext().get("userId");
+        List<Document> chunks = hybridSearchService.findBySource(source, tenantId, userId);
         log.info("Tool lookupDocumentBySource invoked: source={} tenantId={} chunksFound={}",
                 source, tenantId, chunks.size());
         if (chunks.isEmpty()) {
