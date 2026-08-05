@@ -80,6 +80,20 @@
       <div id="invite-status" class="status" hidden></div>
     </section>
 
+    <section class="panel panel-wide" id="admin-panel" hidden>
+      <h2>Admin</h2>
+      <p class="hint">Visible only to a tenant admin (ADR 0047). Promote a teammate to admin, or restrict a
+        document to specific teammates instead of the whole tenant.</p>
+
+      <h3>Team</h3>
+      <ul id="admin-users-list" class="history"></ul>
+      <div id="admin-users-status" class="status" hidden></div>
+
+      <h3>Documents</h3>
+      <ul id="admin-documents-list" class="history admin-documents-list"></ul>
+      <div id="admin-documents-status" class="status" hidden></div>
+    </section>
+
     <section class="panel panel-wide">
       <h2 id="ask-heading">2. Ask</h2>
       <p class="hint">Ask a question about what you uploaded, or ask for a diagram/drawing/flow of an

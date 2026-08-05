@@ -455,6 +455,22 @@ exactly what that decision is):
     before starting: does it just do routing + JWT pass-through validation,
     or also take over Security Phase 2's rate limiting at the edge instead
     of per-service filters?
+29. ✅ **New — Tenant admin role + permission-management screen** — done.
+    Decision: a per-tenant `ADMIN` role, not a platform-wide super-admin —
+    preserves the tenant isolation every other part of the codebase
+    already enforces. Bootstrap is automatic: whoever creates a tenant
+    (registers with no invitation) becomes its first ADMIN; a Flyway
+    migration (`V3__user_role.sql`) backfills the same rule retroactively
+    for tenants that already existed, promoting the earliest-created user
+    of each. An ADMIN can, in this first version: change the sharing of
+    *any* document in their tenant (the one bypass to ADR 0046's
+    owner-only check — the actual reason this screen exists), list the
+    tenant's members, and promote/demote them (blocked from changing their
+    own role outright, so a tenant can never end up with zero ADMINs). A
+    new `GET /api/v1/documents` (admin-only) fills the listing gap ADR
+    0046 explicitly left unbuilt. `web-ui` gained an admin panel, visible
+    only when the logged-in user's role is `ADMIN`, covering both actions.
+    See [ADR 0047](adr/0047-tenant-admin-role.md).
 
 ## Tier 3 (optional) — real, ongoing cost or a big commitment
 

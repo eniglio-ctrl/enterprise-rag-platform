@@ -44,6 +44,11 @@ public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(NotTenantAdminException.class)
+    public ResponseEntity<ErrorResponse> handleNotTenantAdmin(NotTenantAdminException ex, HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request);
+    }
+
     @ExceptionHandler(UnsupportedDocumentTypeException.class)
     public ResponseEntity<ErrorResponse> handleUnsupportedType(UnsupportedDocumentTypeException ex, HttpServletRequest request) {
         return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage(), request);

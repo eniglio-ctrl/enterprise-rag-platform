@@ -167,3 +167,9 @@ endpoint), verified via `curl`/tests, not a user-facing sharing workflow.
 A real product would need a document-management screen; that was
 explicitly out of scope for closing this roadmap item, which asked for the
 authorization model and its real enforcement, not a UI on top of it.
+
+**Update (ADR 0047)**: this gap is now closed for tenant ADMINs
+specifically — a new per-tenant `ADMIN` role, `GET /api/v1/documents`
+(admin-only), and a `web-ui` panel built on top of both. The sharing
+enforcement and write path documented above are unchanged; ADR 0047 only
+adds who else may call them and how they're discovered.

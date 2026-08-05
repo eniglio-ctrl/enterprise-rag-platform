@@ -50,6 +50,22 @@ public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
         return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
     }
 
+    @ExceptionHandler(NotTenantAdminException.class)
+    public ResponseEntity<ErrorResponse> handleNotTenantAdmin(NotTenantAdminException ex,
+            HttpServletRequest request) {
+        return build(HttpStatus.FORBIDDEN, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler({InvalidRoleException.class, CannotChangeOwnRoleException.class})
+    public ResponseEntity<ErrorResponse> handleInvalidRoleChange(RuntimeException ex, HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(UserNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex,
             HttpServletRequest request) {

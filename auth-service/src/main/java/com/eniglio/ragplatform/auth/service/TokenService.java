@@ -43,6 +43,7 @@ public class TokenService {
                 .issuer(ISSUER)
                 .claim("tenantId", user.tenantId())
                 .claim("email", user.email())
+                .claim("role", user.role().name())
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(expiresAt))
                 .build();

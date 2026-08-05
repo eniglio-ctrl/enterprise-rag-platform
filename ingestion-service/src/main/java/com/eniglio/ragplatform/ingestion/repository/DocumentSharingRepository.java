@@ -1,5 +1,7 @@
 package com.eniglio.ragplatform.ingestion.repository;
 
+import com.eniglio.ragplatform.common.authorization.DocumentVisibility;
+import com.eniglio.ragplatform.ingestion.dto.DocumentSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -8,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * docs/ROADMAP.md item #24: {@code vector_store} has one row per chunk, not one row
@@ -36,6 +39,23 @@ public class DocumentSharingRepository {
     // Postgres before adding it, not assumed.
     private static final String UPDATE_METADATA_SQL = "UPDATE vector_store SET metadata = ?::json WHERE id = ?::uuid";
 
+    // DISTINCT ON (documentId) picks one representative row per document - every chunk
+    // of a document already carries identical visibility/sharedWith (rewritten in
+    // lockstep by updateMetadata above), so any one of them is a correct summary. `id`
+    // as the tiebreaker ORDER BY key (ADR 0047) makes that choice deterministic across
+    // runs instead of leaning on that invariant silently.
+    private static final String SELECT_DOCUMENTS_SQL = """
+            SELECT DISTINCT ON (metadata->>'documentId')
+                   metadata->>'documentId'  AS document_id,
+                   metadata->>'source'      AS source,
+                   metadata->>'userId'      AS owner_id,
+                   metadata->>'visibility'  AS visibility,
+                   metadata->'sharedWith'   AS shared_with
+            FROM vector_store
+            WHERE tenant_id = ?
+            ORDER BY metadata->>'documentId', id
+            """;
+
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
@@ -52,6 +72,35 @@ public class DocumentSharingRepository {
 
     public void updateMetadata(String chunkId, Map<String, Object> metadata) {
         jdbcTemplate.update(UPDATE_METADATA_SQL, writeMetadata(metadata), chunkId);
+    }
+
+    /**
+     * ADR 0047: powers the admin-only document listing. {@code visibility} defaults to
+     * {@link DocumentVisibility#TENANT} when the column comes back null - documents
+     * ingested before ADR 0046 have no {@code "visibility"} key at all, and this must
+     * report the same default {@link DocumentVisibility#isVisibleTo} already applies.
+     */
+    public List<DocumentSummary> findDocuments(String tenantId) {
+        return jdbcTemplate.query(SELECT_DOCUMENTS_SQL,
+                (rs, rowNum) -> new DocumentSummary(
+                        rs.getString("document_id"),
+                        rs.getString("source"),
+                        rs.getString("owner_id"),
+                        Optional.ofNullable(rs.getString("visibility")).orElse(DocumentVisibility.TENANT),
+                        parseSharedWith(rs.getString("shared_with"))),
+                tenantId);
+    }
+
+    private List<String> parseSharedWith(String json) {
+        if (json == null) {
+            return List.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<List<String>>() {
+            });
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to parse a vector_store row's own sharedWith JSON", e);
+        }
     }
 
     private Map<String, Object> parseMetadata(String json) {

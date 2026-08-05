@@ -9,6 +9,7 @@ import com.eniglio.ragplatform.auth.repository.Invitation;
 import com.eniglio.ragplatform.auth.repository.TenantRepository;
 import com.eniglio.ragplatform.auth.repository.User;
 import com.eniglio.ragplatform.auth.repository.UserRepository;
+import com.eniglio.ragplatform.common.security.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -56,15 +57,22 @@ public class AuthService {
         }
 
         String tenantId;
+        Role role;
         if (request.invitationToken() == null || request.invitationToken().isBlank()) {
             tenantId = UUID.randomUUID().toString();
             tenantRepository.create(tenantId);
+            // ADR 0047: whoever creates a tenant becomes its first ADMIN, automatically -
+            // registering with no invitation is the only way a tenant comes into
+            // existence, so this is also the only bootstrap point a tenant's first ADMIN
+            // can come from.
+            role = Role.ADMIN;
         } else {
             Invitation invitation = invitationService.redeem(request.invitationToken(), request.email());
             tenantId = invitation.tenantId();
+            role = Role.MEMBER;
         }
 
-        User user = userRepository.create(tenantId, request.email(), passwordEncoder.encode(request.password()));
+        User user = userRepository.create(tenantId, request.email(), passwordEncoder.encode(request.password()), role);
         log.info("Registered user email={} tenantId={} userId={}", request.email(), tenantId, user.id());
         return toAuthResponse(user);
     }
@@ -81,6 +89,7 @@ public class AuthService {
 
     private AuthResponse toAuthResponse(User user) {
         String token = tokenService.issueToken(user);
-        return new AuthResponse(token, "Bearer", tokenService.tokenTtlSeconds(), user.tenantId(), user.id());
+        return new AuthResponse(token, "Bearer", tokenService.tokenTtlSeconds(), user.tenantId(), user.id(),
+                user.role().name());
     }
 }

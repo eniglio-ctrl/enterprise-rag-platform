@@ -9,6 +9,7 @@ import com.eniglio.ragplatform.auth.repository.Invitation;
 import com.eniglio.ragplatform.auth.repository.TenantRepository;
 import com.eniglio.ragplatform.auth.repository.User;
 import com.eniglio.ragplatform.auth.repository.UserRepository;
+import com.eniglio.ragplatform.common.security.Role;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -51,14 +52,15 @@ class AuthServiceTest {
     }
 
     @Test
-    void registeringWithNoInvitationTokenCreatesABrandNewTenant() {
+    void registeringWithNoInvitationTokenCreatesABrandNewTenantAndBecomesItsAdmin() {
         given(userRepository.existsByEmail("ana@example.com")).willReturn(false);
         given(passwordEncoder.encode("supersecret")).willReturn("hashed");
         given(tokenService.issueToken(any())).willReturn("jwt-token");
         given(tokenService.tokenTtlSeconds()).willReturn(3600L);
         ArgumentCaptor<String> tenantIdCaptor = ArgumentCaptor.forClass(String.class);
-        given(userRepository.create(tenantIdCaptor.capture(), eq("ana@example.com"), eq("hashed")))
-                .willAnswer(invocation -> new User("user-1", invocation.getArgument(0), "ana@example.com", "hashed"));
+        given(userRepository.create(tenantIdCaptor.capture(), eq("ana@example.com"), eq("hashed"), eq(Role.ADMIN)))
+                .willAnswer(invocation -> new User("user-1", invocation.getArgument(0), "ana@example.com", "hashed",
+                        Role.ADMIN));
 
         AuthResponse response = newService().register(new RegisterRequest("ana@example.com", "supersecret", null));
 
@@ -67,17 +69,18 @@ class AuthServiceTest {
         assertThat(response.tenantId()).isEqualTo(tenantIdCaptor.getValue());
         assertThat(response.token()).isEqualTo("jwt-token");
         assertThat(response.userId()).isEqualTo("user-1");
+        assertThat(response.role()).isEqualTo("ADMIN");
     }
 
     @Test
-    void registeringWithAValidInvitationTokenJoinsItsTenantInsteadOfCreatingOne() {
+    void registeringWithAValidInvitationTokenJoinsItsTenantAsAMemberInsteadOfCreatingOne() {
         given(userRepository.existsByEmail("ana@example.com")).willReturn(false);
         given(passwordEncoder.encode("supersecret")).willReturn("hashed");
         Invitation invitation = new Invitation("inv-1", "acme", "ana@example.com", "tok-1",
                 Instant.now().plusSeconds(3600), Instant.now(), Instant.now());
         given(invitationService.redeem("tok-1", "ana@example.com")).willReturn(invitation);
-        User created = new User("user-1", "acme", "ana@example.com", "hashed");
-        given(userRepository.create("acme", "ana@example.com", "hashed")).willReturn(created);
+        User created = new User("user-1", "acme", "ana@example.com", "hashed", Role.MEMBER);
+        given(userRepository.create("acme", "ana@example.com", "hashed", Role.MEMBER)).willReturn(created);
         given(tokenService.issueToken(created)).willReturn("jwt-token");
         given(tokenService.tokenTtlSeconds()).willReturn(3600L);
 
@@ -87,6 +90,7 @@ class AuthServiceTest {
         verify(tenantRepository, never()).create(anyString());
         assertThat(response.tenantId()).isEqualTo("acme");
         assertThat(response.token()).isEqualTo("jwt-token");
+        assertThat(response.role()).isEqualTo("MEMBER");
     }
 
     @Test
@@ -96,13 +100,13 @@ class AuthServiceTest {
         assertThatThrownBy(() -> newService().register(new RegisterRequest("ana@example.com", "supersecret", null)))
                 .isInstanceOf(EmailAlreadyExistsException.class);
 
-        verify(userRepository, never()).create(anyString(), anyString(), anyString());
+        verify(userRepository, never()).create(anyString(), anyString(), anyString(), any());
         verify(tenantRepository, never()).create(anyString());
     }
 
     @Test
     void logsInWithCorrectCredentialsAndIssuesAToken() {
-        User existing = new User("user-1", "acme", "ana@example.com", "hashed");
+        User existing = new User("user-1", "acme", "ana@example.com", "hashed", Role.MEMBER);
         given(userRepository.findByEmail("ana@example.com")).willReturn(Optional.of(existing));
         given(passwordEncoder.matches("supersecret", "hashed")).willReturn(true);
         given(tokenService.issueToken(existing)).willReturn("jwt-token");
@@ -124,7 +128,7 @@ class AuthServiceTest {
 
     @Test
     void rejectsLoginWithTheWrongPassword() {
-        User existing = new User("user-1", "acme", "ana@example.com", "hashed");
+        User existing = new User("user-1", "acme", "ana@example.com", "hashed", Role.MEMBER);
         given(userRepository.findByEmail("ana@example.com")).willReturn(Optional.of(existing));
         given(passwordEncoder.matches("wrong", "hashed")).willReturn(false);
 

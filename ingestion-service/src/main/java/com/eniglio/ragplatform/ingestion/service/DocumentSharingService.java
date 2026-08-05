@@ -1,11 +1,14 @@
 package com.eniglio.ragplatform.ingestion.service;
 
 import com.eniglio.ragplatform.common.authorization.DocumentVisibility;
+import com.eniglio.ragplatform.common.security.Role;
+import com.eniglio.ragplatform.ingestion.dto.DocumentSummary;
 import com.eniglio.ragplatform.ingestion.dto.SharingResponse;
 import com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest;
 import com.eniglio.ragplatform.ingestion.exception.DocumentNotFoundException;
 import com.eniglio.ragplatform.ingestion.exception.InvalidSharingRequestException;
 import com.eniglio.ragplatform.ingestion.exception.NotDocumentOwnerException;
+import com.eniglio.ragplatform.ingestion.exception.NotTenantAdminException;
 import com.eniglio.ragplatform.ingestion.repository.DocumentSharingRepository;
 import com.eniglio.ragplatform.ingestion.repository.DocumentSharingRepository.ChunkRow;
 import org.slf4j.Logger;
@@ -21,10 +24,10 @@ import java.util.Map;
  * docs/ROADMAP.md item #24: the one write path for the ABAC model
  * {@link DocumentVisibility} defines. Deliberately a separate action from upload
  * (every document starts {@code TENANT}-visible, {@code DocumentIngestionService}) —
- * only the document's own owner may narrow it afterward, checked here against every
- * chunk's shared {@code "userId"} metadata key, not against the caller's tenant alone
- * (tenant membership already lets you upload here; it doesn't make you the owner of
- * someone else's document).
+ * only the document's own owner, or a tenant ADMIN (ADR 0047), may narrow it
+ * afterward, checked here against every chunk's shared {@code "userId"} metadata key,
+ * not against the caller's tenant alone (tenant membership already lets you upload
+ * here; it doesn't make you the owner of someone else's document).
  */
 @Service
 public class DocumentSharingService {
@@ -37,7 +40,7 @@ public class DocumentSharingService {
         this.repository = repository;
     }
 
-    public SharingResponse updateSharing(String documentId, String tenantId, String callerUserId,
+    public SharingResponse updateSharing(String documentId, String tenantId, String callerUserId, Role callerRole,
                                           UpdateSharingRequest request) {
         List<ChunkRow> chunks = repository.findChunks(documentId, tenantId);
         if (chunks.isEmpty()) {
@@ -45,7 +48,11 @@ public class DocumentSharingService {
         }
 
         Object ownerId = chunks.get(0).metadata().get(DocumentVisibility.OWNER_KEY);
-        if (!callerUserId.equals(ownerId)) {
+        // ADR 0047: a tenant ADMIN may change the sharing of any document in their own
+        // tenant, not just ones they own themselves - the one bypass to the ownership
+        // check this service otherwise enforces. findChunks already scoped the lookup
+        // to the caller's own tenantId, so this never crosses a tenant boundary.
+        if (!callerUserId.equals(ownerId) && callerRole != Role.ADMIN) {
             throw new NotDocumentOwnerException(documentId);
         }
 
@@ -62,6 +69,14 @@ public class DocumentSharingService {
         log.info("Updated sharing for document {}: visibility={} sharedWithCount={}",
                 documentId, visibility, sharedWith.size());
         return new SharingResponse(documentId, visibility, sharedWith);
+    }
+
+    /** ADR 0047: admin-only - lists every document in the caller's own tenant. */
+    public List<DocumentSummary> listDocuments(String tenantId, Role callerRole) {
+        if (callerRole != Role.ADMIN) {
+            throw new NotTenantAdminException();
+        }
+        return repository.findDocuments(tenantId);
     }
 
     private String normalizeVisibility(String raw) {

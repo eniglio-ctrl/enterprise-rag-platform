@@ -522,7 +522,10 @@ vs. what's blocked on a decision or resource only the user can provide.
   audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)),
   Phase 8 (resource-level authorization — a lightweight ABAC model, owner +
   visibility + explicit sharing, verified live with two real users in the
-  same tenant, [ADR 0046](docs/adr/0046-resource-level-authorization-abac.md)),
+  same tenant, [ADR 0046](docs/adr/0046-resource-level-authorization-abac.md);
+  extended with a per-tenant `ADMIN` role, bootstrapped automatically, that
+  can manage any document's sharing and promote/demote teammates from a new
+  `web-ui` admin panel, [ADR 0047](docs/adr/0047-tenant-admin-role.md)),
   and Phase 9 (backups and disaster recovery — a real `pg_dumpall` backup
   restored into a genuinely fresh, isolated environment and verified with a
   real question against a real document,
@@ -589,6 +592,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0044 — Backups and disaster recovery: `pg_dumpall`/restore scripts, verified with a real backup restored into a genuinely fresh, isolated environment and a real question answered from it alone](docs/adr/0044-backups-and-disaster-recovery.md)
 - [ADR 0045 — Anthropic fallback wiring, shipped with no API key, plus graceful handling of a missing key/no credits for every fallback provider — verified live, turning a real pre-existing `500` (OpenAI's zero-credits account) into a graceful `200`](docs/adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md)
 - [ADR 0046 — Resource-level authorization: a lightweight ABAC model (owner + visibility + explicit sharing), enforced uniformly across every retrieval path, verified live with two real users in the same tenant](docs/adr/0046-resource-level-authorization-abac.md)
+- [ADR 0047 — A tenant-scoped ADMIN role, bootstrapped automatically, that can override any document's sharing and manage tenant membership from a new `web-ui` admin panel](docs/adr/0047-tenant-admin-role.md)
 
 ## License
 

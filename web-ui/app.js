@@ -30,6 +30,10 @@ const registerForm = document.getElementById("register-form");
 const registerStatus = document.getElementById("register-status");
 const inviteForm = document.getElementById("invite-form");
 const inviteStatus = document.getElementById("invite-status");
+const adminUsersList = document.getElementById("admin-users-list");
+const adminUsersStatus = document.getElementById("admin-users-status");
+const adminDocumentsList = document.getElementById("admin-documents-list");
+const adminDocumentsStatus = document.getElementById("admin-documents-status");
 
 function getAuth() {
   try {
@@ -46,10 +50,10 @@ function getAuth() {
   }
 }
 
-function setAuth({ token, expiresInSeconds, tenantId, userId, email }) {
+function setAuth({ token, expiresInSeconds, tenantId, userId, email, role }) {
   localStorage.setItem(
     TOKEN_STORAGE_KEY,
-    JSON.stringify({ token, expiresAt: Date.now() + expiresInSeconds * 1000, tenantId, userId, email })
+    JSON.stringify({ token, expiresAt: Date.now() + expiresInSeconds * 1000, tenantId, userId, email, role })
   );
   renderAuthState();
 }
@@ -74,6 +78,7 @@ function renderAuthState() {
     authBar.hidden = true;
     document.getElementById("upload-panel").hidden = true;
     document.getElementById("invite-panel").hidden = true;
+    document.getElementById("admin-panel").hidden = true;
     document.getElementById("conversation-panel").hidden = true;
     document.getElementById("demo-banner").hidden = false;
     document.getElementById("ask-heading").textContent = "Ask";
@@ -89,6 +94,14 @@ function renderAuthState() {
   if (authenticated) {
     authSummary.textContent = `${auth.email ?? auth.userId} · tenant ${auth.tenantId}`;
     loadModels();
+  }
+  // ADR 0047: the admin panel only exists for a tenant's ADMIN - `role` rides along
+  // on AuthResponse into localStorage for free (setAuth spreads the whole login/
+  // register response body), so no separate lookup is needed here.
+  const adminPanel = document.getElementById("admin-panel");
+  adminPanel.hidden = !authenticated || auth.role !== "ADMIN";
+  if (authenticated && auth.role === "ADMIN") {
+    loadAdminPanel();
   }
 }
 
@@ -115,6 +128,136 @@ async function loadModels() {
     // Model picker is a convenience, not a critical path — if it fails to load,
     // /api/v1/ask still works with the server's own default model.
   }
+}
+
+// ADR 0047: admin-only panel - fetches the tenant's members and every document in the
+// tenant (not just the caller's own), so an admin can promote/demote teammates and
+// override any document's sharing settings. Both requests 403 for a non-admin, but
+// this is only ever called after renderAuthState() already checked auth.role.
+async function loadAdminPanel() {
+  try {
+    const [usersResponse, documentsResponse] = await Promise.all([
+      fetch(`${AUTH_BASE}/api/v1/auth/users`, { headers: authHeader() }),
+      fetch(`${INGESTION_BASE}/api/v1/documents`, { headers: authHeader() }),
+    ]);
+    if (!usersResponse.ok || !documentsResponse.ok) {
+      throw new Error("Could not load the admin panel.");
+    }
+    const users = await usersResponse.json();
+    const documents = await documentsResponse.json();
+    renderAdminUsers(users);
+    // The owner's email and the "share with" checkboxes are resolved client-side by
+    // joining on `users` here - ingestion-service (owner of documents) never calls
+    // auth-service (owner of users), keeping the services decoupled the way they
+    // already are everywhere else in this codebase.
+    renderAdminDocuments(documents, users);
+  } catch (error) {
+    setStatus(adminUsersStatus, error.message ?? "Could not load the admin panel.", "error");
+  }
+}
+
+function renderAdminUsers(users) {
+  const auth = getAuth();
+  adminUsersList.innerHTML = "";
+  users.forEach((user) => {
+    const item = document.createElement("li");
+    const isSelf = user.id === auth?.userId;
+    const nextRole = user.role === "ADMIN" ? "MEMBER" : "ADMIN";
+    item.innerHTML = `
+      <span class="source">${escapeHtml(user.email)}</span>
+      <span class="meta">${escapeHtml(user.role)}</span>
+      ${isSelf ? "" : `<button type="button" data-user-id="${escapeHtml(user.id)}" data-next-role="${nextRole}">${
+        nextRole === "ADMIN" ? "Make admin" : "Make member"
+      }</button>`}
+    `;
+    adminUsersList.appendChild(item);
+  });
+
+  adminUsersList.querySelectorAll("button[data-user-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      setStatus(adminUsersStatus, "Updating role...");
+      try {
+        const response = await fetch(
+          `${AUTH_BASE}/api/v1/auth/users/${button.dataset.userId}/role`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...authHeader() },
+            body: JSON.stringify({ role: button.dataset.nextRole }),
+          },
+        );
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.message ?? "Could not update the role.");
+        }
+        setStatus(adminUsersStatus, "", "");
+        loadAdminPanel();
+      } catch (error) {
+        setStatus(adminUsersStatus, error.message ?? "Could not update the role.", "error");
+      }
+    });
+  });
+}
+
+function renderAdminDocuments(documents, users) {
+  const emailById = new Map(users.map((user) => [user.id, user.email]));
+  adminDocumentsList.innerHTML = "";
+  documents.forEach((doc) => {
+    const item = document.createElement("li");
+    const ownerEmail = emailById.get(doc.ownerId) ?? doc.ownerId;
+    const checkboxes = users
+      .filter((user) => user.id !== doc.ownerId)
+      .map((user) => `
+        <label>
+          <input type="checkbox" value="${escapeHtml(user.id)}" ${doc.sharedWith.includes(user.id) ? "checked" : ""} />
+          ${escapeHtml(user.email)}
+        </label>
+      `)
+      .join("");
+    item.innerHTML = `
+      <div>
+        <span class="source">${escapeHtml(doc.source)}</span>
+        <span class="meta">owner: ${escapeHtml(ownerEmail)}</span>
+      </div>
+      <div class="admin-document-controls">
+        <select class="admin-visibility-select">
+          <option value="TENANT" ${doc.visibility === "TENANT" ? "selected" : ""}>Visible to the whole tenant</option>
+          <option value="RESTRICTED" ${doc.visibility === "RESTRICTED" ? "selected" : ""}>Restricted</option>
+        </select>
+        <button type="button" class="admin-save-sharing">Save</button>
+      </div>
+      <div class="admin-shared-with" ${doc.visibility === "RESTRICTED" ? "" : "hidden"}>${checkboxes}</div>
+      <div class="status admin-doc-status" hidden></div>
+    `;
+
+    const select = item.querySelector(".admin-visibility-select");
+    const sharedWithDiv = item.querySelector(".admin-shared-with");
+    const docStatus = item.querySelector(".admin-doc-status");
+    select.addEventListener("change", () => {
+      sharedWithDiv.hidden = select.value !== "RESTRICTED";
+    });
+
+    item.querySelector(".admin-save-sharing").addEventListener("click", async () => {
+      const visibility = select.value;
+      const sharedWith = Array.from(sharedWithDiv.querySelectorAll("input:checked")).map((input) => input.value);
+      setStatus(docStatus, "Saving...");
+      try {
+        const response = await fetch(`${INGESTION_BASE}/api/v1/documents/${doc.documentId}/sharing`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", ...authHeader() },
+          body: JSON.stringify({ visibility, sharedWith }),
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.message ?? "Could not update sharing.");
+        }
+        setStatus(docStatus, "Saved.", "success");
+      } catch (error) {
+        setStatus(docStatus, error.message ?? "Could not update sharing.", "error");
+      }
+    });
+
+    adminDocumentsList.appendChild(item);
+  });
 }
 
 loginForm.addEventListener("submit", async (event) => {

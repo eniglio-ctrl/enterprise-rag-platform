@@ -19,6 +19,7 @@ import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -39,10 +40,12 @@ import java.util.Random;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -79,6 +82,9 @@ class DocumentIngestionIT {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @MockitoBean
     private EmbeddingModel embeddingModel;
@@ -223,6 +229,75 @@ class DocumentIngestionIT {
                         .content(objectMapper.writeValueAsString(
                                 new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest("PUBLIC", List.of()))))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aTenantAdminCanRestrictADocumentTheyDoNotOwn() throws Exception {
+        // ADR 0047: the one bypass to the ownership check above - same tenant, a
+        // different user, but with role=ADMIN on their token.
+        stubEmbeddingModel();
+        String documentId = uploadMarkdown("aula12.md", "user-owner", "acme");
+
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", documentId)
+                        .with(jwt().jwt(token -> token.subject("user-admin").claim("tenantId", "acme")
+                                .claim("role", "ADMIN")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest(
+                                        "RESTRICTED", List.of("user-shared")))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility").value("RESTRICTED"));
+    }
+
+    @Test
+    void listingDocumentsRequiresATenantAdmin() throws Exception {
+        mockMvc.perform(get("/api/v1/documents")
+                        .with(jwt().jwt(token -> token.subject("user-other").claim("tenantId", "acme"))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aTenantAdminCanListEveryDocumentInTheTenantIncludingOnesIngestedBeforeAdr0046() throws Exception {
+        // A dedicated tenant, not the shared "acme" every other test in this class also
+        // uploads into - otherwise the exact document count asserted below would depend
+        // on test execution order.
+        String tenantId = "admin-list-" + java.util.UUID.randomUUID();
+        stubEmbeddingModel();
+        String restrictedDocId = uploadMarkdown("aula12.md", "user-owner", tenantId);
+        mockMvc.perform(patch("/api/v1/documents/{documentId}/sharing", restrictedDocId)
+                        .with(jwt().jwt(token -> token.subject("user-owner").claim("tenantId", tenantId)))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(
+                                new com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest(
+                                        "RESTRICTED", List.of("user-shared")))))
+                .andExpect(status().isOk());
+
+        String legacyDocId = uploadMarkdown("legacy.md", "user-owner", tenantId);
+        // Simulates a chunk ingested before ADR 0046 introduced the "visibility" key at
+        // all - `metadata` is `json`, not `jsonb` (V1 migration), so the `jsonb -` key
+        // removal operator needs an explicit round-trip cast.
+        jdbcTemplate.update(
+                "UPDATE vector_store SET metadata = (metadata::jsonb - 'visibility')::json "
+                        + "WHERE metadata->>'documentId' = ?",
+                legacyDocId);
+
+        MvcResult result = mockMvc.perform(get("/api/v1/documents")
+                        .with(jwt().jwt(token -> token.subject("user-admin").claim("tenantId", tenantId)
+                                .claim("role", "ADMIN"))))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        var documents = objectMapper.readTree(result.getResponse().getContentAsString());
+        assertThat(documents.size()).isEqualTo(2);
+        var byId = new java.util.HashMap<String, com.fasterxml.jackson.databind.JsonNode>();
+        documents.forEach(doc -> byId.put(doc.get("documentId").asText(), doc));
+
+        assertThat(byId.get(restrictedDocId).get("visibility").asText()).isEqualTo("RESTRICTED");
+        assertThat(byId.get(restrictedDocId).get("sharedWith").get(0).asText()).isEqualTo("user-shared");
+        assertThat(byId.get(restrictedDocId).get("ownerId").asText()).isEqualTo("user-owner");
+        // No "visibility" key at all must still default to TENANT, not null - the same
+        // default DocumentVisibility.isVisibleTo already applies for retrieval.
+        assertThat(byId.get(legacyDocId).get("visibility").asText()).isEqualTo("TENANT");
     }
 
     private String uploadMarkdown(String filename, String userId, String tenantId) throws Exception {

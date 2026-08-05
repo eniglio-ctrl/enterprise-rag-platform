@@ -1,6 +1,7 @@
 package com.eniglio.ragplatform.ingestion.controller;
 
 import com.eniglio.ragplatform.common.security.JwtClaims;
+import com.eniglio.ragplatform.ingestion.dto.DocumentSummary;
 import com.eniglio.ragplatform.ingestion.dto.IngestResponse;
 import com.eniglio.ragplatform.ingestion.dto.SharingResponse;
 import com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -22,6 +24,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @Tag(name = "Documents", description = "Upload and ingestion of source documents")
@@ -66,6 +70,16 @@ public class DocumentController {
             @Valid @RequestBody UpdateSharingRequest request,
             @AuthenticationPrincipal Jwt jwt) {
         return documentSharingService.updateSharing(documentId, JwtClaims.tenantId(jwt), JwtClaims.userId(jwt),
-                request);
+                JwtClaims.role(jwt), request);
+    }
+
+    @Operation(summary = "List every document in the caller's tenant",
+            description = "ADR 0047: admin-only, powers the permission-management screen - shows the owner, "
+                    + "visibility and sharedWith of every document in the tenant, not just the caller's own.")
+    @ApiResponse(responseCode = "200", description = "Tenant documents")
+    @ApiResponse(responseCode = "403", description = "Caller is not a tenant admin")
+    @GetMapping("/api/v1/documents")
+    public List<DocumentSummary> listDocuments(@AuthenticationPrincipal Jwt jwt) {
+        return documentSharingService.listDocuments(JwtClaims.tenantId(jwt), JwtClaims.role(jwt));
     }
 }

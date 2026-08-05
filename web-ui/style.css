@@ -295,6 +295,32 @@ button:disabled {
   color: var(--color-muted);
 }
 
+.admin-documents-list li {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.admin-document-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.admin-shared-with {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+}
+
+.admin-shared-with label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+}
+
 .fallback-confirm-card {
   margin-top: 1.25rem;
   padding: 1rem;

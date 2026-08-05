@@ -22,9 +22,17 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -80,6 +88,10 @@ class AuthIT {
         JsonNode registerJson = objectMapper.readTree(registerResult.getResponse().getContentAsString());
         assertThat(registerJson.get("tenantId").asText()).isNotBlank();
         assertThat(registerJson.get("tokenType").asText()).isEqualTo("Bearer");
+        // ADR 0047: whoever creates a tenant (registers with no invitation) becomes its
+        // first ADMIN automatically - there is no other way a tenant's first ADMIN can
+        // come into existence.
+        assertThat(registerJson.get("role").asText()).isEqualTo("ADMIN");
         String tenantId = registerJson.get("tenantId").asText();
         String token = registerJson.get("token").asText();
 
@@ -158,6 +170,9 @@ class AuthIT {
 
         JsonNode registerJson = objectMapper.readTree(registerResult.getResponse().getContentAsString());
         assertThat(registerJson.get("tenantId").asText()).isEqualTo(ownerTenantId);
+        // ADR 0047: joining through an invitation always grants MEMBER, never ADMIN -
+        // promotion is a separate, explicit action an existing admin takes afterward.
+        assertThat(registerJson.get("role").asText()).isEqualTo("MEMBER");
     }
 
     @Test
@@ -204,6 +219,164 @@ class AuthIT {
                 """.formatted(token);
         mockMvc.perform(post("/api/v1/auth/register").contentType(MediaType.APPLICATION_JSON).content(registerBody))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aTenantAdminCanListItsMembersButAMemberCannot() throws Exception {
+        String ownerToken = registerAndGetToken("admin1@example.com");
+        String memberToken = registerTeammateAndGetToken(ownerToken, "member1@example.com");
+
+        mockMvc.perform(get("/api/v1/auth/users").header("Authorization", "Bearer " + memberToken))
+                .andExpect(status().isForbidden());
+
+        MvcResult listResult = mockMvc.perform(
+                        get("/api/v1/auth/users").header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode users = objectMapper.readTree(listResult.getResponse().getContentAsString());
+        assertThat(users.size()).isEqualTo(2);
+        List<String> emailAndRole = new ArrayList<>();
+        users.forEach(user -> emailAndRole.add(user.get("email").asText() + ":" + user.get("role").asText()));
+        assertThat(emailAndRole).containsExactlyInAnyOrder("admin1@example.com:ADMIN", "member1@example.com:MEMBER");
+    }
+
+    @Test
+    void aTenantAdminCanPromoteAndDemoteATeammate() throws Exception {
+        String ownerToken = registerAndGetToken("admin2@example.com");
+        String memberToken = registerTeammateAndGetToken(ownerToken, "member2@example.com");
+        String memberUserId = userIdOf(memberToken);
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + memberUserId + "/role")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"));
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + memberUserId + "/role")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("MEMBER"));
+    }
+
+    @Test
+    void aNonAdminCannotChangeAnyonesRole() throws Exception {
+        String ownerToken = registerAndGetToken("admin3@example.com");
+        String memberToken = registerTeammateAndGetToken(ownerToken, "member3@example.com");
+        String ownerUserId = userIdOf(ownerToken);
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + ownerUserId + "/role")
+                        .header("Authorization", "Bearer " + memberToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void anAdminCannotChangeTheirOwnRole() throws Exception {
+        String ownerToken = registerAndGetToken("admin4@example.com");
+        String ownerUserId = userIdOf(ownerToken);
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + ownerUserId + "/role")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rejectsAnInvalidRoleValue() throws Exception {
+        String ownerToken = registerAndGetToken("admin5@example.com");
+        String memberToken = registerTeammateAndGetToken(ownerToken, "member5@example.com");
+        String memberUserId = userIdOf(memberToken);
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + memberUserId + "/role")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"SUPERUSER\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void changingTheRoleOfAUserInAnotherTenantReturns404() throws Exception {
+        String owner1Token = registerAndGetToken("admin6@example.com");
+        String owner2Token = registerAndGetToken("admin7@example.com");
+        String owner2UserId = userIdOf(owner2Token);
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + owner2UserId + "/role")
+                        .header("Authorization", "Bearer " + owner1Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void changingTheRoleOfAnUnknownUserReturns404() throws Exception {
+        String ownerToken = registerAndGetToken("admin8@example.com");
+
+        mockMvc.perform(patch("/api/v1/auth/users/" + UUID.randomUUID() + "/role")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"MEMBER\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void theBackfillQueryPromotesTheEarliestUserOfATenantToAdmin() {
+        // Mirrors V3__user_role.sql's backfill UPDATE, scoped to one tenant_id here so
+        // it can't touch rows other tests in this class create against the same shared
+        // container. The migration itself already ran (against an empty `users` table)
+        // when this container started, so this is how the DISTINCT ON + ORDER BY logic
+        // actually gets exercised against real, deliberately-ordered rows.
+        String tenantId = "legacy-tenant-" + UUID.randomUUID();
+        jdbcTemplate.update("INSERT INTO tenants (id) VALUES (?)", tenantId);
+        UUID earliest = insertLegacyUser(tenantId, "first@example.com", Instant.now().minusSeconds(120));
+        UUID middle = insertLegacyUser(tenantId, "second@example.com", Instant.now().minusSeconds(60));
+        UUID latest = insertLegacyUser(tenantId, "third@example.com", Instant.now());
+
+        jdbcTemplate.update("""
+                UPDATE users SET role = 'ADMIN'
+                WHERE id IN (
+                    SELECT DISTINCT ON (tenant_id) id FROM users
+                    WHERE tenant_id = ?
+                    ORDER BY tenant_id, created_at ASC
+                )
+                """, tenantId);
+
+        assertThat(roleOf(earliest)).isEqualTo("ADMIN");
+        assertThat(roleOf(middle)).isEqualTo("MEMBER");
+        assertThat(roleOf(latest)).isEqualTo("MEMBER");
+    }
+
+    private UUID insertLegacyUser(String tenantId, String email, Instant createdAt) {
+        UUID id = UUID.randomUUID();
+        jdbcTemplate.update(
+                "INSERT INTO users (id, tenant_id, email, password_hash, created_at) VALUES (?, ?, ?, 'hash', ?)",
+                id, tenantId, email, Timestamp.from(createdAt));
+        return id;
+    }
+
+    private String roleOf(UUID userId) {
+        return jdbcTemplate.queryForObject("SELECT role FROM users WHERE id = ?::uuid", String.class, userId.toString());
+    }
+
+    private String registerTeammateAndGetToken(String ownerToken, String email) throws Exception {
+        String invitationToken = createInvitation(ownerToken, email);
+        String body = """
+                {"email":"%s","password":"supersecret","invitationToken":"%s"}
+                """.formatted(email, invitationToken);
+        MvcResult result = mockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return objectMapper.readTree(result.getResponse().getContentAsString()).get("token").asText();
+    }
+
+    private String userIdOf(String token) throws Exception {
+        return SignedJWT.parse(token).getJWTClaimsSet().getSubject();
     }
 
     private String registerAndGetToken(String email) throws Exception {

@@ -43,7 +43,7 @@
 | 5 | API Gateway / BFF at the edge | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #24 | Phase 4 (the gateway is where centralized timeout/rate-limit policy would live) |
 | 6 | Distributed tracing (OpenTelemetry) | ⬜ Not started — already tracked as the OpenTelemetry half of `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md` Phase 7 | Phase 5 (a trace crossing the gateway is the whole point) |
 | 7 | Redis (distributed rate limit, cache, sessions) | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #19 | Real multi-replica deployment or measured load — not before |
-| 8 | Resource-level authorization (RBAC/ABAC) | ✅ Done — ABAC — [ADR 0046](adr/0046-resource-level-authorization-abac.md) | — |
+| 8 | Resource-level authorization (RBAC/ABAC) | ✅ Done — ABAC — [ADR 0046](adr/0046-resource-level-authorization-abac.md); extended with a tenant `ADMIN` role — [ADR 0047](adr/0047-tenant-admin-role.md) | — |
 | 9 | Backups and disaster recovery | ✅ Done — [ADR 0044](adr/0044-backups-and-disaster-recovery.md) | — |
 
 **Recommended order, in the user's own words**: "fechar upload seguro → fila
@@ -257,6 +257,14 @@ fixed by writing real tests, not assumed away: a missing `@PathVariable`
 name (this build has no `-parameters` flag, so Spring couldn't infer it)
 and a Postgres `uuid = character varying` type mismatch in the sharing
 repository's `UPDATE` (`vector_store.id` is `uuid`, V1 migration).
+
+**Extended (ADR 0047, `docs/ROADMAP.md` item #29)**: a per-tenant `ADMIN`
+role (bootstrapped automatically — whoever creates a tenant becomes its
+first ADMIN, with a Flyway backfill for tenants that already existed) that
+may override the owner-only check above for any document in its own
+tenant, list the tenant's members, and promote/demote them. `GET
+/api/v1/documents` (admin-only) and a `web-ui` admin panel close the
+"no listing/management UI" gap this phase originally left open.
 
 ## Phase 9 — Backups and disaster recovery ✅
 
