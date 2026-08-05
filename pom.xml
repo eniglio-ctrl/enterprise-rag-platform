@@ -39,7 +39,7 @@
             (Maven Central redirected it starting with the 8.x line).
         -->
         <bucket4j.version>8.19.0</bucket4j.version>
-        <jacoco.version>0.8.12</jacoco.version>
+        <jacoco.version>0.8.15</jacoco.version>
         <!--
             SonarCloud org/project key follow its default convention
             (GitHub org, and <github-org>_<repo-name>) - verify both match
