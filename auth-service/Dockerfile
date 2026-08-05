@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:24-jdk AS build
 WORKDIR /workspace
 
 COPY .mvn/ .mvn/
@@ -14,7 +14,7 @@ COPY platform-common/src platform-common/src
 COPY auth-service/src auth-service/src
 RUN ./mvnw -q -pl auth-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:24-jre
 WORKDIR /app
 COPY --from=build /workspace/auth-service/target/auth-service.jar app.jar
 EXPOSE 8084
