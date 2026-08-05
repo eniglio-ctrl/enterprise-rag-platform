@@ -382,15 +382,29 @@ exactly what that decision is):
     (`web-ui/_headers`); researched (not guessed) Render's real
     `X-Forwarded-For` behavior and documented why `trusted-proxy-hops`
     deliberately stays `0` (see [ADR 0033](adr/0033-public-demo-hardening.md)).
-21. ⬜ **Secrets and configuration management for production** — decide
-    which secrets backend (Vault, a cloud-managed store, or plain
-    Kubernetes `Secret`s with an external-secrets operator) before any
-    implementation. See
-    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
-    Phase 2 for the full account — today's `.env`-based secrets (Security
-    Phase 3, ADR 0029) are real and correct for dev/demo use, but
-    structurally can't rotate without a redeploy or provide an audit trail,
-    which a real deployment would need.
+21. ✅ **Secrets and configuration management for production** — done.
+    Decision: HashiCorp Vault, dev mode, run locally via docker-compose —
+    free, no cloud account. `auth-service`'s JWT signing key now sources
+    from Vault's KV backend (same `auth.signing-key.value` property name
+    `JWT_SIGNING_KEY` used to populate directly). `JwtKeyProvider` reads
+    `Environment` directly and re-resolves on an `EnvironmentChangeEvent`
+    (fired by `POST /actuator/refresh`) — the third design tried, after
+    two that looked correct on paper and were disproved by actually
+    running them: `@RefreshScope` never actually re-triggered the
+    constructor in this config-data-import setup, and re-fetching
+    `AuthProperties` via `ObjectProvider` raced `ConfigurationPropertiesRebinder`
+    listening to the same event on a different bean. **Verified for
+    real**, not just reasoned about: a new `VaultKeyRotationIT`
+    (Testcontainers Vault, no mocks) rotates a real generated key through
+    a real Vault and a real refresh, and confirms a token issued
+    afterward verifies against a public key matching the new key's exact
+    thumbprint in the same running process — plus a manual pass against the actual
+    docker-compose stack, confirmed via `docker inspect`'s `StartedAt`
+    that `auth-service` was never restarted. One real bug found only by
+    running the test suite: Spring Cloud Vault builds its token
+    authentication eagerly and throws on a blank token before
+    `optional:`/fail-fast can help — fixed with a non-blank placeholder
+    default. See [ADR 0048](adr/0048-vault-for-the-jwt-signing-key.md).
 22. ⬜ **Multi-LLM Phase 5 — Redis** — decide whether Tier 1 #4's
     distributed rate-limiting need actually justifies it, or skip until a
     clearer justification exists. Only once there's more than one replica

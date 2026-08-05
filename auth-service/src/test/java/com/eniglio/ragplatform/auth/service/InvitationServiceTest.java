@@ -26,7 +26,7 @@ class InvitationServiceTest {
     private InvitationRepository invitationRepository;
 
     private InvitationService newService() {
-        AuthProperties properties = new AuthProperties(Duration.ofHours(1), Duration.ofDays(7), null);
+        AuthProperties properties = new AuthProperties(Duration.ofHours(1), Duration.ofDays(7));
         return new InvitationService(invitationRepository, properties);
     }
 

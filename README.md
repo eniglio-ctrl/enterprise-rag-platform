@@ -517,9 +517,14 @@ vs. what's blocked on a decision or resource only the user can provide.
   ([docs/PRODUCTION-READINESS-ROADMAP.md](docs/PRODUCTION-READINESS-ROADMAP.md)) —
   a deliberately separate concern from the two roadmaps above: what this project
   would need to run for real, not to demonstrate AI-engineering skill. Phase 1
-  (closing the DOCX upload gap), Phase 4 (operational resilience
-  hardening — bulkheads, readiness/liveness probe split, a full timeout
-  audit, [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)),
+  (closing the DOCX upload gap), Phase 2 (secrets/config management — HashiCorp
+  Vault in dev mode, sourcing the JWT signing key with no code change to its
+  own resolution logic, rotation-without-restart verified by a real
+  Testcontainers-backed test,
+  [ADR 0048](docs/adr/0048-vault-for-the-jwt-signing-key.md)), Phase 4
+  (operational resilience hardening — bulkheads, readiness/liveness probe
+  split, a full timeout audit,
+  [ADR 0043](docs/adr/0043-operational-resilience-hardening.md)),
   Phase 8 (resource-level authorization — a lightweight ABAC model, owner +
   visibility + explicit sharing, verified live with two real users in the
   same tenant, [ADR 0046](docs/adr/0046-resource-level-authorization-abac.md);
@@ -530,9 +535,9 @@ vs. what's blocked on a decision or resource only the user can provide.
   restored into a genuinely fresh, isolated environment and verified with a
   real question against a real document,
   [ADR 0044](docs/adr/0044-backups-and-disaster-recovery.md)) are done; the
-  other five (secrets/config management, async ingestion + object storage,
-  an API gateway, distributed tracing, and Redis only once real scale
-  justifies it) are still planning only as of 2026-08-05. Explicitly **not** a claim
+  other four (async ingestion + object storage, an API gateway, distributed
+  tracing, and Redis only once real scale justifies it) are still planning
+  only as of 2026-08-05. Explicitly **not** a claim
   that the current stack is unfinished: it's a working, honestly-scoped
   portfolio project today, and this file exists so the next evolution (if and
   when wanted) has a thought-through order instead of an ungrounded technology
@@ -593,6 +598,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0045 — Anthropic fallback wiring, shipped with no API key, plus graceful handling of a missing key/no credits for every fallback provider — verified live, turning a real pre-existing `500` (OpenAI's zero-credits account) into a graceful `200`](docs/adr/0045-anthropic-fallback-and-graceful-provider-unavailability.md)
 - [ADR 0046 — Resource-level authorization: a lightweight ABAC model (owner + visibility + explicit sharing), enforced uniformly across every retrieval path, verified live with two real users in the same tenant](docs/adr/0046-resource-level-authorization-abac.md)
 - [ADR 0047 — A tenant-scoped ADMIN role, bootstrapped automatically, that can override any document's sharing and manage tenant membership from a new `web-ui` admin panel](docs/adr/0047-tenant-admin-role.md)
+- [ADR 0048 — HashiCorp Vault (dev mode) sources the JWT signing key; two designs that looked correct on paper (`@RefreshScope`, then `ObjectProvider`) were disproved by actually running them before landing on reading `Environment` directly, verified by a Testcontainers-backed rotation test](docs/adr/0048-vault-for-the-jwt-signing-key.md)
 
 ## License
 

@@ -37,7 +37,7 @@
 | Phase | What | Status | Depends on |
 |---|---|---|---|
 | 1 | Close the upload validation gap (zip-as-docx + zip bomb) | ✅ Done — `docs/ROADMAP.md` Tier 1 #13, [ADR 0022](adr/0022-upload-validation-hardening.md)'s "Update" section | — |
-| 2 | Secrets and configuration management for production | ⬜ Not started | — |
+| 2 | Secrets and configuration management for production | ✅ Done — Vault (dev mode) — [ADR 0048](adr/0048-vault-for-the-jwt-signing-key.md) | — |
 | 3 | Async ingestion (queue) + separate file storage | ⬜ Not started — the queue half already tracked as `docs/ROADMAP.md` Tier 2 #23 | Phase 2 (storage credentials need real secrets management first) |
 | 4 | Operational resilience hardening (timeouts, concurrency limits, readiness probes) | ✅ Done — [ADR 0043](adr/0043-operational-resilience-hardening.md) | — |
 | 5 | API Gateway / BFF at the edge | ⬜ Not started — already tracked as `docs/ROADMAP.md` Tier 2 #24 | Phase 4 (the gateway is where centralized timeout/rate-limit policy would live) |
@@ -72,10 +72,17 @@ infrastructure to fix (a code change to `UploadValidationService`, not a new
 dependency) — exactly the kind of item worth closing before anything else
 that does need a design decision or new infrastructure.
 
-## Phase 2 — Secrets and configuration management for production ⬜
+## Phase 2 — Secrets and configuration management for production ✅
 
-**Not started. Genuinely new — no existing tracking anywhere in this
-project.** Today's secrets story (Security Phase 3, ADR 0029) is real but
+**Done.** Decision: HashiCorp Vault, dev mode, run locally via
+docker-compose — free, no cloud account, verified for real via a
+Testcontainers-backed integration test (`VaultKeyRotationIT`) that rotates
+the JWT signing key through a real Vault and confirms the running process
+picks it up via `POST /actuator/refresh`, with no restart. Full account:
+[ADR 0048](adr/0048-vault-for-the-jwt-signing-key.md).
+
+Before this phase's account (kept below for the original framing), today's
+secrets story (Security Phase 3, ADR 0029) is real but
 explicitly dev/demo-shaped: a gitignored `.env` file `docker-compose.yml`
 requires and fails fast without, `.env.example` documenting every variable,
 and (Security Phase 4, ADR 0031) a JWT signing key that can be mounted as a
@@ -100,14 +107,37 @@ What "production" actually needs, that `.env` structurally can't provide:
   structural barrier stopping a demo credential from ending up in a
   prod-shaped config by copy-paste error.
 
-**Done when**: a concrete decision on which secrets backend (Vault vs. a
-cloud-managed store vs. plain Kubernetes `Secret`s with an external-secrets
-operator) is made — this phase is blocked on that decision more than on
-implementation effort — followed by at least one real secret (the JWT
-signing key is the highest-value candidate, given ADR 0016's own
-already-named "no rotation" limitation) actually sourced from it instead of
-an env var, verified by rotating it once without restarting the service that
-consumes it.
+**Done when, verified for real**: `JwtKeyProvider` (`auth-service`) now
+sources `auth.signing-key.value` from Vault's KV backend (same property
+name `${JWT_SIGNING_KEY:}` used to populate directly). It reads
+`Environment` directly and re-resolves on an `EnvironmentChangeEvent` -
+the third design tried, after two that looked correct on paper and were
+disproved only by actually running them: `@RefreshScope` never
+re-triggered the constructor in this config-data-import setup, and
+re-fetching `AuthProperties` via `ObjectProvider` raced
+`ConfigurationPropertiesRebinder` listening to the same event on a
+different bean (full account, including how each attempt was caught, in
+[ADR 0048](adr/0048-vault-for-the-jwt-signing-key.md)). A new
+`VaultKeyRotationIT` proves rotation end-to-end against a real
+Testcontainers Vault: seed key A, issue a token, verify it against the
+real JWKS *and* that the kid matches key A's own exact thumbprint (the
+stricter check that caught the second attempt's bug); overwrite the
+secret with key B; `POST /actuator/refresh`; issue a new token and
+confirm it verifies against key B's exact thumbprint, in the same
+process — and that the pre-rotation token no longer verifies
+post-rotation (a real, deliberate hard-cutover, not a grace-period
+rotation — see the ADR's limitations section). Manually re-verified
+against the actual docker-compose stack too, confirming via `docker
+inspect`'s `StartedAt` that `auth-service` was never restarted. Two more
+real bugs found only by running things for real, not by reasoning about
+the YAML: `spring.cloud.vault.enabled: false` in the test profile didn't
+stop Spring Cloud Vault from eagerly building its `TOKEN` authentication
+and throwing on a blank token before `optional:`/fail-fast could help
+(fixed with a non-blank placeholder default); and `@DynamicPropertySource`
+resolves too late for `spring.config.import: vault://` to see it, causing
+every automated run to silently fall back to an ephemeral key and pass
+for the wrong reason (fixed by setting JVM system properties in a static
+initializer instead).
 
 ## Phase 3 — Async ingestion (queue) + separate file storage ⬜
 

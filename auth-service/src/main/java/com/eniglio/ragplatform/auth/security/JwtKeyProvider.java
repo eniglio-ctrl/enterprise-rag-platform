@@ -8,6 +8,9 @@ import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -42,17 +45,57 @@ import java.util.UUID;
  * logging a loud warning - fine for tests (a JVM that never restarts mid-test doesn't
  * care that the key isn't persisted), never acceptable for a real deployment, which
  * always supplies one of the two properties.
+ * <p>
+ * Re-resolves the key on an {@link EnvironmentChangeEvent} (Production Readiness
+ * Phase 2, ADR 0048) - fired by {@code POST /actuator/refresh} after Vault's secret
+ * changes. Two designs were tried and disproved by actually running this against the
+ * real stack before landing on reading {@link Environment} directly, below:
+ * <ol>
+ *   <li>{@code @RefreshScope} looked correct on paper ({@link AuthProperties} is a
+ *   {@code @ConfigurationProperties} record that already re-binds on refresh) but the
+ *   JWKS key never changed after a real rotation - confirmed with a constructor-call
+ *   counter that only ever fired once. Root cause: {@link AuthProperties} is an
+ *   immutable record, so refreshing it discards the old instance and creates a new
+ *   one rather than mutating it in place; a plain constructor-injected reference (all
+ *   a scoped-proxy's lazily-recreated target would still hold) stays pointed at the
+ *   stale instance regardless.</li>
+ *   <li>Injecting {@code ObjectProvider<AuthProperties>} and re-fetching the bean
+ *   inside the event listener looked like it fixed that, but a stricter assertion
+ *   (comparing against the exact kid the new key should produce, not just "some kid
+ *   changed") caught a second real bug: {@code ConfigurationPropertiesRebinder} is
+ *   itself just another {@code EnvironmentChangeEvent} listener, on a different bean,
+ *   with no defined ordering relative to this one - depending on registration order,
+ *   this listener could run *before* {@code AuthProperties} had actually been
+ *   rebound, reading the stale value right back out of the "current" bean.</li>
+ * </ol>
+ * Reading {@link Environment} directly sidesteps both: the environment's own
+ * PropertySources are already updated by the time any {@code EnvironmentChangeEvent}
+ * listener runs (the event's own key list is computed as a diff *after* that update),
+ * so there's no rebinding step to race against.
  */
 @Component
 public class JwtKeyProvider {
 
     private static final Logger log = LoggerFactory.getLogger(JwtKeyProvider.class);
 
-    private final RSAKey rsaKey;
+    static final String PATH_PROPERTY = "auth.signing-key.path";
+    static final String VALUE_PROPERTY = "auth.signing-key.value";
 
-    public JwtKeyProvider(AuthProperties properties) {
-        String pem = resolvePem(properties.signingKey());
-        this.rsaKey = pem != null ? fromPem(pem) : generateEphemeral();
+    private final Environment environment;
+    private volatile RSAKey rsaKey;
+
+    public JwtKeyProvider(Environment environment) {
+        this.environment = environment;
+        this.rsaKey = resolveKey();
+    }
+
+    @EventListener(EnvironmentChangeEvent.class)
+    public void onEnvironmentChange(EnvironmentChangeEvent event) {
+        if (!event.getKeys().contains(VALUE_PROPERTY) && !event.getKeys().contains(PATH_PROPERTY)) {
+            return;
+        }
+        this.rsaKey = resolveKey();
+        log.info("JWT signing key re-resolved after a configuration refresh (kid={})", rsaKey.getKeyID());
     }
 
     public RSAKey signingKey() {
@@ -63,19 +106,21 @@ public class JwtKeyProvider {
         return rsaKey.toPublicJWK();
     }
 
-    private static String resolvePem(AuthProperties.SigningKey config) {
-        if (config == null) {
-            return null;
-        }
-        if (config.path() != null && !config.path().isBlank()) {
+    private RSAKey resolveKey() {
+        String pem = resolvePem(environment.getProperty(PATH_PROPERTY), environment.getProperty(VALUE_PROPERTY));
+        return pem != null ? fromPem(pem) : generateEphemeral();
+    }
+
+    private static String resolvePem(String path, String value) {
+        if (path != null && !path.isBlank()) {
             try {
-                return Files.readString(Path.of(config.path()), StandardCharsets.UTF_8);
+                return Files.readString(Path.of(path), StandardCharsets.UTF_8);
             } catch (IOException e) {
-                throw new UncheckedIOException("Failed to read the JWT signing key from " + config.path(), e);
+                throw new UncheckedIOException("Failed to read the JWT signing key from " + path, e);
             }
         }
-        if (config.value() != null && !config.value().isBlank()) {
-            return new String(Base64.getDecoder().decode(config.value()), StandardCharsets.UTF_8);
+        if (value != null && !value.isBlank()) {
+            return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
         }
         return null;
     }

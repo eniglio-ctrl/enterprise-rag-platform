@@ -15,11 +15,41 @@ spring:
     default-schema: auth
     create-schemas: true
 
+  # Production Readiness Phase 2, ADR 0048: populates auth.signing-key.value below
+  # from Vault instead of only JWT_SIGNING_KEY - same property, new source, so
+  # JwtKeyProvider/AuthProperties need no logic change at all. "optional:" plus
+  # fail-fast: false below mean a Vault-less run (e.g. `mvn spring-boot:run`
+  # without docker-compose) keeps working exactly as before, falling through to
+  # JWT_SIGNING_KEY/the ephemeral-key fallback - additive, not a hard requirement.
+  config:
+    import: "optional:vault://"
+  cloud:
+    vault:
+      host: ${VAULT_HOST:localhost}
+      port: ${VAULT_PORT:8200}
+      scheme: http
+      authentication: TOKEN
+      # A non-blank placeholder, not "" - Spring Cloud Vault builds its TOKEN
+      # ClientAuthentication eagerly during config-data processing and throws
+      # IllegalStateException on a genuinely blank token, before "optional:" above
+      # or fail-fast below get a chance to turn a failure into a graceful skip. A
+      # placeholder just becomes an HTTP 403 against a real Vault (or a connection
+      # failure with none running, e.g. tests) - exactly the kind of failure
+      # "optional"/fail-fast are meant to swallow.
+      token: ${VAULT_TOKEN:not-configured}
+      kv:
+        enabled: true
+      fail-fast: false
+
 management:
   endpoints:
     web:
       exposure:
-        include: health, info, prometheus, metrics
+        # "refresh" (Production Readiness Phase 2, ADR 0048): POST /actuator/refresh
+        # re-binds auth.signing-key.value from Vault and, via JwtKeyProvider's new
+        # @RefreshScope, forces it to re-parse the RSA key - the only way this
+        # service picks up a rotated secret without a restart.
+        include: health, info, prometheus, metrics, refresh
   endpoint:
     health:
       show-details: always

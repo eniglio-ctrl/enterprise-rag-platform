@@ -1,13 +1,15 @@
 package com.eniglio.ragplatform.auth.security;
 
-import com.eniglio.ragplatform.auth.config.AuthProperties;
 import org.junit.jupiter.api.Test;
+import org.springframework.cloud.context.environment.EnvironmentChangeEvent;
+import org.springframework.mock.env.MockEnvironment;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
+import java.security.KeyPairGenerator;
 import java.util.Base64;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -15,6 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * A throwaway RSA key generated purely for this test fixture (not used anywhere real)
  * - verifying {@link JwtKeyProvider} parses a real PKCS8 PEM key and derives a stable
  * {@code kid} from it doesn't need a live secret, only a syntactically valid one.
+ * {@link MockEnvironment} stands in for the real {@code Environment} (Production
+ * Readiness Phase 2, ADR 0048) - mutable, so the rotation tests below can change a
+ * property on the same instance the provider already holds a reference to, exactly
+ * like a real Vault-backed refresh would.
  */
 class JwtKeyProviderTest {
 
@@ -49,14 +55,9 @@ class JwtKeyProviderTest {
             -----END PRIVATE KEY-----
             """;
 
-    private static AuthProperties.SigningKey blank() {
-        return new AuthProperties.SigningKey("", "");
-    }
-
     @Test
     void fallsBackToAnEphemeralKeyWhenNothingIsConfigured() {
-        JwtKeyProvider provider = new JwtKeyProvider(new AuthProperties(Duration.ofHours(1), Duration.ofDays(7),
-                blank()));
+        JwtKeyProvider provider = new JwtKeyProvider(new MockEnvironment());
 
         assertThat(provider.signingKey()).isNotNull();
         assertThat(provider.signingKey().isPrivate()).isTrue();
@@ -66,9 +67,9 @@ class JwtKeyProviderTest {
     @Test
     void loadsTheConfiguredKeyFromABase64EncodedValue() {
         String base64 = Base64.getEncoder().encodeToString(TEST_PEM.getBytes(StandardCharsets.UTF_8));
-        AuthProperties.SigningKey signingKey = new AuthProperties.SigningKey("", base64);
-        JwtKeyProvider provider = new JwtKeyProvider(new AuthProperties(Duration.ofHours(1), Duration.ofDays(7),
-                signingKey));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty(JwtKeyProvider.VALUE_PROPERTY, base64);
+        JwtKeyProvider provider = new JwtKeyProvider(environment);
 
         assertThat(provider.signingKey().isPrivate()).isTrue();
         assertThat(provider.signingKey().getKeyID()).isNotBlank();
@@ -78,9 +79,9 @@ class JwtKeyProviderTest {
     void loadsTheConfiguredKeyFromAFilePath(@org.junit.jupiter.api.io.TempDir Path tempDir) throws Exception {
         Path keyFile = tempDir.resolve("signing-key.pem");
         Files.writeString(keyFile, TEST_PEM, StandardCharsets.UTF_8);
-        AuthProperties.SigningKey signingKey = new AuthProperties.SigningKey(keyFile.toString(), "");
-        JwtKeyProvider provider = new JwtKeyProvider(new AuthProperties(Duration.ofHours(1), Duration.ofDays(7),
-                signingKey));
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty(JwtKeyProvider.PATH_PROPERTY, keyFile.toString());
+        JwtKeyProvider provider = new JwtKeyProvider(environment);
 
         assertThat(provider.signingKey().isPrivate()).isTrue();
     }
@@ -88,15 +89,67 @@ class JwtKeyProviderTest {
     @Test
     void theKeyIdIsStableAcrossRestartsBecauseItsDerivedFromTheKeyItselfNotRandom() {
         String base64 = Base64.getEncoder().encodeToString(TEST_PEM.getBytes(StandardCharsets.UTF_8));
-        AuthProperties.SigningKey signingKey = new AuthProperties.SigningKey("", base64);
-        AuthProperties properties = new AuthProperties(Duration.ofHours(1), Duration.ofDays(7), signingKey);
 
         // Two independent providers loading the same persisted key - simulating two
         // restarts - must agree on the kid, or a token signed before a restart would
         // fail JWKS lookup by kid after one.
-        JwtKeyProvider first = new JwtKeyProvider(properties);
-        JwtKeyProvider second = new JwtKeyProvider(properties);
+        JwtKeyProvider first = new JwtKeyProvider(new MockEnvironment().withProperty(JwtKeyProvider.VALUE_PROPERTY, base64));
+        JwtKeyProvider second = new JwtKeyProvider(new MockEnvironment().withProperty(JwtKeyProvider.VALUE_PROPERTY, base64));
 
         assertThat(first.signingKey().getKeyID()).isEqualTo(second.signingKey().getKeyID());
+    }
+
+    /**
+     * ADR 0048: the exact regression this reproduces - two designs looked correct on
+     * paper ({@code @RefreshScope}, then re-fetching {@code AuthProperties} via
+     * {@code ObjectProvider}) but a real end-to-end check against the running stack
+     * disproved both (the JWKS key never changed after a real rotation, or changed to
+     * the wrong value due to an event-listener ordering race with {@code
+     * ConfigurationPropertiesRebinder}). This is why the final design reads {@link
+     * org.springframework.core.env.Environment} directly instead, and why this test
+     * fires the event directly rather than only trusting the higher-level
+     * Testcontainers IT, which a coincidental "still different from before" pass could
+     * mask (an ephemeral fallback key looks "different" from another ephemeral key
+     * too, whether or not real rotation ever worked).
+     */
+    @Test
+    void reResolvesTheKeyOnlyAfterAMatchingEnvironmentChangeEvent() throws Exception {
+        String base64A = Base64.getEncoder().encodeToString(TEST_PEM.getBytes(StandardCharsets.UTF_8));
+        MockEnvironment environment = new MockEnvironment().withProperty(JwtKeyProvider.VALUE_PROPERTY, base64A);
+        JwtKeyProvider provider = new JwtKeyProvider(environment);
+        String kidBefore = provider.signingKey().getKeyID();
+
+        String base64B = Base64.getEncoder().encodeToString(anotherPem().getBytes(StandardCharsets.UTF_8));
+        environment.setProperty(JwtKeyProvider.VALUE_PROPERTY, base64B);
+
+        // The environment alone changing is not enough - this is exactly what the
+        // real bug looked like: the property updated, the key didn't, until the
+        // matching event is actually published.
+        assertThat(provider.signingKey().getKeyID()).isEqualTo(kidBefore);
+
+        provider.onEnvironmentChange(new EnvironmentChangeEvent(Set.of(JwtKeyProvider.VALUE_PROPERTY)));
+
+        assertThat(provider.signingKey().getKeyID()).isNotEqualTo(kidBefore);
+    }
+
+    @Test
+    void ignoresAnEnvironmentChangeThatDoesNotTouchTheSigningKey() throws Exception {
+        String base64A = Base64.getEncoder().encodeToString(TEST_PEM.getBytes(StandardCharsets.UTF_8));
+        MockEnvironment environment = new MockEnvironment().withProperty(JwtKeyProvider.VALUE_PROPERTY, base64A);
+        JwtKeyProvider provider = new JwtKeyProvider(environment);
+        String kidBefore = provider.signingKey().getKeyID();
+
+        String base64B = Base64.getEncoder().encodeToString(anotherPem().getBytes(StandardCharsets.UTF_8));
+        environment.setProperty(JwtKeyProvider.VALUE_PROPERTY, base64B);
+        provider.onEnvironmentChange(new EnvironmentChangeEvent(Set.of("some.unrelated.property")));
+
+        assertThat(provider.signingKey().getKeyID()).isEqualTo(kidBefore);
+    }
+
+    private static String anotherPem() throws Exception {
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048);
+        String base64Der = Base64.getEncoder().encodeToString(generator.generateKeyPair().getPrivate().getEncoded());
+        return "-----BEGIN PRIVATE KEY-----\n" + base64Der + "\n-----END PRIVATE KEY-----\n";
     }
 }

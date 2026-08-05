@@ -5,3 +5,12 @@ security:
     # rate limiting is exercised by RateLimitFilterTest in platform-common
     # and by the manual curl-loop verification in ADR 0028.
     enabled: false
+
+spring:
+  cloud:
+    vault:
+      # Production Readiness Phase 2, ADR 0048: no test here should ever try to
+      # reach a real Vault. VaultKeyRotationIT overrides this back to true via its
+      # own @DynamicPropertySource, pointed at its own Testcontainers Vault -
+      # that override wins over this profile default (higher-precedence source).
+      enabled: false

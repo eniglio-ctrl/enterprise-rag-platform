@@ -45,6 +45,47 @@ services:
       retries: 15
       start_period: 30s
 
+  # Production Readiness Phase 2, ADR 0048: dev-mode Vault - free, local, no cloud
+  # account, same "just another docker-compose service" shape as Postgres/Ollama.
+  # NOT how you'd run Vault in a real production deployment (no unseal, in-memory
+  # storage lost on every restart, root token over plain HTTP) - that tradeoff is
+  # deliberate and documented in the ADR, not an oversight.
+  vault:
+    image: hashicorp/vault:1.17
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      # Without this, the `vault` CLI (used by the healthcheck below, and by
+      # vault-init's `vault kv put`) defaults to https://127.0.0.1:8200 and fails
+      # against this plain-HTTP dev listener.
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot: seeds the same JWT_SIGNING_KEY value .env already provides (Security
+  # Phase 4, ADR 0031) into Vault, under the exact property name AuthProperties
+  # already binds (auth.signing-key.value) - auth-service reads it from Vault from
+  # here on, not from its own env var. Idempotent; re-runs harmlessly every
+  # `docker compose up`.
+  vault-init:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Copy .env.example to .env first - no default JWT signing key (Security Phase 4, ADR 0031)}
+    entrypoint: ["sh", "-c", "vault kv put secret/auth-service auth.signing-key.value=\"$JWT_SIGNING_KEY\""]
+
   auth-service:
     build:
       context: .
@@ -58,10 +99,16 @@ services:
       DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
       WEB_UI_ORIGIN: http://localhost:3000
-      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Copy .env.example to .env first - no default JWT signing key (Security Phase 4, ADR 0031)}
+      # No more JWT_SIGNING_KEY here (Production Readiness Phase 2, ADR 0048) - the
+      # signing key now comes exclusively from Vault, seeded by vault-init above.
+      VAULT_HOST: vault
+      VAULT_PORT: "8200"
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
     depends_on:
       postgres:
         condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
       interval: 10s

@@ -57,6 +57,15 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <!-- Production Readiness Phase 2, ADR 0048: sources the JWT signing key from
+             HashiCorp Vault instead of only an env var/mounted file. Brings
+             spring-cloud-context transitively, which is what @RefreshScope
+             (JwtKeyProvider) and the /actuator/refresh endpoint need. -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-vault-config</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
@@ -75,6 +84,11 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-vault</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
