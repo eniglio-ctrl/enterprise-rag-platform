@@ -14,9 +14,11 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 @RestController
+@Validated
 @Tag(name = "Chat", description = "Ask questions answered from the ingested knowledge base")
 public class ChatController {
 
@@ -52,7 +55,7 @@ public class ChatController {
     @ApiResponse(responseCode = "422", description = "Image content does not match its declared type")
     @PostMapping(value = "/api/v1/ask", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public AskResponse askWithImage(
-            @RequestParam("question") @NotBlank String question,
+            @RequestParam("question") @NotBlank @Size(max = 8000, message = "question must be at most 8000 characters") String question,
             @RequestParam(value = "grounded", required = false) Boolean grounded,
             @RequestParam(value = "rerank", required = false) Boolean rerank,
             @RequestParam(value = "model", required = false) String model,

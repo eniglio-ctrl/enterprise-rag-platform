@@ -3,6 +3,7 @@ package com.eniglio.ragplatform.rag.exception;
 import com.eniglio.ragplatform.common.web.ErrorResponse;
 import com.eniglio.ragplatform.common.web.GlobalExceptionHandlerSupport;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -18,6 +19,23 @@ public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
         String message = ex.getBindingResult().getFieldErrors().stream()
                 .findFirst()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .orElse("Invalid request");
+        return build(HttpStatus.BAD_REQUEST, message, request);
+    }
+
+    /**
+     * {@code @Valid @RequestBody} DTOs (like {@code ChatRequest}) fail validation via
+     * {@link MethodArgumentNotValidException} above; a constraint on a bare
+     * {@code @RequestParam} (like {@code askWithImage}'s {@code question}, only
+     * enforced because {@code ChatController} is {@code @Validated}) fails via this
+     * exception instead - a different type for the same kind of "the request itself
+     * is invalid" outcome.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
+        String message = ex.getConstraintViolations().stream()
+                .findFirst()
+                .map(violation -> violation.getMessage())
                 .orElse("Invalid request");
         return build(HttpStatus.BAD_REQUEST, message, request);
     }

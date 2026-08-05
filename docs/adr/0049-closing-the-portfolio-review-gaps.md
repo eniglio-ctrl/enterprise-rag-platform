@@ -72,15 +72,28 @@ already had a `MethodArgumentNotValidException` → 400 handler wired up
 (exercised already for `@NotBlank`) — this is the same mechanism, one more
 constraint on the same field, not a new validation pathway.
 
-Deliberately **not** touched: `ChatController`'s multipart
-`askWithImage` endpoint (`/api/v1/ask` with an attached image) takes its
-`question` as a bare `@RequestParam`, not through `ChatRequest` — adding a
-limit there would need `@Validated` on the controller class and a new
-`ConstraintViolationException` handler (parameter-level Bean Validation
-throws a different exception than body-level `@Valid` does), a second
-pattern this codebase doesn't have anywhere yet. The user's own report
-named `ChatRequest` and conversation messages specifically; out of scope
-here, worth a follow-up on its own.
+**Follow-up, closed the same day**: this ADR first shipped without
+touching `ChatController`'s multipart `askWithImage` endpoint
+(`/api/v1/ask` with an attached image), since its `question` arrives as a
+bare `@RequestParam`, not through `ChatRequest` — the user's own report
+had named `ChatRequest` and conversation messages specifically. The user
+then pointed out, correctly, that this left a real bypass: a question sent
+alongside an image skipped the limit entirely and could still pressure
+embeddings/the LLM the same way. Fixed by adding `@Validated` to
+`ChatController` (parameter-level Bean Validation is opt-in per class,
+unlike body-level `@Valid`) and the matching `@Size(max = 8000)` on the
+`question` `@RequestParam`, plus a new `ConstraintViolationException` →
+400 handler in `GlobalExceptionHandler` — parameter-level violations throw
+a different exception than `@Valid @RequestBody` does, so the existing
+`MethodArgumentNotValidException` handler doesn't catch this case. First
+new use of `@Validated` on a controller anywhere in the codebase; the
+`ConstraintViolationException` handler is written generically (reads the
+first violation's own message), so any future `@RequestParam`/
+`@PathVariable` constraint added to this or any other controller is
+covered by the same handler, not one written per-field. Verified by a new
+multipart test (`askWithImageRejectsAQuestionLongerThanTheSizeLimitWith400`)
+posting an 8001-character question alongside a real image attachment and
+asserting `400`.
 
 **Verified for real**: new tests in both existing Testcontainers ITs
 (`ChatQueryIT.rejectsAQuestionLongerThanTheSizeLimitWith400`,

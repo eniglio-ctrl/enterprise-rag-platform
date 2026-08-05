@@ -508,6 +508,19 @@ class ChatQueryIT {
     }
 
     @Test
+    void askWithImageRejectsAQuestionLongerThanTheSizeLimitWith400() throws Exception {
+        MockMultipartFile image = new MockMultipartFile("image", "diagram.png", "image/png",
+                new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0});
+        String tooLong = "a".repeat(8001);
+
+        mockMvc.perform(multipart("/api/v1/ask")
+                        .file(image)
+                        .param("question", tooLong)
+                        .with(jwtFor("default")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void askRejectsAnAttachedFileWithAnUnsupportedContentType() throws Exception {
         MockMultipartFile notAnImage = new MockMultipartFile("image", "notes.txt", "text/plain",
                 "just some text".getBytes());
