@@ -1,8 +1,14 @@
 package com.eniglio.ragplatform.rag.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 /**
+ * {@code question} is capped at 8000 characters - a single question, not a document;
+ * the rate limiter (Security Phase 2) throttles request *volume*, not the size of any
+ * one request, so without this a single oversized question could still pressure
+ * embeddings, the database, and the LLM regardless of how few requests a caller sends.
+ * <p>
  * {@code grounded} opts into a second LLM call that verifies the answer is actually
  * supported by the retrieved context (see ADR 0008). {@code rerank} opts into an
  * LLM-as-judge pass over a wider candidate pool from hybrid search (see ADR 0012).
@@ -26,8 +32,9 @@ import jakarta.validation.constraints.NotBlank;
  * external reason, answers gracefully with {@code source: "public-llm-unavailable"}
  * rather than failing the request.
  */
-public record ChatRequest(@NotBlank String question, Boolean grounded, Boolean rerank, String model,
-                           Boolean useFallback, String fallbackProvider) {
+public record ChatRequest(
+        @NotBlank @Size(max = 8000, message = "question must be at most 8000 characters") String question,
+        Boolean grounded, Boolean rerank, String model, Boolean useFallback, String fallbackProvider) {
 
     public boolean isGrounded() {
         return Boolean.TRUE.equals(grounded);

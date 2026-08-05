@@ -542,6 +542,18 @@ vs. what's blocked on a decision or resource only the user can provide.
   portfolio project today, and this file exists so the next evolution (if and
   when wanted) has a thought-through order instead of an ungrounded technology
   list.
+- ~~Closing a final portfolio review's punch list~~ — done: a non-transactional
+  registration path (`AuthService.register()`, now `@Transactional`, verified by
+  a real Testcontainers rollback test), unbounded question/message size (now
+  capped at 8000 characters on both `rag-service` and `chat-service`, verified
+  by a real `400` test each), and a stale public Netlify deploy (confirmed live
+  and still unresolved — needs the demo owner's own dashboard access, not a
+  code fix). Full account in
+  [ADR 0049](docs/adr/0049-closing-the-portfolio-review-gaps.md). This project
+  describes itself as **production-minded** / **ready for production
+  evolution**, not **production-ready complete** — see that ADR and
+  `docs/PRODUCTION-READINESS-ROADMAP.md`'s own remaining phases for exactly
+  what that distinction means here.
 - ~~A quality benchmark~~ — done: see [RAG quality benchmark](#rag-quality-benchmark)
   above.
 - ~~Public deploy~~ — done and live: [web-ui-rag.netlify.app](https://web-ui-rag.netlify.app)
@@ -599,6 +611,7 @@ vs. what's blocked on a decision or resource only the user can provide.
 - [ADR 0046 — Resource-level authorization: a lightweight ABAC model (owner + visibility + explicit sharing), enforced uniformly across every retrieval path, verified live with two real users in the same tenant](docs/adr/0046-resource-level-authorization-abac.md)
 - [ADR 0047 — A tenant-scoped ADMIN role, bootstrapped automatically, that can override any document's sharing and manage tenant membership from a new `web-ui` admin panel](docs/adr/0047-tenant-admin-role.md)
 - [ADR 0048 — HashiCorp Vault (dev mode) sources the JWT signing key; two designs that looked correct on paper (`@RefreshScope`, then `ObjectProvider`) were disproved by actually running them before landing on reading `Environment` directly, verified by a Testcontainers-backed rotation test](docs/adr/0048-vault-for-the-jwt-signing-key.md)
+- [ADR 0049 — Closing a final portfolio review's three findings (non-transactional registration, unbounded question/message size, a stale public demo) and declaring the project "production-minded," not "production-ready complete"](docs/adr/0049-closing-the-portfolio-review-gaps.md)
 
 ## License
 

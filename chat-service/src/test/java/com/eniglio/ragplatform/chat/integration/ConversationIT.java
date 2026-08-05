@@ -147,6 +147,18 @@ class ConversationIT {
     }
 
     @Test
+    void sendingAMessageLongerThanTheSizeLimitReturnsBadRequest() throws Exception {
+        String conversationId = createConversation();
+        String tooLong = "a".repeat(8001);
+
+        mockMvc.perform(post("/api/v1/conversations/" + conversationId + "/messages")
+                        .with(testJwt())
+                        .contentType("application/json")
+                        .content("{\"message\":\"" + tooLong + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void sixthMessageEvictsTheOldestTurnOnceTheWindowIsExceeded() throws Exception {
         String conversationId = createConversation();
 

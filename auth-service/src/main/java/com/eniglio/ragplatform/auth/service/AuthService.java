@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
@@ -51,6 +52,16 @@ public class AuthService {
         this.tokenService = tokenService;
     }
 
+    /**
+     * {@code @Transactional}: without it, a failure in {@code userRepository.create}
+     * after {@code invitationService.redeem} already committed (or after
+     * {@code tenantRepository.create} already committed, on the no-invitation path)
+     * leaves an invitation permanently consumed - or a tenant permanently orphaned -
+     * with no user ever created. Both repositories share the same {@code JdbcTemplate}
+     * /{@code DataSource}, so wrapping the whole method rolls both operations back
+     * together on any unchecked exception.
+     */
+    @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
             throw new EmailAlreadyExistsException(request.email());

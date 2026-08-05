@@ -59,6 +59,18 @@ beats a longer one with rushed, shallow corners — see each roadmap file's own
 "corrected premises" sections for why that discipline matters here
 specifically, not just in the abstract.
 
+**Closed out, not "production-ready complete"**: a final review before
+declaring this stopping point real raised three concrete findings — see
+[ADR 0049](adr/0049-closing-the-portfolio-review-gaps.md) for the full
+account (a non-transactional registration path, unbounded
+question/message size, and a stale public demo deploy). Fixed and verified
+for real, except the demo redeploy itself, which needs the user's own
+Netlify dashboard access and isn't a code fix. Per that same ADR, this
+project is described as **production-minded** / **ready for production
+evolution**, deliberately not **production-ready complete** — Tier 3 below
+and `docs/PRODUCTION-READINESS-ROADMAP.md`'s own remaining phases are real,
+known, unstarted work, not hidden gaps.
+
 ## Tier 1 — Ready to start now, no external blocker
 
 Recommended order (earlier items make later ones easier, not the other way

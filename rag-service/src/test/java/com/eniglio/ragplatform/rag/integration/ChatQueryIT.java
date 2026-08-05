@@ -186,6 +186,16 @@ class ChatQueryIT {
     }
 
     @Test
+    void rejectsAQuestionLongerThanTheSizeLimitWith400() throws Exception {
+        String tooLong = "a".repeat(8001);
+        mockMvc.perform(post("/api/v1/chat")
+                        .with(jwtFor("default"))
+                        .contentType("application/json")
+                        .content("{\"question\":\"" + tooLong + "\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void isolatesRetrievalByTenantId() throws Exception {
         vectorStore.add(List.of(
                 Document.builder()
