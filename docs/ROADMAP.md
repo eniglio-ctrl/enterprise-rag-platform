@@ -494,21 +494,21 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-29. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+30. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-30. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #29 — note this
+31. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #30 — note this
     multiplies paid API calls per question)
-31. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+32. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision; the OpenTelemetry half is also
     tracked from the production-operations angle in
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 6, not duplicated content, just a second reason to want it)
-32. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+33. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-33. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+34. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
