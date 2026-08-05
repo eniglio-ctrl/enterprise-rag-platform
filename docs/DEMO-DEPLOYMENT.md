@@ -197,6 +197,57 @@ vector_store GROUP BY 1 HAVING count(DISTINCT metadata->>'documentId') > 1;`
 afterwards to catch any source that ended up with more than one `documentId`,
 and delete the older `documentId`'s rows if so.
 
+### Known incident (2026-08-05): a schema migration added after the initial seed never reached Neon, and every question-answering endpoint 500'd
+
+`rag-service`'s `HybridSearchService.fullTextSearch` queries against a Postgres
+text-search configuration named `unaccent_simple` (added by
+`ingestion-service`'s `db/migration/V3__unaccent_text_search_config.sql`, part
+of the accent/special-char-insensitive hybrid search work). `rag-service` is
+auto-deployed to Render on every push to `main`, so the *code* expecting
+`unaccent_simple` went live immediately — but per this document's own
+"Seeding the database" section, `ingestion-service` is never itself deployed,
+so nothing ever re-ran its Flyway migrations against Neon after the demo's
+one-time initial seed, which predates V3. Every query-based endpoint
+(`/api/v1/ask`, `/api/v1/retrieve`, `/api/v1/diagrams`) failed with
+`PSQLException: text search configuration "unaccent_simple" does not exist`,
+wrapped by `GlobalExceptionHandler` into the generic, deliberately
+detail-free `500 "An unexpected error occurred"` the demo shows on purpose
+(config-only endpoints like `/api/v1/models` were unaffected, which is what
+pointed at the query path specifically rather than the service being down).
+
+**Fix, run once directly in Neon's SQL editor** — no redeploy needed, this is
+a data-layer fix, not a code change (identical to V3's own migration body,
+safe against the demo's disposable seeded-only dataset: no document or vector
+data is touched, only a derived generated column and its index are dropped
+and recreated):
+
+```sql
+CREATE EXTENSION IF NOT EXISTS unaccent;
+
+CREATE TEXT SEARCH CONFIGURATION unaccent_simple (COPY = simple);
+ALTER TEXT SEARCH CONFIGURATION unaccent_simple
+    ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple;
+
+ALTER TABLE vector_store DROP COLUMN content_tsv;
+ALTER TABLE vector_store
+    ADD COLUMN content_tsv tsvector
+        GENERATED ALWAYS AS (to_tsvector('unaccent_simple', coalesce(content, ''))) STORED;
+
+CREATE INDEX vector_store_content_tsv_idx ON vector_store USING GIN (content_tsv);
+```
+
+**The general gap this exposes, not just this one incident**: `rag-service`
+auto-deploys on push, but any `db/migration-demo` schema change only reaches
+Neon if someone remembers to re-run `ingestion-service` (demo profile)
+against it afterward — there's no CI/CD step that does this automatically,
+unlike a normal deployment where the same service that owns the code also
+owns applying its own migrations at boot. Until that's automated (or judged
+not worth automating for a demo this small), **any future change to
+`ingestion-service`'s `db/migration-demo` needs its SQL applied to Neon by
+hand, the same way, before or right after `rag-service`'s matching code
+change goes live** — otherwise this exact failure mode recurs with a
+different column or index.
+
 ## How to test the demo
 
 **Browser** (the real user-facing path): open

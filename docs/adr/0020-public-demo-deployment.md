@@ -230,3 +230,29 @@ Verified for real in a browser, not just via curl this time: the deployed
 `web-ui` on Netlify calling the deployed `rag-service` on Render, model dropdown
 populated, a real question asked and answered correctly with citations, no login
 screen, demo banner visible.
+
+## Update (2026-08-05): a schema migration added after the initial seed silently never reached Neon
+
+`rag-service` auto-deploys on every push to `main`; `ingestion-service` does
+not deploy at all here (by this ADR's own scope decision above) — its Flyway
+migrations only ever apply when it's run once, locally, against the Neon
+connection string, to seed documents. That asymmetry has a real consequence
+this ADR didn't originally call out: any `db/migration-demo` change added
+*after* that one-time seed reaches `rag-service`'s code (via the normal
+auto-deploy) without ever reaching Neon's actual schema, since nothing
+re-triggers `ingestion-service` against it. This is exactly what happened
+with `V3__unaccent_text_search_config.sql` (the later hybrid-search accent-
+insensitivity work) — `rag-service`'s query code started depending on a
+Postgres text-search configuration the live Neon database never actually
+had, and every query-based endpoint (`/api/v1/ask`, `/api/v1/retrieve`,
+`/api/v1/diagrams`) failed with a `PSQLException` wrapped into the demo's
+deliberately generic `500`. Full incident, root-cause trace, and the exact
+SQL fix are in
+[docs/DEMO-DEPLOYMENT.md](../DEMO-DEPLOYMENT.md#known-incident-2026-08-05-a-schema-migration-added-after-the-initial-seed-never-reached-neon-and-every-question-answering-endpoint-500d).
+
+Not fixed with new automation here — the demo is small and low-traffic enough
+that a documented manual step (apply any new `db/migration-demo` SQL to Neon
+by hand alongside the matching `rag-service` deploy) was judged sufficient
+for now, over building a CI/CD step for a single external database with no
+write path. Revisit if this demo ever needs a third schema change; two data
+points aren't enough to justify the automation yet, but a third would be.

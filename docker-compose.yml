@@ -242,7 +242,9 @@ services:
       - rag-service
       - chat-service
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      # 127.0.0.1, not localhost: see web-ui/Dockerfile's own HEALTHCHECK comment -
+      # busybox wget tries the IPv6 loopback first and nginx here is IPv4-only.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
