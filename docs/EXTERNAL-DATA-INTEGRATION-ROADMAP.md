@@ -26,7 +26,7 @@
 
 | Phase | What | Status | Blocked by |
 |---|---|---|---|
-| 1 | Import a document from a URL | ⬜ Not started | — |
+| 1 | Import a document from a URL | ✅ Done (2026-08-06, ADR 0051) | — |
 | 2 | Import a whole local folder (client-side, multi-file) | ⬜ Not started | — |
 | 3 | Batch import connector for external databases (Postgres/MySQL) | ⬜ Not started | A credential-storage decision (made below: encrypted in-app Postgres) |
 | 4 | Live query tool: LLM consults an external database at answer-time | ⬜ Not started | Phase 3 (reuses its stored connections) |
@@ -64,16 +64,14 @@ sequenced by **dependency and blast radius**, not by asking again:
   MCP plumbing speculatively") — Phases 3/4 give it exactly the concrete
   resource that guidance was waiting for.
 
-## Phase 1 — Import a document from a URL ⬜
+## Phase 1 — Import a document from a URL ✅
 
-**Not started.** Smallest, most contained piece, reusing almost the
-entire existing pipeline. `ingestion-service`'s `UploadValidationService`
-already produces a `ValidatedUpload` (bytes + filename + mimeType + kind)
-that every downstream step (`DocumentReaderFactory`,
-`DocumentIngestionService.ingest`) consumes — none of that code cares
-where the bytes came from today, it only ever sees `MultipartFile` at the
-very front door (`DocumentController.upload`,
-`ingestion-service/.../controller/DocumentController.java:52-57`).
+**Done (2026-08-06).** See ADR 0051 for the full design (SSRF guard by
+resolved IP, no auto-redirect, read-time byte cap) and its test evidence.
+`ingestion-service`'s `UploadValidationService` and
+`DocumentIngestionService` were both refactored to extract a byte-array
+core shared by the existing multipart path and the new URL path — none of
+the downstream chunking/embedding code needed to change.
 
 - New endpoint: `POST /api/v1/documents/from-url`, body `{"url": "..."}`.
 - New, small fetch step ahead of validation: HTTP GET the URL with an

@@ -503,11 +503,15 @@ exactly what that decision is):
     0046 explicitly left unbuilt. `web-ui` gained an admin panel, visible
     only when the logged-in user's role is `ADMIN`, covering both actions.
     See [ADR 0047](adr/0047-tenant-admin-role.md).
-30. ⬜ **New — External Data Integration Phase 1: import a document from a
-    URL** — smallest, most contained piece; reuses the existing
-    `ValidatedUpload` pipeline almost entirely. The one real decision to
-    make before starting is the SSRF guardrail (reject private/internal
-    IP ranges before connecting), not a design fork. See
+30. ✅ **New — External Data Integration Phase 1: import a document from a
+    URL** — done. `POST /api/v1/documents/from-url` reuses the existing
+    `ValidatedUpload` pipeline entirely, via a byte-array core extracted
+    from `UploadValidationService`/`DocumentIngestionService`. The SSRF
+    guard rejects loopback/link-local/site-local/multicast addresses by
+    *resolved IP*, not hostname string, never follows redirects
+    automatically, and enforces the byte-size cap while reading rather
+    than trusting `Content-Length`. See
+    [ADR 0051](adr/0051-url-based-document-import.md) and
     [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
     Phase 1.
 31. ⬜ **New — External Data Integration Phase 2: import a whole local

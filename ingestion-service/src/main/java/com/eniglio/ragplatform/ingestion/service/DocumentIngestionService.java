@@ -23,6 +23,7 @@ public class DocumentIngestionService {
     private static final Logger log = LoggerFactory.getLogger(DocumentIngestionService.class);
 
     private final UploadValidationService uploadValidationService;
+    private final UrlDocumentFetcher urlDocumentFetcher;
     private final DocumentReaderFactory documentReaderFactory;
     private final TokenTextSplitter tokenTextSplitter;
     private final VectorStoreGateway vectorStoreGateway;
@@ -31,11 +32,13 @@ public class DocumentIngestionService {
     private final Timer ingestionTimer;
 
     public DocumentIngestionService(UploadValidationService uploadValidationService,
+                                     UrlDocumentFetcher urlDocumentFetcher,
                                      DocumentReaderFactory documentReaderFactory,
                                      TokenTextSplitter tokenTextSplitter,
                                      VectorStoreGateway vectorStoreGateway,
                                      MeterRegistry meterRegistry) {
         this.uploadValidationService = uploadValidationService;
+        this.urlDocumentFetcher = urlDocumentFetcher;
         this.documentReaderFactory = documentReaderFactory;
         this.tokenTextSplitter = tokenTextSplitter;
         this.vectorStoreGateway = vectorStoreGateway;
@@ -55,15 +58,31 @@ public class DocumentIngestionService {
     }
 
     public IngestResponse ingest(MultipartFile file, String tenantId, String userId) {
-        return ingestionTimer.record(() -> doIngest(file, tenantId, userId));
+        return ingestionTimer.record(() -> {
+            ValidatedUpload upload = uploadValidationService.validate(file);
+            return doIngest(upload, file.getOriginalFilename(), tenantId, userId);
+        });
     }
 
-    private IngestResponse doIngest(MultipartFile file, String tenantId, String userId) {
-        ValidatedUpload upload = uploadValidationService.validate(file);
+    /**
+     * docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1. Same pipeline as {@link
+     * #ingest(MultipartFile, String, String)} from validation onward — only how the
+     * raw bytes/filename/content-type are obtained differs ({@link UrlDocumentFetcher}
+     * instead of a {@code MultipartFile}).
+     */
+    public IngestResponse ingestFromUrl(String url, String tenantId, String userId) {
+        return ingestionTimer.record(() -> {
+            UrlDocumentFetcher.FetchedContent fetched = urlDocumentFetcher.fetch(url);
+            ValidatedUpload upload = uploadValidationService.validate(
+                    fetched.bytes(), fetched.filename(), fetched.contentType());
+            return doIngest(upload, fetched.filename(), tenantId, userId);
+        });
+    }
+
+    private IngestResponse doIngest(ValidatedUpload upload, String source, String tenantId, String userId) {
         List<Document> pages = documentReaderFactory.read(upload);
 
         String documentId = UUID.randomUUID().toString();
-        String source = file.getOriginalFilename();
         Instant ingestedAt = Instant.now();
 
         // docs/ROADMAP.md item #24: every document starts out TENANT-visible (the

@@ -1,9 +1,15 @@
 package com.eniglio.ragplatform.ingestion.integration;
 
 import com.eniglio.ragplatform.ingestion.IngestionServiceApplication;
+import com.eniglio.ragplatform.ingestion.config.IngestionProperties;
+import com.eniglio.ragplatform.ingestion.dto.ImportFromUrlRequest;
 import com.eniglio.ragplatform.ingestion.gateway.AudioTranscriptionGateway;
+import com.eniglio.ragplatform.ingestion.service.TestUrlDocumentFetchers;
+import com.eniglio.ragplatform.ingestion.service.UrlDocumentFetcher;
+import com.sun.net.httpserver.HttpServer;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -19,6 +25,9 @@ import org.springframework.ai.embedding.EmbeddingResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
@@ -33,6 +42,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Random;
@@ -48,6 +58,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -62,6 +73,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class DocumentIngestionIT {
+
+    /**
+     * docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1. Overrides the real
+     * {@link UrlDocumentFetcher} bean with one whose SSRF guard is stubbed to treat
+     * every host as a public address (see {@link TestUrlDocumentFetchers}) - without
+     * this, the from-url IT below would hit the same real loopback-blocking guard that
+     * {@code UrlDocumentFetcherTest} proves works correctly, and could never reach the
+     * local test {@link HttpServer} started in {@code importingFromUrlIngestsItIntoTheVectorStore()}.
+     */
+    @TestConfiguration
+    static class UrlFetcherTestConfig {
+        @Bean
+        @Primary
+        UrlDocumentFetcher urlDocumentFetcher(IngestionProperties properties) {
+            return TestUrlDocumentFetchers.bypassingSsrfGuardForTests(properties);
+        }
+    }
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
@@ -94,6 +122,39 @@ class DocumentIngestionIT {
 
     @MockitoBean
     private AudioTranscriptionGateway audioTranscriptionGateway;
+
+    private HttpServer urlImportServer;
+
+    @AfterEach
+    void stopUrlImportServer() {
+        if (urlImportServer != null) {
+            urlImportServer.stop(0);
+        }
+    }
+
+    @Test
+    void importingFromUrlIngestsItIntoTheVectorStore() throws Exception {
+        stubEmbeddingModel();
+        String markdown = "# Aula 12\n\nO padrão SAGA coordena transações distribuídas via choreography ou orchestration.";
+        urlImportServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        urlImportServer.createContext("/aula12.md", exchange -> {
+            byte[] bytes = markdown.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "text/markdown");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        urlImportServer.start();
+        String url = "http://127.0.0.1:" + urlImportServer.getAddress().getPort() + "/aula12.md";
+
+        mockMvc.perform(post("/api/v1/documents/from-url")
+                        .with(jwt().jwt(token -> token.subject("user-1").claim("tenantId", "acme")))
+                        .contentType("application/json")
+                        .content(objectMapper.writeValueAsString(new ImportFromUrlRequest(url))))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.source").value("aula12.md"))
+                .andExpect(jsonPath("$.chunkCount").value(1));
+    }
 
     @Test
     void uploadingAMarkdownFileIngestsItIntoTheVectorStore() throws Exception {

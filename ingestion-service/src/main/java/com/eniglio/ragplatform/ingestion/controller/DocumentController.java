@@ -2,6 +2,7 @@ package com.eniglio.ragplatform.ingestion.controller;
 
 import com.eniglio.ragplatform.common.security.JwtClaims;
 import com.eniglio.ragplatform.ingestion.dto.DocumentSummary;
+import com.eniglio.ragplatform.ingestion.dto.ImportFromUrlRequest;
 import com.eniglio.ragplatform.ingestion.dto.IngestResponse;
 import com.eniglio.ragplatform.ingestion.dto.SharingResponse;
 import com.eniglio.ragplatform.ingestion.dto.UpdateSharingRequest;
@@ -53,6 +54,25 @@ public class DocumentController {
             @RequestParam("file") @NotNull MultipartFile file,
             @AuthenticationPrincipal Jwt jwt) {
         IngestResponse response = documentIngestionService.ingest(file, JwtClaims.tenantId(jwt), JwtClaims.userId(jwt));
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @Operation(summary = "Import a document from a URL",
+            description = "docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1. Fetches the URL's bytes server-side "
+                    + "and runs them through the exact same validate/parse/chunk/embed pipeline as a multipart "
+                    + "upload - same accepted file types, same limits. Only http/https URLs resolving to a "
+                    + "public address are fetched; redirects are never followed automatically.")
+    @ApiResponse(responseCode = "201", description = "Document ingested successfully")
+    @ApiResponse(responseCode = "400", description = "URL could not be fetched (bad scheme, private address, "
+            + "timeout, non-2xx response, or oversized body)")
+    @ApiResponse(responseCode = "415", description = "Unsupported file extension or declared content type")
+    @ApiResponse(responseCode = "422", description = "File content does not match its declared type")
+    @PostMapping(value = "/api/v1/documents/from-url", consumes = "application/json")
+    public ResponseEntity<IngestResponse> importFromUrl(
+            @Valid @RequestBody ImportFromUrlRequest request,
+            @AuthenticationPrincipal Jwt jwt) {
+        IngestResponse response = documentIngestionService.ingestFromUrl(
+                request.url(), JwtClaims.tenantId(jwt), JwtClaims.userId(jwt));
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

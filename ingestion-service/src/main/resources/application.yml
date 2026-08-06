@@ -201,6 +201,14 @@ ingestion:
   docx:
     max-entry-count: 100
     max-uncompressed-bytes: 104857600 # 100MB
+  # docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1. max-bytes matches the
+  # existing multipart cap above (spring.servlet.multipart.max-file-size) - one
+  # size limit for "a document", regardless of which door it came in. Enforced
+  # by UrlDocumentFetcher while actually reading the response body, same
+  # "don't trust an attacker-controlled size claim" principle as docx above.
+  url-import:
+    max-bytes: 26214400 # 25MB
+    timeout: 10s
   whisper:
     base-url: ${WHISPER_BASE_URL:http://localhost:9000}
     connect-timeout: 5s
@@ -230,4 +238,12 @@ security:
         path-pattern: /api/v1/documents
         key-by-ip: false
         capacity: 20
+        refill-period: 1m
+      # Separate rule, not covered by the exact-path rule above: a URL fetch does
+      # real outbound network I/O this project doesn't otherwise do, worth its own
+      # (tighter) budget independent of ordinary multipart upload volume.
+      - name: ingestion-upload-from-url
+        path-pattern: /api/v1/documents/from-url
+        key-by-ip: false
+        capacity: 10
         refill-period: 1m

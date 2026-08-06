@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -25,6 +26,9 @@ class UploadValidationServiceTest {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
     private static final IngestionProperties.Docx DOCX_LIMITS = new IngestionProperties.Docx(100, 10_000_000);
+
+    private static final IngestionProperties.UrlImport URL_IMPORT_LIMITS =
+            new IngestionProperties.UrlImport(26_214_400L, Duration.ofSeconds(10));
 
     private static final IngestionProperties PROPERTIES = new IngestionProperties(800, List.of(
             "application/pdf",
@@ -42,7 +46,7 @@ class UploadValidationServiceTest {
             "audio/x-m4a",
             "audio/ogg",
             "audio/flac",
-            "audio/webm"), DOCX_LIMITS);
+            "audio/webm"), DOCX_LIMITS, URL_IMPORT_LIMITS);
 
     private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
     private final UploadValidationService service = new UploadValidationService(PROPERTIES, meterRegistry);
@@ -114,7 +118,7 @@ class UploadValidationServiceTest {
     @Test
     void rejectsADocxWithTooManyZipEntries() {
         IngestionProperties strictProperties = new IngestionProperties(800, PROPERTIES.allowedContentTypes(),
-                new IngestionProperties.Docx(2, 10_000_000));
+                new IngestionProperties.Docx(2, 10_000_000), URL_IMPORT_LIMITS);
         UploadValidationService strictService = new UploadValidationService(strictProperties, meterRegistry);
         MockMultipartFile file = new MockMultipartFile("file", "report.docx", DOCX_MIME,
                 docxBytesWithEntries(Map.of(
@@ -137,7 +141,7 @@ class UploadValidationServiceTest {
         // deliberately tiny so the test fixture itself stays small - the real
         // production limit (100MB) is configured in application.yml.
         IngestionProperties strictProperties = new IngestionProperties(800, PROPERTIES.allowedContentTypes(),
-                new IngestionProperties.Docx(100, 100));
+                new IngestionProperties.Docx(100, 100), URL_IMPORT_LIMITS);
         UploadValidationService strictService = new UploadValidationService(strictProperties, meterRegistry);
         MockMultipartFile file = new MockMultipartFile("file", "report.docx", DOCX_MIME,
                 docxBytesWithEntries(Map.of("word/document.xml", "x".repeat(50_000))));

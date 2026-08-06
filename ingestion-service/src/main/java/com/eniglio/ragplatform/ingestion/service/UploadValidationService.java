@@ -86,12 +86,43 @@ public class UploadValidationService {
         this.meterRegistry = meterRegistry;
     }
 
+    /**
+     * The canonical MIME type this class itself associates with a recognized
+     * extension - used by {@link UrlDocumentFetcher} to derive a fetched URL's
+     * content type from its filename rather than trusting the remote server's own
+     * {@code Content-Type} header, which real hosts get wrong for plain-text-ish
+     * formats (e.g. GitHub's raw file server sends {@code text/plain} for both
+     * {@code .md} and {@code .txt} - the one piece of information that disambiguates
+     * {@link DocumentKind#MARKDOWN} from {@link DocumentKind#TEXT}, since neither has
+     * distinguishing magic bytes). Empty when the extension isn't recognized at all,
+     * in which case the caller falls back to the server's header and lets this
+     * class's own {@code unsupported_extension} rejection handle it as usual.
+     */
+    static java.util.Optional<String> canonicalContentTypeFor(String filename) {
+        String normalized = normalize(filename);
+        return FORMATS.entrySet().stream()
+                .filter(entry -> normalized.endsWith(entry.getKey()))
+                .map(entry -> entry.getValue().mimeType().toString())
+                .findFirst();
+    }
+
     public ValidatedUpload validate(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw reject("empty_file", null, "Uploaded file is empty", InvalidUploadException::new);
         }
+        return validate(readBytes(file), file.getOriginalFilename(), file.getContentType());
+    }
 
-        String filename = normalize(file.getOriginalFilename());
+    /**
+     * The actual validation logic, extracted from {@link #validate(MultipartFile)} so
+     * a second byte source (docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1's
+     * URL-based import, {@link UrlDocumentFetcher}) can reuse every check below —
+     * extension/content-type/signature/DOCX-structure — instead of this class staying
+     * hard-coupled to {@code MultipartFile}. Behavior for the multipart caller is
+     * unchanged: it now just extracts bytes/filename/contentType one line earlier.
+     */
+    public ValidatedUpload validate(byte[] bytes, String originalFilename, String declaredContentType) {
+        String filename = normalize(originalFilename);
         FormatSpec spec = FORMATS.entrySet().stream()
                 .filter(entry -> filename.endsWith(entry.getKey()))
                 .map(Map.Entry::getValue)
@@ -99,7 +130,6 @@ public class UploadValidationService {
                 .orElseThrow(() -> reject("unsupported_extension", filename,
                         "Unsupported file type: " + filename, UnsupportedDocumentTypeException::new));
 
-        String declaredContentType = file.getContentType();
         if (declaredContentType == null
                 || !ingestionProperties.allowedContentTypes().contains(declaredContentType)) {
             throw reject("unsupported_content_type", filename,
@@ -112,7 +142,6 @@ public class UploadValidationService {
                             + filename, InvalidUploadException::new);
         }
 
-        byte[] bytes = readBytes(file);
         if (!spec.signature().test(bytes)) {
             throw reject("signature_mismatch", filename, "File content does not match its declared type: "
                     + filename, InvalidUploadException::new);
