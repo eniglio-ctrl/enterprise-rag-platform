@@ -1018,7 +1018,7 @@ function renderAnswer({ answer, citations, source }) {
   // `source` field rather than inferring it from citations being empty (which
   // can also happen for other reasons on the normal, local path).
   answerProvenanceBadge.hidden = source !== "public-llm";
-  answerText.textContent = answer;
+  answerText.innerHTML = renderMarkdown(answer);
   renderCitations(citationsList, citations);
   answerCard.hidden = false;
 }
@@ -1143,7 +1143,9 @@ conversationForm.addEventListener("submit", async (event) => {
 function appendConversationMessage(role, content, citations) {
   const item = document.createElement("li");
   item.className = `conversation-message role-${role}`;
-  item.innerHTML = `<div>${escapeHtml(content)}</div>`;
+  // Only the assistant's own prose is markdown - the user's own message is shown
+  // as plain escaped text, matching what they actually typed.
+  item.innerHTML = `<div class="markdown-body">${role === "assistant" ? renderMarkdown(content) : escapeHtml(content)}</div>`;
   if (citations && citations.length > 0) {
     const sources = citations.map((citation) => escapeHtml(citation.source)).join(", ");
     item.innerHTML += `<div class="conversation-sources">${t("conversations.sourcesLabel", { sources })}</div>`;
@@ -1156,6 +1158,16 @@ function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value ?? "";
   return div.innerHTML;
+}
+
+// LLM prose (answer text, conversation replies) rendered as real markdown instead
+// of raw text with literal ** and ``` characters. This content is model-generated
+// but ultimately derived from user-uploaded documents and the user's own question,
+// so it's not trusted - DOMPurify sanitizes marked's HTML before it ever reaches
+// innerHTML, the same way any other untrusted HTML on this page would be handled.
+function renderMarkdown(value) {
+  const html = marked.parse(value ?? "", { breaks: true });
+  return DOMPurify.sanitize(html);
 }
 
 // Runs last, on purpose: renderAuthState()/showView("knowledge") synchronously
