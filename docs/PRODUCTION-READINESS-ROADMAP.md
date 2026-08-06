@@ -184,6 +184,12 @@ Phase 5 (cross-referenced there, not duplicated) — a cloud-drive import
 (that roadmap's Phase 6) is exactly the kind of slow, rate-limited fetch
 this phase's async queue exists to decouple from the HTTP request cycle.
 
+**Update (2026-08-06)**: also a soft dependency (worth having first, not
+strictly required) for
+[`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+Phase 1 (citation highlighting/source viewer, which needs original file
+bytes this phase would persist) and Phase 5 (usage/cost dashboards).
+
 ## Phase 4 — Operational resilience hardening ✅
 
 **Done.** All three gaps below, confirmed for real before writing any code

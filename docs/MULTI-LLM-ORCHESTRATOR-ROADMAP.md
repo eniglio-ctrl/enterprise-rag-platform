@@ -445,6 +445,13 @@ meaningfully different real providers (e.g. a fast/cheap one and a
 higher-quality one, or providers with genuinely different strengths). Revisit
 scope once that's true.
 
+**Update (2026-08-06)**: a concrete, user-requested shape for this exists
+now — see
+[`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+Phase 3 (specialized domain agents — Legal/HR/Finance/IT), cross-referenced
+there rather than duplicated: named personas over the same underlying
+retrieval pipeline, not a competing agent design.
+
 ## Phase 4 — `ReflectionAgent` ⬜
 
 **Not started — same dependency as Phase 3.** Comparing/merging multiple
@@ -464,6 +471,14 @@ Redis instance if this phase lands first), or a fast key-value layer some
 future agent needs. Introducing a new stateful dependency (deployment,
 backup, another thing that can go down) needs a real justification, not "the
 original vision mentioned it."
+
+**Update (2026-08-06)**: this phase now has the concrete "what would this
+add" answer it was waiting for — see
+[`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+Phase 4 (cross-session personalization memory), cross-referenced there:
+today's per-conversation memory doesn't survive across separate
+conversations for the same user, which is the real gap a long-term memory
+store would close.
 
 ## Phase 6 — Tools via MCP ⬜
 

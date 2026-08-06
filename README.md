@@ -559,6 +559,19 @@ vs. what's blocked on a decision or resource only the user can provide.
   simultaneous — the database and cloud-drive pieces in particular introduce
   a credential-storage mechanism and an async-ingestion prerequisite
   (shared with the production-readiness roadmap above) that don't exist yet.
+- **Product differentiation roadmap**
+  ([docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](docs/PRODUCT-DIFFERENTIATION-ROADMAP.md))
+  — planned, not yet built, as of 2026-08-06, in response to a direct
+  "what would make this stand out against tools like NotebookLM" list.
+  Checked against the actual codebase first, not assumed: drag-and-drop
+  upload, hybrid vector+full-text search, and fine-grained per-document
+  permissions were **already built** (named explicitly in the roadmap
+  file rather than silently dropped from the list); citation highlighting/
+  a source viewer, cross-session memory, and usage/cost dashboards are
+  **partially** built with a specific named gap; document comparison,
+  versioning, OCR for scanned PDFs, automatic summaries/FAQs, specialized
+  domain agents, and federated search across SharePoint/Confluence/Drive/
+  GitHub are genuinely new.
 - ~~Closing a final portfolio review's punch list~~ — done: a non-transactional
   registration path (`AuthService.register()`, now `@Transactional`, verified by
   a real Testcontainers rollback test), unbounded question/message size (now

@@ -4,13 +4,14 @@
 > [`docs/SECURITY-HARDENING-ROADMAP.md`](SECURITY-HARDENING-ROADMAP.md),
 > [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md),
 > [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md),
-> or [`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
-> — those four still own all the implementation detail, "done when" criteria,
+> [`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md),
+> or [`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+> — those five still own all the implementation detail, "done when" criteria,
 > and per-phase context for their own concerns. This file is the single thing
 > to open when the question is **"what do we actually do next, in what
-> order?"** across *all four* of them plus the couple of standalone items
+> order?"** across *all five* of them plus the couple of standalone items
 > that never made it into any. Update the checkboxes as items land — this is
-> a living document, same convention as the other four.
+> a living document, same convention as the other five.
 >
 > **Deliberately no deep-links to specific `##` headings in the other two
 > files** — heading-anchor slugs for titles with emoji/backticks/em-dashes
@@ -22,24 +23,26 @@
 
 ## Why this exists
 
-Four living roadmaps now exist (security hardening; the broader
-AI-engineering skill roadmap; production readiness — added 2026-08-03; and
-external data integration — added 2026-08-05, see its own file for why it's
-separate from the other three), plus a Kubernetes gap the README has tracked
-on its own since before any of them existed. Thirty-nine items are tracked
-across all five places (up from thirty-four — five new items added when the
-user asked for more flexible ways to get knowledge into the platform: import
-from a URL, import a whole local folder, a batch-import connector for
-external databases, a live external-database query tool for the LLM, and
-cloud-drive import via Google Drive). They don't have to happen in
+Five living roadmaps now exist (security hardening; the broader
+AI-engineering skill roadmap; production readiness — added 2026-08-03;
+external data integration — added 2026-08-05; and product differentiation
+— added 2026-08-06, see its own file for why it's separate from the other
+four), plus a Kubernetes gap the README has tracked on its own since before
+any of them existed. Forty-eight items are tracked across all six places (up
+from thirty-nine — nine new items added when the user gave a direct list of
+what would make this project stand out against tools like NotebookLM;
+three of the twelve items on that list turned out to already be built,
+named explicitly in
+[`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+rather than silently dropped). They don't have to happen in
 roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
 same rate-limit filter both a security phase and an AI-roadmap phase need,
-or the async ingestion queue both production-readiness and cloud-drive
-import need); others are blocked on a decision only the user can make (a
-paid API key, an AWS account, a second language). This file sorts all of
-them into that shape.
+or the async ingestion queue that production-readiness, cloud-drive import,
+and citation highlighting all need); others are blocked on a decision only
+the user can make (a paid API key, an AWS account, a second language). This
+file sorts all of them into that shape.
 
 ## Portfolio-ready stopping point
 
@@ -421,6 +424,7 @@ exactly what that decision is):
     or real measured load — see
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 7 for why that condition matters, not just a nice-to-have caveat.
+    Also now has a concrete "what would this add" answer — see #37 below.
 23. ✅ **Security Phase 4 — Tenants/invitations + persistent JWT key** —
     closed. Free-text `tenantId` registration replaced by a real
     invitation model (single-use, 7-day expiry, exact-email match, all
@@ -525,6 +529,60 @@ exactly what that decision is):
     behave. See
     [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
     Phase 4.
+34. ⬜ **New — Product Differentiation Phase 1: citation highlighting /
+    source viewer** — open the original document and see the cited
+    passage highlighted in place, instead of today's metadata + text
+    snippet. Soft dependency on
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 3 (needs original file bytes persisted, not just derived
+    chunks). See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 1.
+35. ⬜ **New — Product Differentiation Phase 2: document comparison** — a
+    structured, multi-document comparison (agreements/contradictions/
+    unique points), not a single grounded answer. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 2.
+36. ⬜ **New — Product Differentiation Phase 3: specialized domain agents
+    (Legal/HR/Finance/IT)** — extends Multi-LLM Phase 3 (`PlannerAgent`,
+    #42 below) with the concrete shape it was missing, rather than a
+    competing agent design. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 3.
+37. ⬜ **New — Product Differentiation Phase 4: cross-session
+    personalization memory** — answers Multi-LLM Phase 5's own "what
+    would Redis actually add" question (#22 above): a preference/fact
+    that survives across separate conversations for the same user, which
+    today's per-conversation memory doesn't provide. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 4.
+38. ⬜ **New — Product Differentiation Phase 5: usage and cost
+    dashboards** — real $-cost tracking for public-LLM fallback calls on
+    top of the existing Prometheus/Grafana usage metrics, not a new
+    observability stack. Soft dependency on
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 3. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 5.
+39. ⬜ **New — Product Differentiation Phase 6: document versioning** — a
+    new document supersedes an older one as a version, instead of today's
+    always-unrelated-new-`documentId` behavior on re-upload. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 6.
+40. ⬜ **New — Product Differentiation Phase 7: OCR for scanned PDFs** —
+    today's `PagePdfDocumentReader` only extracts an existing text layer;
+    a scanned (image-only) PDF silently produces near-empty text. Routes
+    a text-less page's rendered image through the vision-model pipeline
+    already built for standalone image uploads (ADR 0018) rather than a
+    new OCR engine. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 7.
+41. ⬜ **New — Product Differentiation Phase 8: automatic summaries and
+    FAQs** — a per-document "Summarize"/"Generate FAQ" action reusing the
+    existing chat model wiring, with its own prompt templates and
+    response shape. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 8.
 
 ## Tier 3 (optional) — real, ongoing cost or a big commitment
 
@@ -534,25 +592,25 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-34. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+42. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-35. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #34 — note this
+43. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #42 — note this
     multiplies paid API calls per question)
-36. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+44. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision; the OpenTelemetry half is also
     tracked from the production-operations angle in
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 6, not duplicated content, just a second reason to want it)
-37. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+45. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-38. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+46. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
-39. ⬜ **New — External Data Integration Phase 6: cloud drive import
+47. ⬜ **New — External Data Integration Phase 6: cloud drive import
     (Google Drive)** (after
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 3's async queue/object storage — a Google OAuth app registration
@@ -560,6 +618,14 @@ phase's own text for exactly what the cost/commitment is:
     in Tier 3 rather than Tier 2). See
     [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
     Phase 6.
+48. ⬜ **New — Product Differentiation Phase 9: federated search
+    (SharePoint, Confluence, Google Drive, GitHub)** — querying an
+    external system *live* at answer-time, never copying its content in
+    (unlike #47's Drive *import*) — four different OAuth/API integrations,
+    each its own real external dependency, is why this sits in Tier 3
+    rather than Tier 2; start with one provider, not all four at once. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 9.
 
 ## Where Go, Java, and Python actually fit (performance/memory reasoning)
 
@@ -615,8 +681,8 @@ language, since two of the three aren't performance plays at all:
   "the list isn't done yet." Don't infer this file's mere existence as
   standing approval to spend money or add a new language later.
 - After finishing any item: check its box here, update its own status in
-  whichever of the three detailed roadmap files owns it (or write it up as a
+  whichever of the five detailed roadmap files owns it (or write it up as a
   new phase there first, for the Go item above, which doesn't have a home
   section yet), write its ADR if the decision was non-trivial, and follow
-  the verification pattern all three of those files already define (build
+  the verification pattern all five of those files already define (build
   green, container healthy, a real manual test, commit + push).

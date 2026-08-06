@@ -235,6 +235,15 @@ the picker, and see it appear in the knowledge base after async
 processing completes, with the OAuth token never visible to the frontend
 after the initial consent redirect.
 
+**Not to be confused with** — and cross-referenced from —
+[`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+Phase 9 (federated search across SharePoint/Confluence/Drive/GitHub):
+this phase *imports and indexes* a chosen file once; federated search
+means querying an external system *live*, at answer-time, never copying
+its content in — a materially different capability, closer in shape to
+this file's own Phase 4 (live external-database query tool) than to this
+phase.
+
 ## Phase 7 — A real MCP server ⬜
 
 **This is `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`'s own Phase 6 ("Tools
