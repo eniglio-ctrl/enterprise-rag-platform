@@ -28,11 +28,13 @@ AI-engineering skill roadmap; production readiness — added 2026-08-03;
 external data integration — added 2026-08-05; and product differentiation
 — added 2026-08-06, see its own file for why it's separate from the other
 four), plus a Kubernetes gap the README has tracked on its own since before
-any of them existed. Forty-eight items are tracked across all six places (up
-from thirty-nine — nine new items added when the user gave a direct list of
-what would make this project stand out against tools like NotebookLM;
-three of the twelve items on that list turned out to already be built,
-named explicitly in
+any of them existed. Forty-nine items are tracked across all six places (up
+from thirty-nine — ten new items added when the user gave a direct list of
+what would make this project stand out against tools like NotebookLM,
+plus one more (Audio Overview) the same day once a direct follow-up
+question — "would this end up equivalent to NotebookLM?" — surfaced its
+own flagship feature as a concrete gap; three of the original twelve items
+on that list turned out to already be built, named explicitly in
 [`docs/PRODUCT-DIFFERENTIATION-ROADMAP.md`](PRODUCT-DIFFERENTIATION-ROADMAP.md)
 rather than silently dropped). They don't have to happen in
 roadmap-file order or phase-number
@@ -626,6 +628,23 @@ phase's own text for exactly what the cost/commitment is:
     rather than Tier 2; start with one provider, not all four at once. See
     [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
     Phase 9.
+49. ⬜ **New — Product Differentiation Phase 10: Audio Overview** (a
+    generated two-voice podcast-style discussion of a document — added
+    2026-08-06 as a direct follow-up once the user asked whether this
+    project would end up equivalent to NotebookLM; it wouldn't, and this
+    missing flagship feature was a concrete reason why). **Hard**
+    dependency on
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 3 (generated audio needs durable storage and must generate
+    asynchronously) — the one phase in this whole file where that
+    dependency isn't optional. Introduces text-to-speech, a capability
+    this codebase has never had in either direction (today's
+    `AudioTranscriptionService`, ADR 0019, only goes speech-to-text);
+    recommended to start with a local, self-hostable TTS engine (Piper or
+    Coqui TTS), matching this project's Ollama/Whisper local-first
+    precedent, over a paid cloud TTS API. See
+    [docs/PRODUCT-DIFFERENTIATION-ROADMAP.md](PRODUCT-DIFFERENTIATION-ROADMAP.md)
+    Phase 10.
 
 ## Where Go, Java, and Python actually fit (performance/memory reasoning)
 

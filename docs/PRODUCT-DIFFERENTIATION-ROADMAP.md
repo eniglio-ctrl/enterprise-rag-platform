@@ -8,14 +8,22 @@
 > [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md),
 > [`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)).
 >
-> **Before adding anything, the 12-item list was checked against the actual
-> codebase, not assumed.** Three items are already fully built; three more
-> are partially built with a specific, real gap remaining; six are
-> genuinely new. Claiming a feature is missing when it already exists (or
-> claiming a rougher version is the finished thing) would be dishonest to
-> this project's own established ethos — every "already built" and
-> "partially built" verdict below names the exact file/ADR that proves it,
-> so it can be checked directly rather than taken on faith.
+> **Before adding anything, the user's original 12-item list was checked
+> against the actual codebase, not assumed.** Three items are already
+> fully built; three more are partially built with a specific, real gap
+> remaining; six are genuinely new. Claiming a feature is missing when it
+> already exists (or claiming a rougher version is the finished thing)
+> would be dishonest to this project's own established ethos — every
+> "already built" and "partially built" verdict below names the exact
+> file/ADR that proves it, so it can be checked directly rather than
+> taken on faith.
+>
+> **Item 13 (Audio Overview) added 2026-08-06, same day**, after a direct
+> follow-up question — "will this end up equivalent to NotebookLM once
+> everything above is built?" — the honest answer was no, and Audio
+> Overview (a generated two-voice discussion of a document, NotebookLM's
+> own flagship feature) was a concrete, named reason why: it wasn't on the
+> original list at all, and is structurally the largest phase in this file.
 
 ## Status at a glance
 
@@ -33,6 +41,7 @@
 | 10 | Geração automática de resumos e FAQs | ⬜ New | Phase 8 |
 | 11 | Busca federada (SharePoint, Confluence, Drive, GitHub) | ⬜ New, related to but distinct from an existing phase | Phase 9 |
 | 12 | Controle fino de permissões por documento | ✅ Already built | — |
+| 13 | Audio Overview (added 2026-08-06, follow-up) | ⬜ New — largest, most novel phase in this file | Phase 10 |
 
 ## Already built — no new work needed
 
@@ -217,12 +226,76 @@ external source rather than this platform's own indexed knowledge base —
 same honesty principle as the existing public-LLM-fallback provenance
 badge.
 
+## Phase 10 — Audio Overview (generated podcast-style discussion) ⬜
+
+**Not started. Added 2026-08-06, after a direct follow-up question about
+whether this project would end up equivalent to NotebookLM once Phases 1-9
+land** — the honest answer was no, partly because Audio Overview (a
+generated two-voice discussion of a document's content) is NotebookLM's
+own flagship feature and wasn't on the original 12-item list at all. This
+is, by a real margin, the largest and most structurally new phase in this
+file — every other phase reuses an existing pipeline end to end; this one
+introduces a capability this project has never had in either direction.
+
+- **What exists today, and why it isn't reusable as-is**: `AudioTranscriptionService`
+  (ADR 0019) already does the opposite direction — real, local, Whisper-based
+  **speech-to-text**, for transcribing an uploaded audio file into text to
+  index. Audio Overview needs **text-to-speech (TTS)**, which does not
+  exist anywhere in this codebase in either service. No shortcut through
+  existing code here — this is genuinely new infrastructure, not a
+  reuse-and-extend like Phases 1-9 mostly are.
+- **Two-stage pipeline**:
+  1. **Script generation** — an LLM call (reuses the existing chat model
+     wiring) turns the target document(s)' content into a two-persona
+     dialogue script (e.g. a "host" asking questions, an "expert"
+     answering from the material) — a new prompt template, not a new
+     model.
+  2. **Speech synthesis** — the generated script's lines are rendered to
+     actual audio, one voice per persona, then concatenated into a single
+     audio file.
+- **Real, undecided design fork — TTS provider**: consistent with this
+  project's strong local-first precedent (Ollama for chat, Whisper for
+  transcription, both self-hosted and free), a **local, self-hostable TTS
+  engine is the recommended starting point** (e.g. Piper or Coqui TTS —
+  both run comfortably on CPU, unlike a local LLM), over a paid cloud TTS
+  API (ElevenLabs, OpenAI TTS, Google Cloud TTS) as a first choice. A
+  cloud TTS provider is a legitimate *optional* addition later, mirroring
+  how the Multi-LLM fallback providers sit alongside local Ollama today —
+  not a replacement for the local path. This decision should be confirmed
+  before implementation starts, the same way every other provider choice
+  in this project's history was made explicit rather than assumed.
+- **Async by necessity, not just by preference**: generating several
+  minutes of two-voice audio from a real document is slow — this phase
+  has a **hard dependency**, not a soft one, on
+  [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md)
+  Phase 3's async queue and object storage: the generated audio file
+  itself needs somewhere durable to live and be streamed from, and
+  generation must not block an HTTP request the way today's synchronous
+  pipelines do.
+- **`web-ui`**: a new "Audio Overview" action per document (or per a
+  small selection of documents), a generating/pending state, and an audio
+  player once the file is ready — new UI surface, no existing component to
+  extend.
+
+**Done when**: requesting an Audio Overview for a real uploaded document
+produces an actual playable audio file with two distinguishable voices
+discussing that document's real content (not generic filler), generated
+asynchronously (the request returns immediately, the UI polls or is
+notified when ready), using the locally-hosted TTS path with zero paid
+API cost.
+
 ## Sequencing note
 
-None of these nine phases are started, and none block each other in a
+None of these ten phases are started, and none block each other in a
 hard-dependency sense the way `docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`'s
-phases do — they're independent surface-area additions. Phases 1 and 5
-share `docs/PRODUCTION-READINESS-ROADMAP.md`'s async/storage work as a
-soft dependency (worth having first, not strictly required); Phase 3
-should follow `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`'s own Phase 3
-sequencing once that starts, rather than forking a parallel agent design.
+phases do — they're independent surface-area additions, with one
+exception. Phases 1 and 5 share
+`docs/PRODUCTION-READINESS-ROADMAP.md`'s async/storage work as a *soft*
+dependency (worth having first, not strictly required); Phase 3 should
+follow `docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`'s own Phase 3 sequencing
+once that starts, rather than forking a parallel agent design. **Phase
+10 (Audio Overview) is the one real exception**: its *hard* dependency on
+that same production-readiness async/storage work is a genuine blocker,
+not a nice-to-have, since generated audio has nowhere durable to live and
+generation cannot run synchronously in an HTTP request the way the other
+nine phases' work mostly can.

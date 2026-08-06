@@ -571,7 +571,13 @@ vs. what's blocked on a decision or resource only the user can provide.
   **partially** built with a specific named gap; document comparison,
   versioning, OCR for scanned PDFs, automatic summaries/FAQs, specialized
   domain agents, and federated search across SharePoint/Confluence/Drive/
-  GitHub are genuinely new.
+  GitHub are genuinely new. A direct follow-up question — "would this end
+  up equivalent to NotebookLM?" — got an honest "no," partly because
+  **Audio Overview** (a generated two-voice podcast-style discussion of a
+  document, NotebookLM's own flagship feature) wasn't on the original
+  list; added the same day as the roadmap's largest, most structurally
+  new phase (introduces text-to-speech, a capability this codebase has
+  never had in either direction).
 - ~~Closing a final portfolio review's punch list~~ — done: a non-transactional
   registration path (`AuthService.register()`, now `@Transactional`, verified by
   a real Testcontainers rollback test), unbounded question/message size (now
