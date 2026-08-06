@@ -476,6 +476,14 @@ retrieval exposed as an MCP tool for an external client), ship and verify
 those end-to-end, then expand — not build generic MCP plumbing for a dozen
 tools speculatively.
 
+**Update (2026-08-05)**: this phase now has the concrete use case it was
+waiting for — see
+[`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+Phase 7, which cross-references this phase rather than duplicating it:
+expose this platform's RAG retrieval and its external-database connections
+(that roadmap's Phases 3/4) as real MCP tools/resources, once those two
+phases exist to give this one something concrete to expose.
+
 ## Phase 7 — Observability (LangFuse + OpenTelemetry) ⬜
 
 **Not started.** Two separate needs bundled in the original vision:

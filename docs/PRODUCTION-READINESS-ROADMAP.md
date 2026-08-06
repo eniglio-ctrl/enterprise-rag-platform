@@ -178,6 +178,12 @@ through `PENDING → PROCESSING → READY`, a deliberately-killed worker mid-job
 leaves the document retriable (not silently lost), and the original file
 bytes are recoverable from object storage independent of what's in pgvector.
 
+**Update (2026-08-05)**: this phase is now also a named prerequisite in
+[`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+Phase 5 (cross-referenced there, not duplicated) — a cloud-drive import
+(that roadmap's Phase 6) is exactly the kind of slow, rate-limited fetch
+this phase's async queue exists to decouple from the HTTP request cycle.
+
 ## Phase 4 — Operational resilience hardening ✅
 
 **Done.** All three gaps below, confirmed for real before writing any code

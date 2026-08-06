@@ -3,13 +3,14 @@
 > This file doesn't replace
 > [`docs/SECURITY-HARDENING-ROADMAP.md`](SECURITY-HARDENING-ROADMAP.md),
 > [`docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md`](MULTI-LLM-ORCHESTRATOR-ROADMAP.md),
-> or [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md)
-> — those three still own all the implementation detail, "done when" criteria,
+> [`docs/PRODUCTION-READINESS-ROADMAP.md`](PRODUCTION-READINESS-ROADMAP.md),
+> or [`docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md`](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+> — those four still own all the implementation detail, "done when" criteria,
 > and per-phase context for their own concerns. This file is the single thing
 > to open when the question is **"what do we actually do next, in what
-> order?"** across *all three* of them plus the couple of standalone items
+> order?"** across *all four* of them plus the couple of standalone items
 > that never made it into any. Update the checkboxes as items land — this is
-> a living document, same convention as the other three.
+> a living document, same convention as the other four.
 >
 > **Deliberately no deep-links to specific `##` headings in the other two
 > files** — heading-anchor slugs for titles with emoji/backticks/em-dashes
@@ -21,27 +22,24 @@
 
 ## Why this exists
 
-Three living roadmaps now exist (security hardening; the broader
-AI-engineering skill roadmap; production readiness — added 2026-08-03, see
-its own file for why it's separate), plus a Kubernetes gap the README has
-tracked on its own since before any of them existed. Thirty-three items are
-tracked across all four places (up from twenty-nine — four real,
-previously-untracked gaps added when the user asked for a direct evaluation
-of what production maturity this project would still need before adding more
-AI features: operational resilience hardening — no concurrency limit on
-LLM/Whisper calls, and every Kubernetes readiness/liveness probe hitting the
-identical endpoint on the identical schedule, both confirmed directly, not
-assumed; backups and disaster recovery — no automation, no retention policy,
-no restore ever exercised; secrets/configuration management for a real
-deployment, since today's `.env` approach is explicitly dev/demo-shaped; and
-resource-level authorization, since today's tenant-only model has no
-per-document/group/user permission concept on top of it). They don't have to
-happen in roadmap-file order or phase-number
+Four living roadmaps now exist (security hardening; the broader
+AI-engineering skill roadmap; production readiness — added 2026-08-03; and
+external data integration — added 2026-08-05, see its own file for why it's
+separate from the other three), plus a Kubernetes gap the README has tracked
+on its own since before any of them existed. Thirty-nine items are tracked
+across all five places (up from thirty-four — five new items added when the
+user asked for more flexible ways to get knowledge into the platform: import
+from a URL, import a whole local folder, a batch-import connector for
+external databases, a live external-database query tool for the LLM, and
+cloud-drive import via Google Drive). They don't have to happen in
+roadmap-file order or phase-number
 order — several have no real dependency on anything and can start today;
 others share infrastructure in ways worth sequencing deliberately (e.g. the
-same rate-limit filter both a security phase and an AI-roadmap phase need);
-others are blocked on a decision only the user can make (a paid API key, an
-AWS account, a second language). This file sorts all of them into that shape.
+same rate-limit filter both a security phase and an AI-roadmap phase need,
+or the async ingestion queue both production-readiness and cloud-drive
+import need); others are blocked on a decision only the user can make (a
+paid API key, an AWS account, a second language). This file sorts all of
+them into that shape.
 
 ## Portfolio-ready stopping point
 
@@ -462,7 +460,9 @@ exactly what that decision is):
 25. ⬜ **Multi-LLM Phase 10 — Reframe agents around capability** (after
     Tier 1 #7)
 26. ⬜ **Multi-LLM Phase 6 — Tools via MCP** (after Tier 1 #7; still needs
-    its own scope cut to 1-2 concrete tools)
+    its own scope cut to 1-2 concrete tools — now has one, see #32/#33
+    below and [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 7)
 27. ⬜ **Multi-LLM Phase 11 — Event-driven architecture (Kafka/RabbitMQ)** —
     needs a concrete driving use case (the phase's own text suggests async
     document ingestion) and a provisioning decision (Kafka vs. RabbitMQ),
@@ -497,6 +497,34 @@ exactly what that decision is):
     0046 explicitly left unbuilt. `web-ui` gained an admin panel, visible
     only when the logged-in user's role is `ADMIN`, covering both actions.
     See [ADR 0047](adr/0047-tenant-admin-role.md).
+30. ⬜ **New — External Data Integration Phase 1: import a document from a
+    URL** — smallest, most contained piece; reuses the existing
+    `ValidatedUpload` pipeline almost entirely. The one real decision to
+    make before starting is the SSRF guardrail (reject private/internal
+    IP ranges before connecting), not a design fork. See
+    [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 1.
+31. ⬜ **New — External Data Integration Phase 2: import a whole local
+    folder** — `web-ui` only, no backend change (`<input type="file"
+    webkitdirectory>` looping the existing per-file upload call). See
+    [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 2.
+32. ⬜ **New — External Data Integration Phase 3: batch import connector
+    for external databases** — a settings screen for a user's own
+    Postgres/MySQL connection parameters, encrypted-at-rest credential
+    storage in the app's own Postgres (decided over Vault, for now, to
+    start faster), and a one-time import of a table/query into pgvector
+    through the existing chunking/embedding pipeline. See
+    [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 3.
+33. ⬜ **New — External Data Integration Phase 4: live external-database
+    query tool** (after #32, reuses its stored connections) — an
+    `@Tool`-annotated capability modeled on `DocumentLookupTool`, letting
+    the LLM query a connected external database at answer-time,
+    read-only-enforced at the query-statement level, not just prompted to
+    behave. See
+    [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 4.
 
 ## Tier 3 (optional) — real, ongoing cost or a big commitment
 
@@ -506,24 +534,32 @@ signing off on the specific cost/commitment named, *and* wanting that
 specific item for its own sake, not just to advance the list — see each
 phase's own text for exactly what the cost/commitment is:
 
-30. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
+34. ⬜ **Multi-LLM Phase 3 — `PlannerAgent`** (after Tier 1 #8-#12 — note
     this assumes genuinely selectable multiple providers, which the Phase 2
     fallback design deliberately does *not* provide; may need its own
     provider wiring)
-31. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #30 — note this
+35. ⬜ **Multi-LLM Phase 4 — `ReflectionAgent`** (after #34 — note this
     multiplies paid API calls per question)
-32. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
+36. ⬜ **Multi-LLM Phase 7 — Observability (LangFuse + OpenTelemetry)** (a
     LangFuse account/hosting decision; the OpenTelemetry half is also
     tracked from the production-operations angle in
     [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
     Phase 6, not duplicated content, just a second reason to want it)
-33. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
+37. ⬜ **Multi-LLM Phase 12 — AWS deployment target** (an AWS account +
     explicit acceptance of real, non-free-tier cost for some of what's in
     scope, e.g. Bedrock/OpenSearch)
-34. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
+38. ⬜ **Multi-LLM Phase 13 — Python + LangGraph AI layer** (confirm this
     portfolio project should become polyglot before any code — see "Where
     Python actually fits" below for why this one is *not* primarily a
     performance decision, unlike the Go item above)
+39. ⬜ **New — External Data Integration Phase 6: cloud drive import
+    (Google Drive)** (after
+    [docs/PRODUCTION-READINESS-ROADMAP.md](PRODUCTION-READINESS-ROADMAP.md)
+    Phase 3's async queue/object storage — a Google OAuth app registration
+    and review process is the real, ongoing-ish commitment that puts this
+    in Tier 3 rather than Tier 2). See
+    [docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](EXTERNAL-DATA-INTEGRATION-ROADMAP.md)
+    Phase 6.
 
 ## Where Go, Java, and Python actually fit (performance/memory reasoning)
 

@@ -549,6 +549,16 @@ vs. what's blocked on a decision or resource only the user can provide.
   portfolio project today, and this file exists so the next evolution (if and
   when wanted) has a thought-through order instead of an ungrounded technology
   list.
+- **External data integration roadmap**
+  ([docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md](docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md))
+  — planned, not yet built, as of 2026-08-05: getting knowledge into the
+  platform from a URL, a whole local folder, a user's own external database
+  (a batch-import connector, then a live query tool the LLM can call), a
+  cloud drive (Google Drive), and eventually a real MCP server exposing this
+  platform's data/tools to external clients. Phased by dependency, not
+  simultaneous — the database and cloud-drive pieces in particular introduce
+  a credential-storage mechanism and an async-ingestion prerequisite
+  (shared with the production-readiness roadmap above) that don't exist yet.
 - ~~Closing a final portfolio review's punch list~~ — done: a non-transactional
   registration path (`AuthService.register()`, now `@Transactional`, verified by
   a real Testcontainers rollback test), unbounded question/message size (now
