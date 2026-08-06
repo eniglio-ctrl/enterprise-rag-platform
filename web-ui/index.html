@@ -7,8 +7,15 @@
   <!-- No build step/content hashing here, so a manual version query on style.css/
        app.js forces a fresh fetch on deploy instead of depending on every client
        and CDN edge to respect Cache-Control immediately. Bump on real changes. -->
-  <link rel="stylesheet" href="style.css?v=2026-08-05" />
+  <link rel="stylesheet" href="style.css?v=2026-08-05c" />
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <!-- Renders LLM answer/conversation prose (bold, lists, code blocks) as actual
+       markdown instead of raw text with literal ** and ``` characters. DOMPurify
+       sanitizes marked's HTML output before it ever reaches innerHTML - this text
+       is model-generated, ultimately derived from user-uploaded documents, so it
+       is not trusted input. Same CSP allowance already used for Mermaid above. -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 </head>
 <body>
   <section class="auth-shell" id="auth-panel">
@@ -152,7 +159,7 @@
                   <!-- Only shown when source === "public-llm" (Phase 2c) - visibly distinct
                        from a normal grounded answer so it can't be mistaken for one. -->
                   <div id="answer-provenance-badge" class="provenance-badge" hidden data-i18n="knowledge.provenanceBadge"></div>
-                  <p id="answer-text"></p>
+                  <div id="answer-text" class="markdown-body"></div>
 
                   <h4 data-i18n="knowledge.citationsHeading">Sources consulted</h4>
                   <ul id="citations-list" class="citations"></ul>
@@ -269,7 +276,7 @@
     </div>
   </div>
 
-  <script src="config.js?v=2026-08-05b"></script>
-  <script src="app.js?v=2026-08-05b"></script>
+  <script src="config.js?v=2026-08-05c"></script>
+  <script src="app.js?v=2026-08-05c"></script>
 </body>
 </html>
