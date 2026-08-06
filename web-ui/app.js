@@ -81,6 +81,11 @@ const STRINGS = {
     "documents.indexed": "Indexed \"{{source}}\" into {{chunks}} chunk(s).",
     "documents.uploadFailed": "Upload failed.",
     "documents.historyMeta": "{{pages}} page(s) · {{chunks}} chunk(s)",
+    "documents.urlImportHint": "Or import a document directly from a URL (same file types, only http/https, private/internal addresses are rejected).",
+    "documents.urlImportPlaceholder": "https://example.com/document.pdf",
+    "documents.urlImportButton": "Import from URL",
+    "documents.urlImporting": "Fetching and indexing the URL...",
+    "documents.urlImportFailed": "Could not import from that URL.",
     "documents.adminHeading": "Manage sharing",
     "documents.adminHint": "Admin-only (ADR 0047): restrict any document in the tenant to specific teammates instead of everyone.",
     "documents.ownerLabel": "owner",
@@ -190,6 +195,11 @@ const STRINGS = {
     "documents.indexed": "\"{{source}}\" indexado em {{chunks}} trecho(s).",
     "documents.uploadFailed": "Falha no envio.",
     "documents.historyMeta": "{{pages}} página(s) · {{chunks}} trecho(s)",
+    "documents.urlImportHint": "Ou importe um documento direto de uma URL (mesmos tipos de arquivo, só http/https, endereços privados/internos são rejeitados).",
+    "documents.urlImportPlaceholder": "https://exemplo.com/documento.pdf",
+    "documents.urlImportButton": "Importar da URL",
+    "documents.urlImporting": "Buscando e indexando a URL...",
+    "documents.urlImportFailed": "Não foi possível importar dessa URL.",
     "documents.adminHeading": "Gerenciar permissões",
     "documents.adminHint": "Só para admin (ADR 0047): restrinja qualquer documento do tenant a colegas específicos em vez de todo mundo.",
     "documents.ownerLabel": "dono",
@@ -730,6 +740,10 @@ const uploadButton = document.getElementById("upload-button");
 const uploadStatus = document.getElementById("upload-status");
 const uploadHistory = document.getElementById("upload-history");
 
+const urlImportForm = document.getElementById("url-import-form");
+const urlImportInput = document.getElementById("url-import-input");
+const urlImportButton = document.getElementById("url-import-button");
+
 const askForm = document.getElementById("ask-form");
 const askButton = document.getElementById("ask-button");
 const askStatus = document.getElementById("ask-status");
@@ -893,6 +907,46 @@ function addHistoryEntry({ source, chunkCount, pageCount }) {
   `;
   uploadHistory.prepend(item);
 }
+
+// docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1 - same upload-status/history
+// elements as the multipart form above, since the response shape is identical.
+urlImportForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const url = urlImportInput.value.trim();
+  if (!url) {
+    return;
+  }
+
+  urlImportButton.disabled = true;
+  setStatus(uploadStatus, t("documents.urlImporting"));
+
+  try {
+    const response = await fetch(`${INGESTION_BASE}/api/v1/documents/from-url`, {
+      method: "POST",
+      headers: { ...authHeader(), "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+
+    if (response.status === 401) {
+      clearAuth(t("auth.sessionExpired"));
+      return;
+    }
+
+    const body = await response.json();
+
+    if (!response.ok) {
+      throw new Error(body.message ?? t("documents.urlImportFailed"));
+    }
+
+    setStatus(uploadStatus, t("documents.indexed", { source: body.source, chunks: body.chunkCount }), "success");
+    addHistoryEntry(body);
+    urlImportForm.reset();
+  } catch (error) {
+    setStatus(uploadStatus, error.message ?? t("documents.urlImportFailed"), "error");
+  } finally {
+    urlImportButton.disabled = false;
+  }
+});
 
 askForm.addEventListener("submit", async (event) => {
   event.preventDefault();

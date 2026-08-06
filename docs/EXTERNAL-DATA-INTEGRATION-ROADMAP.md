@@ -73,6 +73,15 @@ resolved IP, no auto-redirect, read-time byte cap) and its test evidence.
 core shared by the existing multipart path and the new URL path — none of
 the downstream chunking/embedding code needed to change.
 
+`web-ui` gained a small URL-input form in the Documents view, right below
+the existing upload dropzone, reusing the same status/history elements
+(`documents.urlImportHint`/`urlImportPlaceholder`/`urlImportButton`/
+`urlImporting`/`urlImportFailed` i18n keys, EN+PT) — not in the original
+plan text, added afterward on request and verified live in the browser
+against the real running stack (success case indexed a real GitHub file;
+the SSRF guard's rejection message surfaces correctly as a red status
+line for a blocked private address).
+
 - New endpoint: `POST /api/v1/documents/from-url`, body `{"url": "..."}`.
 - New, small fetch step ahead of validation: HTTP GET the URL with an
   explicit timeout and a maximum byte-count cap (reject early via

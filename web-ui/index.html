@@ -228,6 +228,12 @@
               <button type="submit" id="upload-button" disabled data-i18n="documents.uploadButton">Upload &amp; index</button>
             </form>
 
+            <p class="hint" data-i18n="documents.urlImportHint"></p>
+            <form id="url-import-form">
+              <input type="url" id="url-import-input" data-i18n-placeholder="documents.urlImportPlaceholder" placeholder="https://..." autocomplete="off" required />
+              <button type="submit" id="url-import-button" data-i18n="documents.urlImportButton">Import from URL</button>
+            </form>
+
             <div id="upload-status" class="status" hidden></div>
 
             <ul id="upload-history" class="history"></ul>
