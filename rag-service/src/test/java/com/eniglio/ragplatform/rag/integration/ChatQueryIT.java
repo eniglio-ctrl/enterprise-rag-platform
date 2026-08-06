@@ -268,7 +268,11 @@ class ChatQueryIT {
     }
 
     @Test
-    void groundedRequestReturnsNotSupportedVerdict() throws Exception {
+    void notSupportedVerdictOffersFallbackInsteadOfTheUngroundedAnswer() throws Exception {
+        // RagQueryService.doAnswer now always runs the groundedness check to gate the
+        // public-LLM fallback (not just to populate this field when `grounded: true`
+        // is requested) - a NOT_SUPPORTED verdict is treated the same as empty
+        // retrieval, not returned as if it were a normal, successful answer.
         given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
             Prompt prompt = invocation.getArgument(0);
             String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
@@ -282,7 +286,10 @@ class ChatQueryIT {
                         .contentType("application/json")
                         .content("{\"question\":\"Como funciona o padrão SAGA?\",\"grounded\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.groundedness").value("NOT_SUPPORTED"));
+                .andExpect(jsonPath("$.groundedness").doesNotExist())
+                .andExpect(jsonPath("$.fallbackAvailable").value(true))
+                .andExpect(jsonPath("$.answer").value(
+                        org.hamcrest.Matchers.containsStringIgnoringCase("não encontrei informação suficiente")));
     }
 
     @Test
