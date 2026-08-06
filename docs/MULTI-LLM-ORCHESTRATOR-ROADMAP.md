@@ -388,6 +388,44 @@ key) and OpenAI (the real zero-credits account from 2a) both now return a
 graceful `200` instead of a `500`; Gemini (default) still returns a real
 answer, unaffected.
 
+### Phase 2f — Extend the fallback to multi-turn Conversations, not just single-turn Ask ⬜
+
+**Not started — a real gap found live, 2026-08-05.** Everything in Phase 2
+(a–e) lives entirely in `rag-service`'s `/api/v1/ask` / `/api/v1/chat`, used
+by `web-ui`'s **Knowledge** view. The **Conversations** view (multi-turn,
+`chat-service`, ADR 0013) is a structurally separate pipeline: `chat-service`
+calls only `rag-service`'s bare `/api/v1/retrieve` (retrieval, no
+generation) and then generates its own reply with its own local LLM call —
+`FallbackTriggerEvaluator`, the groundedness-gated second trigger (this same
+day's earlier work), and every `OpenAI`/`Gemini`/`Anthropic` fallback client
+live only in `rag-service` and are never reached from a conversation. A
+question a conversation can't answer just gets the model's own "não
+encontrei informações suficientes" prose, with no fallback offered — not a
+bug, since the feature was never built for this path, but a real,
+user-visible inconsistency between the two views doing conceptually the
+same job.
+
+Closing it needs three pieces, not implemented yet:
+1. `chat-service` needs its own fallback-trigger check (empty
+   `retrieve()` result is the cheap structural signal available today,
+   mirroring `FallbackTriggerEvaluator`'s "content insufficiency" case;
+   the local-circuit-breaker case would need `chat-service` to expose its
+   own `LlmGateway`'s breaker state the same way).
+2. Where the actual public-LLM call happens is an open design question:
+   duplicating `OpenAI`/`Gemini`/`Anthropic` clients and API keys into
+   `chat-service` is the wrong shape given they already exist in
+   `rag-service` — more likely a new `rag-service` endpoint `chat-service`
+   calls into, reusing the exact provider wiring Phase 2a/2c/2e already
+   built, rather than a second copy of it.
+3. `web-ui`'s Conversations view has no fallback-confirm UI at all today
+   (`#fallback-confirm-card` only exists in the Knowledge view's markup) —
+   needs its own instance of that same confirm/cancel flow.
+
+Deliberately deferred rather than built opportunistically alongside the
+groundedness fix above: real cross-service design work, not a small
+addition, and the user's own call was to track it here and revisit later
+rather than implement now.
+
 ### What changes elsewhere once Phase 2 exists
 
 Phases 3 (`PlannerAgent`) and 4 (`ReflectionAgent`) still assume genuinely
