@@ -80,3 +80,39 @@ is Phase 2c's job, not this one's.
 ### Regression-free
 `./mvnw -pl rag-service -am test` — 64 tests, 0 failures, 0 errors. The new
 class and test add to the suite without touching any existing behavior.
+
+## Update (2026-08-05): the deferred narrow case above happened for real, fixed with a second-stage trigger instead of a second RRF threshold
+
+The "left alone rather than guessed at" case from the Decision section above
+— a full-text-only match surviving fusion while `retrieved` stays non-empty
+— hit for real: asking for a Java code example matched documents about SSO/
+JWT and an unrelated personal PDF, purely because "código" (a common
+Portuguese word, "code") appears in both, with nothing to do with the actual
+question. `retrieved` came back non-empty, so `FallbackTriggerEvaluator`
+correctly did **not** fire (it isn't wrong — the case it doesn't cover is
+exactly the one this ADR already named), the local model generated an
+answer from irrelevant context, and it said so honestly ("não encontrei
+informações suficientes...") — but that text was returned as if it were a
+normal, successful answer, with no fallback offered.
+
+Fixed without calibrating the RRF-scale threshold this ADR already rejected
+guessing at: `RagQueryService.doAnswer` now always runs the existing
+groundedness check (ADR 0008's `checkGroundedness`, previously opt-in via
+`grounded: true`) after generation, and treats a `NOT_SUPPORTED` verdict the
+same as `FallbackTriggerEvaluator` firing — offering the fallback instead of
+returning the answer. This is a genuinely better fix than a second
+threshold would have been: it judges the actual generated answer against
+its context (an LLM verdict, the same structural-not-textual principle this
+ADR already committed to, just checking the *answer's relationship to its
+context* instead of the user-facing *answer text* ADR 0024 already rejected
+matching on), rather than trying to guess a fusion-score cutoff that
+inherently can't distinguish "weakly-ranked but genuinely relevant" from
+"weakly-ranked and coincidental."
+
+**Cost, accepted deliberately**: every question now costs a second Ollama
+round trip (the groundedness check), not just ones where a caller opts in —
+real added latency on every request in exchange for not silently returning
+ungrounded-and-unhelpful answers as if they'd succeeded. `FallbackTriggerEvaluator`
+itself is unchanged; this is a second, later trigger point in `doAnswer`,
+not a modification to the pre-generation one. Full detail on the response
+contract this reuses is unchanged from ADR 0038.

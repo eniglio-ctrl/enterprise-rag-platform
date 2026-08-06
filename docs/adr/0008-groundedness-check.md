@@ -55,3 +55,16 @@ was given. ADR 0004 flagged this as a roadmap item; this ADR implements it.
   verification call itself fails (timeout, model error), it propagates as a request
   failure rather than silently omitting `groundedness` — same handling as the primary
   answer call, no separate try/catch was added for it.
+
+## Update (2026-08-05): no longer opt-in — this title's premise changed
+
+The check itself now always runs from `RagQueryService.doAnswer`, regardless
+of `ChatRequest.grounded` — its `NOT_SUPPORTED` verdict is reused as a
+second-stage trigger for the Multi-LLM public-LLM fallback (ADR 0037/0038),
+not just caller-requested metadata. `grounded` still controls whether the
+verdict is *exposed* in the response body on a normal, supported answer, but
+the "opt-in, doubles latency only when asked for" tradeoff this ADR
+originally accepted no longer holds — the extra Ollama round trip now
+happens on every question. Full reasoning (the real gap this closes, and why
+a second RRF-score threshold was rejected in favor of reusing this check) is
+in [ADR 0037's own update](0037-fallback-trigger-detection.md#update-2026-08-05-the-deferred-narrow-case-above-happened-for-real-fixed-with-a-second-stage-trigger-instead-of-a-second-rrf-threshold).

@@ -254,7 +254,12 @@ class RagQueryServiceTest {
     }
 
     @Test
-    void groundedAnswerIsMarkedNotSupportedWhenVerificationSaysSo() {
+    void notGroundedAnswerOffersTheFallbackInsteadOfBeingReturned() {
+        // Second-stage fallback trigger: retrieval succeeded (hybrid search's
+        // full-text leg can keyword-match into irrelevant documents), but the
+        // model's own answer isn't actually supported by that context - treated the
+        // same as "nothing retrieved" rather than returned as if it were a normal,
+        // successful answer.
         Document document = Document.builder()
                 .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
                 .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
@@ -274,7 +279,39 @@ class RagQueryServiceTest {
         RagQueryService service = newService();
         ChatResponse response = service.answer("Como funciona o SAGA?", "default", true, false, null);
 
-        assertThat(response.groundedness()).isEqualTo(Groundedness.NOT_SUPPORTED);
+        assertThat(response.answer()).containsIgnoringCase("não encontrei informação suficiente");
+        assertThat(response.citations()).isEmpty();
+        assertThat(response.groundedness()).isNull();
+        assertThat(response.fallbackAvailable()).isTrue();
+        assertThat(response.source()).isNull();
+    }
+
+    @Test
+    void groundednessIsCheckedEvenWhenNotRequested() {
+        // `grounded=false` used to skip checkGroundedness entirely; it now only
+        // controls whether the verdict is exposed on a normal, supported answer -
+        // the check itself always runs so it can gate the fallback decision above.
+        Document document = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "aula12.md", "chunkIndex", 3))
+                .score(0.87)
+                .build();
+
+        given(hybridSearchService.search(anyString(), anyString(), isNull(), anyInt())).willReturn(List.of(document));
+        given(chatModel.call(any(Prompt.class))).willAnswer(invocation -> {
+            Prompt prompt = invocation.getArgument(0);
+            String content = prompt.getSystemMessage().getText().contains("SUPORTADA")
+                    ? "NAO_SUPORTADA"
+                    : "O padrão SAGA foi inventado no Brasil em 1990 [1]";
+            return new org.springframework.ai.chat.model.ChatResponse(
+                    List.of(new Generation(new AssistantMessage(content))));
+        });
+
+        RagQueryService service = newService();
+        ChatResponse response = service.answer("Como funciona o SAGA?", "default", false, false, null);
+
+        assertThat(response.fallbackAvailable()).isTrue();
+        assertThat(response.groundedness()).isNull();
     }
 
     @Test

@@ -247,10 +247,17 @@ curl -X POST http://localhost:8082/api/v1/ask \
 }
 ```
 
-Add `"grounded": true` to the request to get a second, cheap opinion on whether the
-answer is actually backed by the retrieved context (`"groundedness": "SUPPORTED"` or
-`"NOT_SUPPORTED"`) — off by default since it's a second LLM call, roughly doubling
-latency. See [ADR 0008](docs/adr/0008-groundedness-check.md).
+A second LLM call always checks whether the answer is actually backed by the
+retrieved context — no longer opt-in: its verdict now also decides whether to
+offer the public-LLM fallback instead of returning an answer that reads as
+successful but was generated from irrelevant context (hybrid search's
+full-text leg can keyword-match a common word into unrelated documents, so
+retrieval isn't empty but nothing it found is actually useful). Add
+`"grounded": true` to also get that verdict back in the response
+(`"groundedness": "SUPPORTED"` or `"NOT_SUPPORTED"`) on a normal answer — the
+extra Ollama round trip itself now happens either way. See
+[ADR 0008](docs/adr/0008-groundedness-check.md) and its
+[2026-08-05 update](docs/adr/0008-groundedness-check.md#update-2026-08-05-no-longer-opt-in--this-titles-premise-changed).
 
 Retrieval already combines pgvector similarity with Postgres full-text search (RRF
 fusion) by default — no flag needed, it's a strict quality improvement with no extra

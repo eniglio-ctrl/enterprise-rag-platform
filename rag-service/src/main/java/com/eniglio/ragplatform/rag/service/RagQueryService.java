@@ -398,12 +398,38 @@ public class RagQueryService {
                 .content());
 
         List<Citation> citations = buildCitations(retrieved);
-        Groundedness groundedness = grounded ? checkGroundedness(context, answer, resolvedModel) : null;
+
+        // Second-stage fallback trigger, deliberately separate from
+        // FallbackTriggerEvaluator above: that one runs *before* generation, off
+        // retrieval/circuit-breaker state alone, and can't see cases like hybrid
+        // search's full-text leg keyword-matching a common word ("código") into
+        // documents with nothing to do with the actual question - retrieved comes
+        // back non-empty, so the pre-generation gate never fires, and the model
+        // then has to answer from irrelevant context. checkGroundedness already
+        // exists for exactly this (a second LLM call verifying the answer is
+        // actually supported by its context, ADR 0008) - now always run, not just
+        // when a caller opts in via `grounded`, specifically to catch this case
+        // instead of returning an unhelpful "I don't have enough information"
+        // answer as if it were a normal, successful one. The extra Ollama round
+        // trip on every question is a real, accepted cost, not an oversight.
+        Groundedness groundednessVerdict = checkGroundedness(context, answer, resolvedModel);
+        if (imageDescription == null && groundednessVerdict == Groundedness.NOT_SUPPORTED) {
+            if (useFallback) {
+                return answerViaPublicLlmFallback(question, fallbackProvider);
+            }
+            log.info("Local answer wasn't grounded in the retrieved context, offering the public-LLM fallback "
+                    + "instead of returning it");
+            return new ChatResponse(
+                    "Não encontrei informação suficiente na base de conhecimento local para responder a essa "
+                            + "pergunta.",
+                    List.of(), null, null, true, null);
+        }
 
         log.info("Answered question using {} retrieved chunks{}", retrieved.size(),
                 imageDescription != null ? " and an attached image" : "");
 
-        return new ChatResponse(answer, citations, groundedness, resolvedModel.id(), null, "local");
+        Groundedness exposedGroundedness = grounded ? groundednessVerdict : null;
+        return new ChatResponse(answer, citations, exposedGroundedness, resolvedModel.id(), null, "local");
     }
 
     /**
@@ -621,9 +647,11 @@ public class RagQueryService {
 
     /**
      * A second LLM call asking whether the answer is actually backed by the retrieved
-     * context (ADR 0008) — opt-in per request since it roughly doubles latency.
-     * Temperature 0.0 for the same reason as diagram generation: this is a
-     * classification, not prose, so deterministic output is worth more than variety.
+     * context (ADR 0008) — always run from {@link #doAnswer}, not opt-in, since its
+     * verdict now also gates the public-LLM fallback offer, not just the exposed
+     * {@code groundedness} response field. Temperature 0.0 for the same reason as
+     * diagram generation: this is a classification, not prose, so deterministic
+     * output is worth more than variety.
      */
     private Groundedness checkGroundedness(String context, String answer, AvailableModel resolvedModel) {
         String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
