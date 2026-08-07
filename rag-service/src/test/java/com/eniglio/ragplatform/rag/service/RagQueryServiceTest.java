@@ -6,7 +6,11 @@ import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.ContextRelevance;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.FaqResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.dto.SummaryResponse;
+import com.eniglio.ragplatform.rag.exception.DocumentNotFoundException;
+import com.eniglio.ragplatform.rag.exception.FaqGenerationException;
 import com.eniglio.ragplatform.rag.gateway.GeminiClient;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
@@ -28,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -93,7 +98,8 @@ class RagQueryServiceTest {
         // client param can be null without any test needing to touch it.
         return new RagQueryService(hybridSearchService, llmRerankService, chatClient, null, openAiFallbackChatClient,
                 anthropicFallbackChatClient,
-                geminiClient, new LlmGateway(), new RagProperties(5, 0.5, 15, availableModels),
+                geminiClient, new LlmGateway(),
+                new RagProperties(5, 0.5, 15, availableModels, new RagProperties.DocumentInsights(40)),
                 fallbackProviderProperties, new FallbackTriggerEvaluator(circuitBreakerRegistry),
                 visionDescriptionService, new DocumentLookupTool(hybridSearchService), new SimpleMeterRegistry());
     }
@@ -780,5 +786,97 @@ class RagQueryServiceTest {
                 "A receita de bolo de cenoura leva três ovos.");
 
         assertThat(result).isEqualTo(ContextRelevance.NOT_RELEVANT);
+    }
+
+    // --- docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8: summarize/FAQ ---
+
+    @Test
+    void summarizesADocumentFromItsWholeIndexedContent() {
+        Document chunk1 = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "saga.md", "documentId", "doc-1", "chunkIndex", 0))
+                .build();
+        Document chunk2 = Document.builder()
+                .text("O padrão choreography não tem um coordenador central.")
+                .metadata(Map.of("source", "saga.md", "documentId", "doc-1", "chunkIndex", 1))
+                .build();
+
+        given(hybridSearchService.findByDocumentId("doc-1", "acme", null)).willReturn(List.of(chunk1, chunk2));
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("O documento descreve o padrão SAGA."))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        SummaryResponse response = newService().summarizeDocument("doc-1", "acme", null, null);
+
+        assertThat(response.summary()).isEqualTo("O documento descreve o padrão SAGA.");
+        assertThat(response.source()).isEqualTo("saga.md");
+        assertThat(response.documentId()).isEqualTo("doc-1");
+        assertThat(response.model()).isEqualTo("llama3.1");
+    }
+
+    @Test
+    void summarizingAnUnknownOrInvisibleDocumentIdThrowsNotFound() {
+        given(hybridSearchService.findByDocumentId("does-not-exist", "acme", null)).willReturn(List.of());
+
+        assertThatThrownBy(() -> newService().summarizeDocument("does-not-exist", "acme", null, null))
+                .isInstanceOf(DocumentNotFoundException.class);
+    }
+
+    @Test
+    void generatesAFaqParsedFromTheModelsDelimitedTextFormat() {
+        Document chunk = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "saga.md", "documentId", "doc-1", "chunkIndex", 0))
+                .build();
+
+        given(hybridSearchService.findByDocumentId("doc-1", "acme", null)).willReturn(List.of(chunk));
+        String rawFaq = """
+                P: O que é o padrão SAGA?
+                R: Um padrão para coordenar transações distribuídas.
+
+                P: Quais os dois modos do SAGA?
+                R: Choreography e orchestration.
+                """;
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage(rawFaq))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        FaqResponse response = newService().generateFaq("doc-1", "acme", null, null);
+
+        assertThat(response.items()).hasSize(2);
+        assertThat(response.items().get(0).question()).isEqualTo("O que é o padrão SAGA?");
+        assertThat(response.items().get(0).answer()).isEqualTo("Um padrão para coordenar transações distribuídas.");
+        assertThat(response.items().get(1).question()).isEqualTo("Quais os dois modos do SAGA?");
+        assertThat(response.source()).isEqualTo("saga.md");
+        assertThat(response.documentId()).isEqualTo("doc-1");
+    }
+
+    @Test
+    void generatingAFaqFromAnUnknownOrInvisibleDocumentIdThrowsNotFound() {
+        given(hybridSearchService.findByDocumentId("does-not-exist", "acme", null)).willReturn(List.of());
+
+        assertThatThrownBy(() -> newService().generateFaq("does-not-exist", "acme", null, null))
+                .isInstanceOf(DocumentNotFoundException.class);
+    }
+
+    @Test
+    void faqGenerationFailsLoudlyWhenTheModelsResponseHasNoParseablePairs() {
+        Document chunk = Document.builder()
+                .text("SAGA coordena transações distribuídas via choreography ou orchestration.")
+                .metadata(Map.of("source", "saga.md", "documentId", "doc-1", "chunkIndex", 0))
+                .build();
+
+        given(hybridSearchService.findByDocumentId("doc-1", "acme", null)).willReturn(List.of(chunk));
+        // The model ignored the requested "P:"/"R:" format entirely - a real failure
+        // mode with smaller local models, not a hypothetical one.
+        org.springframework.ai.chat.model.ChatResponse mockedChatResponse =
+                new org.springframework.ai.chat.model.ChatResponse(
+                        List.of(new Generation(new AssistantMessage("Aqui está um resumo em vez de um FAQ."))));
+        given(chatModel.call(any(Prompt.class))).willReturn(mockedChatResponse);
+
+        assertThatThrownBy(() -> newService().generateFaq("doc-1", "acme", null, null))
+                .isInstanceOf(FaqGenerationException.class);
     }
 }

@@ -60,6 +60,18 @@ public class HybridSearchService {
             ORDER BY (metadata->>'chunkIndex')::int
             """;
 
+    // docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8 (summaries/FAQ): same shape as
+    // LOOKUP_BY_SOURCE_SQL above, but keyed by documentId - the identifier web-ui
+    // actually has on hand (IngestResponse/DocumentSummary), and the one that's
+    // actually unique (two documents can share a filename, never a documentId).
+    private static final String LOOKUP_BY_DOCUMENT_ID_SQL = """
+            SELECT id, content, metadata
+            FROM vector_store
+            WHERE metadata->>'documentId' = ?
+              AND tenant_id = ?
+            ORDER BY (metadata->>'chunkIndex')::int
+            """;
+
     private final VectorStoreGateway vectorStoreGateway;
     private final JdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -145,6 +157,25 @@ public class HybridSearchService {
                         .metadata(parseMetadata(rs.getString("metadata")))
                         .build(),
                 source, tenantId);
+        return filterVisible(chunks, userId);
+    }
+
+    /**
+     * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8: backs the per-document
+     * summarize/FAQ endpoints ({@code RagQueryService.summarizeDocument}/{@code
+     * generateFaq}) - same exact-match-and-ABAC shape as {@link #findBySource}, just
+     * keyed by {@code documentId} instead of filename. A restricted/not-shared-with-you
+     * document is filtered out here exactly as in {@link #search}/{@link #findBySource},
+     * so it's indistinguishable from "no such document" to the caller.
+     */
+    public List<Document> findByDocumentId(String documentId, String tenantId, String userId) {
+        List<Document> chunks = jdbcTemplate.query(LOOKUP_BY_DOCUMENT_ID_SQL,
+                (rs, rowNum) -> Document.builder()
+                        .id(rs.getString("id"))
+                        .text(rs.getString("content"))
+                        .metadata(parseMetadata(rs.getString("metadata")))
+                        .build(),
+                documentId, tenantId);
         return filterVisible(chunks, userId);
     }
 

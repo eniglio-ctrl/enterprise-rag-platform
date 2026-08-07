@@ -54,4 +54,14 @@ public class GlobalExceptionHandler extends GlobalExceptionHandlerSupport {
     public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex, HttpServletRequest request) {
         return build(HttpStatus.PAYLOAD_TOO_LARGE, "Attached image exceeds the maximum allowed size", request);
     }
+
+    @ExceptionHandler(DocumentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleDocumentNotFound(DocumentNotFoundException ex, HttpServletRequest request) {
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(FaqGenerationException.class)
+    public ResponseEntity<ErrorResponse> handleFaqGeneration(FaqGenerationException ex, HttpServletRequest request) {
+        return build(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage(), request);
+    }
 }

@@ -9,7 +9,11 @@ import com.eniglio.ragplatform.rag.dto.AskResponse;
 import com.eniglio.ragplatform.rag.dto.ChatResponse;
 import com.eniglio.ragplatform.rag.dto.DiagramResponse;
 import com.eniglio.ragplatform.rag.dto.ContextRelevance;
+import com.eniglio.ragplatform.rag.dto.FaqResponse;
 import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.dto.SummaryResponse;
+import com.eniglio.ragplatform.rag.exception.DocumentNotFoundException;
+import com.eniglio.ragplatform.rag.exception.FaqGenerationException;
 import com.eniglio.ragplatform.rag.gateway.GeminiClient;
 import com.eniglio.ragplatform.rag.gateway.LlmGateway;
 import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
@@ -31,6 +35,7 @@ import org.springframework.util.MimeType;
 import org.springframework.web.client.ResourceAccessException;
 
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -152,6 +157,54 @@ public class RagQueryService {
             trás da pergunta, nunca a simples presença de uma palavra específica.
             """;
 
+    // docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. No "[n]" citation numbering
+    // here unlike SYSTEM_TEMPLATE/DIAGRAM_SYSTEM_TEMPLATE - the CONTEXTO is the
+    // entire document, not a set of retrieved chunks that need per-claim citation.
+    private static final String SUMMARY_SYSTEM_TEMPLATE = """
+            Você resume documentos técnicos com base no CONTEXTO abaixo, que é o
+            conteúdo completo (ou a parte inicial, se o documento for muito longo) de
+            um único documento.
+            Regras:
+            - Escreva um resumo em texto corrido, no mesmo idioma do CONTEXTO, com
+              3 a 6 frases.
+            - Baseie-se exclusivamente no que está no CONTEXTO — não invente informação
+              que não aparece nele.
+            - Não use marcadores de citação como [1], [2] — este resumo não referencia
+              trechos individuais, o CONTEXTO inteiro já é o próprio documento.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    /**
+     * Asks for a plain, delimited text format (not JSON) on purpose — the same
+     * reasoning as {@link #DIAGRAM_SYSTEM_TEMPLATE} asking for plain Mermaid text
+     * instead of a structured shape: local models (e.g. Ollama's llama3.1) don't
+     * reliably follow a JSON schema, so {@link #parseFaqItems} does the same kind of
+     * defensive, regex-based parsing of a simple format that {@code doDiagram}'s
+     * {@code stripCodeFences}/{@code quoteBracketLabels} already do for Mermaid.
+     */
+    private static final String FAQ_SYSTEM_TEMPLATE = """
+            Você gera uma lista de perguntas e respostas frequentes (FAQ) a partir do
+            CONTEXTO abaixo, que é o conteúdo completo (ou a parte inicial, se o
+            documento for muito longo) de um único documento.
+            Regras:
+            - Gere entre 3 e 8 pares de pergunta/resposta cobrindo os pontos mais
+              importantes do documento, no mesmo idioma do CONTEXTO.
+            - Responda SOMENTE no formato abaixo, um par por vez, com uma linha em
+              branco entre pares — sem numeração, sem markdown, sem texto antes ou
+              depois dos pares:
+              P: <pergunta>
+              R: <resposta>
+            - Baseie-se exclusivamente no que está no CONTEXTO — não invente informação
+              que não aparece nele.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    private static final Pattern FAQ_BLOCK = Pattern.compile("P:\\s*(.+?)\\s*\\r?\\nR:\\s*(.+)", Pattern.DOTALL);
+
     private final HybridSearchService hybridSearchService;
     private final LlmRerankService llmRerankService;
     private final ChatClient ollamaChatClient;
@@ -167,8 +220,12 @@ public class RagQueryService {
     private final DocumentLookupTool documentLookupTool;
     private final Counter answersGeneratedCounter;
     private final Counter diagramsGeneratedCounter;
+    private final Counter summariesGeneratedCounter;
+    private final Counter faqsGeneratedCounter;
     private final Timer answerTimer;
     private final Timer diagramTimer;
+    private final Timer summaryTimer;
+    private final Timer faqTimer;
 
     public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
                             @Qualifier("ollama") ChatClient ollamaChatClient,
@@ -206,6 +263,18 @@ public class RagQueryService {
                 .register(meterRegistry);
         this.diagramTimer = Timer.builder("rag.diagram.generation.duration")
                 .description("Time to generate a diagram, from retrieval to Mermaid output")
+                .register(meterRegistry);
+        this.summariesGeneratedCounter = Counter.builder("rag.summaries.generated")
+                .description("Number of per-document summaries generated")
+                .register(meterRegistry);
+        this.faqsGeneratedCounter = Counter.builder("rag.faqs.generated")
+                .description("Number of per-document FAQs generated")
+                .register(meterRegistry);
+        this.summaryTimer = Timer.builder("rag.summary.generation.duration")
+                .description("Time to generate a document summary, from lookup to generated text")
+                .register(meterRegistry);
+        this.faqTimer = Timer.builder("rag.faq.generation.duration")
+                .description("Time to generate a document FAQ, from lookup to parsed items")
                 .register(meterRegistry);
     }
 
@@ -779,6 +848,114 @@ public class RagQueryService {
                 imageDescription != null ? " and an attached image" : "");
 
         return new DiagramResponse(mermaid, citations, usedModel);
+    }
+
+    /**
+     * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. Whole-document retrieval (via
+     * {@link HybridSearchService#findByDocumentId}), not a similarity search — every
+     * chunk of the document, in order, is the context, so there's no groundedness
+     * check here the way {@link #doAnswer} needs one: the context can't fail to
+     * contain the answer the way a top-K similarity result might. No public-LLM
+     * fallback either, same scope as {@link #diagram}.
+     */
+    public SummaryResponse summarizeDocument(String documentId, String tenantId, String userId, String model) {
+        return summaryTimer.record(() -> doSummarize(documentId, tenantId, userId, model));
+    }
+
+    private SummaryResponse doSummarize(String documentId, String tenantId, String userId, String model) {
+        List<Document> chunks = hybridSearchService.findByDocumentId(documentId, tenantId, userId);
+        if (chunks.isEmpty()) {
+            throw new DocumentNotFoundException("No document found with id: " + documentId);
+        }
+        String source = sourceOf(chunks);
+        String context = buildWholeDocumentContext(chunks);
+        AvailableModel resolvedModel = resolveModel(model);
+
+        String summary = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(SUMMARY_SYSTEM_TEMPLATE).param("context", context))
+                .user("Resuma o documento.")
+                .options(modelOptions(resolvedModel, 0.3))
+                .call()
+                .content());
+
+        summariesGeneratedCounter.increment();
+        log.info("Generated summary for documentId={} source={} usedChunks={}", documentId, source, chunks.size());
+        return new SummaryResponse(summary == null ? "" : summary.trim(), source, documentId, resolvedModel.id());
+    }
+
+    /**
+     * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. Same whole-document retrieval
+     * as {@link #summarizeDocument}. Asks the model for a plain delimited text format
+     * rather than JSON — see {@link #FAQ_SYSTEM_TEMPLATE}'s javadoc for why — then
+     * parses it defensively via {@link #parseFaqItems}. Unlike {@code doDiagram}'s
+     * silent fallback to an empty diagram on failure, an unparseable response here
+     * throws {@link FaqGenerationException}: an empty FAQ list would be
+     * indistinguishable from "this document genuinely has nothing to ask," which
+     * isn't a useful default to fail into silently.
+     */
+    public FaqResponse generateFaq(String documentId, String tenantId, String userId, String model) {
+        return faqTimer.record(() -> doGenerateFaq(documentId, tenantId, userId, model));
+    }
+
+    private FaqResponse doGenerateFaq(String documentId, String tenantId, String userId, String model) {
+        List<Document> chunks = hybridSearchService.findByDocumentId(documentId, tenantId, userId);
+        if (chunks.isEmpty()) {
+            throw new DocumentNotFoundException("No document found with id: " + documentId);
+        }
+        String source = sourceOf(chunks);
+        String context = buildWholeDocumentContext(chunks);
+        AvailableModel resolvedModel = resolveModel(model);
+
+        String raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(FAQ_SYSTEM_TEMPLATE).param("context", context))
+                .user("Gere o FAQ.")
+                .options(modelOptions(resolvedModel, 0.3))
+                .call()
+                .content());
+
+        List<FaqResponse.FaqItem> items = parseFaqItems(raw);
+        if (items.isEmpty()) {
+            throw new FaqGenerationException("Could not parse a valid FAQ from the model's response");
+        }
+
+        faqsGeneratedCounter.increment();
+        log.info("Generated FAQ for documentId={} source={} usedChunks={} items={}",
+                documentId, source, chunks.size(), items.size());
+        return new FaqResponse(items, source, documentId, resolvedModel.id());
+    }
+
+    private String sourceOf(List<Document> chunks) {
+        return String.valueOf(chunks.get(0).getMetadata().getOrDefault("source", "unknown"));
+    }
+
+    /**
+     * Truncates to the first {@code rag.document-insights.max-chunks} chunks (document
+     * order, so "the first part of the document") rather than sending an unbounded
+     * amount of text to the model — same "explicit, documented cap" philosophy as
+     * ingestion-service's upload/URL-fetch size limits.
+     */
+    private String buildWholeDocumentContext(List<Document> chunks) {
+        int maxChunks = ragProperties.documentInsights().maxChunks();
+        List<Document> bounded = chunks.size() > maxChunks ? chunks.subList(0, maxChunks) : chunks;
+        String joined = bounded.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+        return bounded.size() < chunks.size()
+                ? joined + "\n\n[Documento truncado - mostrando apenas o início]"
+                : joined;
+    }
+
+    private List<FaqResponse.FaqItem> parseFaqItems(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        String[] blocks = raw.strip().split("\\r?\\n\\s*\\r?\\n+");
+        List<FaqResponse.FaqItem> items = new ArrayList<>();
+        for (String block : blocks) {
+            Matcher matcher = FAQ_BLOCK.matcher(block.strip());
+            if (matcher.matches()) {
+                items.add(new FaqResponse.FaqItem(matcher.group(1).strip(), matcher.group(2).strip()));
+            }
+        }
+        return items;
     }
 
     private String stripCodeFences(String text) {

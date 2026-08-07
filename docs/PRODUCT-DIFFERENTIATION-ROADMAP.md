@@ -38,7 +38,7 @@
 | 7 | Dashboards de uso e custo | 🟡 Partial — usage metrics exist, no $-cost tracking | Phase 5 |
 | 8 | Versionamento de documentos | ⬜ New | Phase 6 |
 | 9 | OCR para PDFs digitalizados | ⬜ New | Phase 7 |
-| 10 | Geração automática de resumos e FAQs | ⬜ New | Phase 8 |
+| 10 | Geração automática de resumos e FAQs | ✅ Done (2026-08-07, ADR 0052) | Phase 8 |
 | 11 | Busca federada (SharePoint, Confluence, Drive, GitHub) | ⬜ New, related to but distinct from an existing phase | Phase 9 |
 | 12 | Controle fino de permissões por documento | ✅ Already built | — |
 | 13 | Audio Overview (added 2026-08-06, follow-up) | ⬜ New — largest, most novel phase in this file | Phase 10 |
@@ -187,20 +187,25 @@ searchable extracted text instead of an empty or near-empty document, and
 a normal text-layer PDF is unaffected (no regression, no unnecessary
 vision-model calls for pages that already have real text).
 
-## Phase 8 — Automatic summaries and FAQs ⬜
+## Phase 8 — Automatic summaries and FAQs ✅
 
-**Not started.** No summarization or FAQ-generation endpoint exists today
-— `/api/v1/ask` answers a specific question, `/api/v1/diagrams` draws an
-architecture/flow; neither produces a standalone summary or a FAQ list for
-a document on its own. New, small addition: a per-document "Summarize" and
-"Generate FAQ" action, reusing the existing chat model wiring and the
-same context-building already used for grounded answers, with its own
-prompt templates and response shape (a summary paragraph, or a list of
-Q/A pairs) rather than the citation-heavy answer format.
+**Done (2026-08-07).** See ADR 0052 for the full design. Two new
+`rag-service` endpoints, `POST /api/v1/documents/{documentId}/summarize`
+and `.../faq`, both retrieving the document's *entire* indexed content
+(`HybridSearchService.findByDocumentId`, not a top-K similarity search)
+and reusing `RagQueryService`'s existing model-resolution/`ChatClient`
+wiring — no new constructor dependencies needed. FAQ generation asks the
+model for plain delimited text (`P:`/`R:` pairs), not JSON, parsed
+defensively — the same "don't trust an LLM to produce a structured format
+reliably" precedent `doDiagram`'s Mermaid post-processing already
+established. `web-ui`'s Documents view (admin document list, and the
+current session's own upload history) gained "Resumir"/"Gerar FAQ"
+buttons rendering into a shared result card.
 
 **Done when**: a real uploaded document produces a coherent summary and a
 plausible FAQ list, both grounded in and traceable back to that specific
-document.
+document. Verified with a real Ollama model against a real URL-imported
+document (`CONTRIBUTING.md`, ADR 0051) end-to-end in the browser.
 
 ## Phase 9 — Federated search (SharePoint, Confluence, Google Drive, GitHub) ⬜
 

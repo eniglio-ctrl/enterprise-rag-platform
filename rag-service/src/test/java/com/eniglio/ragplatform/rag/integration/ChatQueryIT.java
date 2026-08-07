@@ -103,6 +103,17 @@ class ChatQueryIT {
 
     @BeforeEach
     void seedVectorStoreAndStubModels() {
+        // The Testcontainers Postgres instance is shared (class-level @Container)
+        // across every test method - without this, each method's own vectorStore.add
+        // calls plus this method's own "aula12.md" seed accumulate forever across the
+        // whole run, growing duplicate noise that can eventually crowd a real match
+        // out of a small top-k result (found for real: adding more test methods to
+        // this class started intermittently failing an unrelated, already-passing
+        // test purely from accumulated duplicate "aula12.md" rows outweighing a
+        // genuine single-row match elsewhere). Every test method already seeds
+        // whatever it needs itself, so a clean slate here only improves isolation.
+        jdbcTemplate.execute("DELETE FROM vector_store");
+
         // rag-service never runs Flyway (ADR 0011) — it only reads a schema
         // ingestion-service migrates. This test's Postgres is standalone (no
         // ingestion-service involved), so it needs the same columns Flyway's V2/V3
@@ -183,6 +194,56 @@ class ChatQueryIT {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.answer").value(org.hamcrest.Matchers.containsString("SAGA")))
                 .andExpect(jsonPath("$.citations[0].source").value("aula12.md"));
+    }
+
+    // --- docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8: summarize/FAQ ---
+
+    @Test
+    void summarizesADocumentFromItsWholeIndexedContentNotASimilaritySearch() throws Exception {
+        // Reuses the "doc-1" document seeded in @BeforeEach - the default chatModel
+        // stub's non-"SUPORTADA" branch is a perfectly fine stand-in summary here.
+        mockMvc.perform(post("/api/v1/documents/doc-1/summarize").with(jwtFor("default")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary").value(org.hamcrest.Matchers.containsString("SAGA")))
+                .andExpect(jsonPath("$.source").value("aula12.md"))
+                .andExpect(jsonPath("$.documentId").value("doc-1"));
+    }
+
+    @Test
+    void summarizingAnUnknownDocumentIdReturns404() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/does-not-exist/summarize").with(jwtFor("default")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void generatesAFaqForADocumentParsedFromTheModelsDelimitedTextFormat() throws Exception {
+        given(chatModel.call(any(Prompt.class))).willReturn(new ChatResponse(List.of(new Generation(
+                new AssistantMessage("""
+                        P: O que é o padrão SAGA?
+                        R: Um padrão para coordenar transações distribuídas.
+                        """)))));
+
+        mockMvc.perform(post("/api/v1/documents/doc-1/faq").with(jwtFor("default")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].question").value("O que é o padrão SAGA?"))
+                .andExpect(jsonPath("$.items[0].answer").value("Um padrão para coordenar transações distribuídas."))
+                .andExpect(jsonPath("$.source").value("aula12.md"))
+                .andExpect(jsonPath("$.documentId").value("doc-1"));
+    }
+
+    @Test
+    void generatingAFaqForAnUnknownDocumentIdReturns404() throws Exception {
+        mockMvc.perform(post("/api/v1/documents/does-not-exist/faq").with(jwtFor("default")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void faqGenerationReturns500WhenTheModelIgnoresTheRequestedFormat() throws Exception {
+        given(chatModel.call(any(Prompt.class))).willReturn(new ChatResponse(List.of(
+                new Generation(new AssistantMessage("Aqui está um resumo em vez de um FAQ.")))));
+
+        mockMvc.perform(post("/api/v1/documents/doc-1/faq").with(jwtFor("default")))
+                .andExpect(status().isInternalServerError());
     }
 
     @Test

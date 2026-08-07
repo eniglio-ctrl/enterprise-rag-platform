@@ -645,10 +645,21 @@ button.secondary:hover:not(:disabled) {
   padding: 0.6rem 0.8rem;
   font-size: 0.85rem;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 0.5rem;
   background: var(--color-bg-elevated);
+}
+
+/* docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8 */
+.insight-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.insight-actions button {
+  margin-top: 0;
 }
 
 .history li .source {

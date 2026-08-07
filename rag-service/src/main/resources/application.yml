@@ -196,6 +196,12 @@ rag:
     # (ADR 0018) — one setting governs "what vision model to use" locally, whether the
     # image is a permanently-ingested document or an ephemeral question attachment.
     ollama-model: ${VISION_MODEL:llava}
+  # docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8 — a whole document can have far
+  # more chunks than top-k ever retrieves for one question; this bounds how much of
+  # it gets sent to the model for a summarize/FAQ call rather than sending everything
+  # unbounded. A document over the limit is truncated to its first max-chunks chunks.
+  document-insights:
+    max-chunks: 40
   # Multi-LLM Phase 2a (ADR 0036) — deliberately not part of available-models above,
   # see FallbackProviderProperties' own javadoc for why. Blank defaults keep the
   # "test" profile (no real keys) booting exactly as before this phase; a blank key
@@ -255,6 +261,20 @@ security:
         path-pattern: /api/v1/diagrams
         key-by-ip: false
         capacity: 30
+        refill-period: 1m
+      # Separate, tighter bucket (docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8):
+      # summarizing/generating FAQ for a whole document is heavier than a single
+      # top-k question, so it gets its own budget instead of sharing rag-query's.
+      # Shared bucket name between the two paths, same reasoning as rag-query above.
+      - name: rag-document-insights
+        path-pattern: /api/v1/documents/*/summarize
+        key-by-ip: false
+        capacity: 10
+        refill-period: 1m
+      - name: rag-document-insights
+        path-pattern: /api/v1/documents/*/faq
+        key-by-ip: false
+        capacity: 10
         refill-period: 1m
 
 resilience4j:

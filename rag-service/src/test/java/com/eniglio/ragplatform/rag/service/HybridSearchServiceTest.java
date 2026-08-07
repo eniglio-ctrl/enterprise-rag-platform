@@ -12,7 +12,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HybridSearchServiceTest {
 
     private final HybridSearchService service =
-            new HybridSearchService(null, null, null, new RagProperties(5, 0.5, 15, List.of()));
+            new HybridSearchService(null, null, null,
+                    new RagProperties(5, 0.5, 15, List.of(), new RagProperties.DocumentInsights(40)));
 
     @Test
     void documentPresentInBothListsOutranksOnePresentInOnlyOne() {

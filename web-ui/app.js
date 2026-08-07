@@ -86,6 +86,14 @@ const STRINGS = {
     "documents.urlImportButton": "Import from URL",
     "documents.urlImporting": "Fetching and indexing the URL...",
     "documents.urlImportFailed": "Could not import from that URL.",
+    "documents.summarizeButton": "Summarize",
+    "documents.generateFaqButton": "Generate FAQ",
+    "documents.summarizing": "Summarizing...",
+    "documents.generatingFaq": "Generating FAQ...",
+    "documents.summarizeFailed": "Could not summarize this document.",
+    "documents.generateFaqFailed": "Could not generate a FAQ for this document.",
+    "documents.summaryTitle": "Summary",
+    "documents.faqTitle": "FAQ",
     "documents.adminHeading": "Manage sharing",
     "documents.adminHint": "Admin-only (ADR 0047): restrict any document in the tenant to specific teammates instead of everyone.",
     "documents.ownerLabel": "owner",
@@ -200,6 +208,14 @@ const STRINGS = {
     "documents.urlImportButton": "Importar da URL",
     "documents.urlImporting": "Buscando e indexando a URL...",
     "documents.urlImportFailed": "Não foi possível importar dessa URL.",
+    "documents.summarizeButton": "Resumir",
+    "documents.generateFaqButton": "Gerar FAQ",
+    "documents.summarizing": "Resumindo...",
+    "documents.generatingFaq": "Gerando FAQ...",
+    "documents.summarizeFailed": "Não foi possível resumir este documento.",
+    "documents.generateFaqFailed": "Não foi possível gerar um FAQ para este documento.",
+    "documents.summaryTitle": "Resumo",
+    "documents.faqTitle": "FAQ",
     "documents.adminHeading": "Gerenciar permissões",
     "documents.adminHint": "Só para admin (ADR 0047): restrinja qualquer documento do tenant a colegas específicos em vez de todo mundo.",
     "documents.ownerLabel": "dono",
@@ -582,8 +598,13 @@ function renderAdminDocuments(documents, users) {
         </select>
         <button type="button" class="admin-save-sharing">${t("documents.saveButton")}</button>
       </div>
+      <div class="insight-actions">
+        <button type="button" class="summarize-button">${t("documents.summarizeButton")}</button>
+        <button type="button" class="generate-faq-button">${t("documents.generateFaqButton")}</button>
+      </div>
       <div class="admin-shared-with" ${doc.visibility === "RESTRICTED" ? "" : "hidden"}>${checkboxes}</div>
       <div class="status admin-doc-status" hidden></div>
+      <div class="status insight-status" hidden></div>
     `;
 
     const select = item.querySelector(".admin-visibility-select");
@@ -592,6 +613,8 @@ function renderAdminDocuments(documents, users) {
     select.addEventListener("change", () => {
       sharedWithDiv.hidden = select.value !== "RESTRICTED";
     });
+
+    wireInsightButtons(item, doc.documentId);
 
     item.querySelector(".admin-save-sharing").addEventListener("click", async () => {
       const visibility = select.value;
@@ -743,6 +766,12 @@ const uploadHistory = document.getElementById("upload-history");
 const urlImportForm = document.getElementById("url-import-form");
 const urlImportInput = document.getElementById("url-import-input");
 const urlImportButton = document.getElementById("url-import-button");
+
+const insightCard = document.getElementById("insight-card");
+const insightTitle = document.getElementById("insight-title");
+const insightSource = document.getElementById("insight-source");
+const insightSummary = document.getElementById("insight-summary");
+const insightFaqList = document.getElementById("insight-faq-list");
 
 const askForm = document.getElementById("ask-form");
 const askButton = document.getElementById("ask-button");
@@ -899,13 +928,104 @@ uploadForm.addEventListener("submit", async (event) => {
   }
 });
 
-function addHistoryEntry({ source, chunkCount, pageCount }) {
+function addHistoryEntry({ documentId, source, chunkCount, pageCount }) {
   const item = document.createElement("li");
   item.innerHTML = `
     <span class="source">${escapeHtml(source)}</span>
     <span class="meta">${t("documents.historyMeta", { pages: pageCount, chunks: chunkCount })}</span>
+    <div class="insight-actions">
+      <button type="button" class="summarize-button">${t("documents.summarizeButton")}</button>
+      <button type="button" class="generate-faq-button">${t("documents.generateFaqButton")}</button>
+    </div>
+    <div class="status insight-status" hidden></div>
   `;
+  wireInsightButtons(item, documentId);
   uploadHistory.prepend(item);
+}
+
+/**
+ * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. Shared between addHistoryEntry
+ * (this session's own uploads) and renderAdminDocuments (every tenant document,
+ * admin-only) - both already have `documentId` on hand, both just need the two
+ * buttons wired the same way.
+ */
+function wireInsightButtons(item, documentId) {
+  const statusEl = item.querySelector(".insight-status");
+  item.querySelector(".summarize-button").addEventListener("click", () => summarizeDocument(documentId, statusEl));
+  item.querySelector(".generate-faq-button")
+    .addEventListener("click", () => generateFaqForDocument(documentId, statusEl));
+}
+
+async function summarizeDocument(documentId, statusEl) {
+  setStatus(statusEl, t("documents.summarizing"));
+  try {
+    const response = await fetch(`${RAG_BASE}/api/v1/documents/${documentId}/summarize`, {
+      method: "POST",
+      headers: authHeader(),
+    });
+    if (response.status === 401) {
+      clearAuth(t("auth.sessionExpired"));
+      return;
+    }
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.message ?? t("documents.summarizeFailed"));
+    }
+    renderInsightSummary(body);
+    setStatus(statusEl, "", "");
+  } catch (error) {
+    setStatus(statusEl, error.message ?? t("documents.summarizeFailed"), "error");
+  }
+}
+
+async function generateFaqForDocument(documentId, statusEl) {
+  setStatus(statusEl, t("documents.generatingFaq"));
+  try {
+    const response = await fetch(`${RAG_BASE}/api/v1/documents/${documentId}/faq`, {
+      method: "POST",
+      headers: authHeader(),
+    });
+    if (response.status === 401) {
+      clearAuth(t("auth.sessionExpired"));
+      return;
+    }
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body.message ?? t("documents.generateFaqFailed"));
+    }
+    renderInsightFaq(body);
+    setStatus(statusEl, "", "");
+  } catch (error) {
+    setStatus(statusEl, error.message ?? t("documents.generateFaqFailed"), "error");
+  }
+}
+
+function renderInsightSummary({ summary, source }) {
+  insightTitle.textContent = t("documents.summaryTitle");
+  insightSource.textContent = source;
+  insightSummary.textContent = summary;
+  insightSummary.hidden = false;
+  insightFaqList.hidden = true;
+  insightCard.hidden = false;
+  insightCard.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderInsightFaq({ items, source }) {
+  insightTitle.textContent = t("documents.faqTitle");
+  insightSource.textContent = source;
+  insightFaqList.innerHTML = "";
+  items.forEach((faqItem) => {
+    const li = document.createElement("li");
+    li.innerHTML = `
+      <div class="citation-head"><strong>${escapeHtml(faqItem.question)}</strong></div>
+      <div>${escapeHtml(faqItem.answer)}</div>
+    `;
+    insightFaqList.appendChild(li);
+  });
+  insightFaqList.hidden = false;
+  insightSummary.hidden = true;
+  insightCard.hidden = false;
+  insightCard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1 - same upload-status/history
