@@ -40,6 +40,7 @@
 | 13 | Python + LangGraph AI layer | ⬜ Not started | User confirming they want a second language in this portfolio project |
 | 14 | Software engineering polish (SonarQube, `docs/architecture.md` refresh) | 🟡 Mostly done — [ADR 0027](adr/0027-sonarcloud-jacoco-code-quality.md) | Waiting on the user to create the SonarCloud project + token |
 | 15 | Go-based API Gateway / BFF | ⬜ Not started | A scope decision (routing + JWT pass-through only, or also rate limiting) |
+| 16 | Repeatable eval history (`RagQualityBenchmark` → tracked over time) | ✅ Done — [ADR 0053](adr/0053-repeatable-eval-history.md) | — |
 
 **On "done" claims in this file**: don't trust a ✅ here on faith — re-verify
 with `git log`, `ls`, and a fresh `./mvnw clean verify` before relying on a
@@ -800,3 +801,69 @@ no/invalid token and getting rejected at the gateway, before it ever reaches
 the Java service); the gateway's own memory footprint is measured and
 documented against the Java services' for a real, side-by-side comparison —
 not asserted from general knowledge about Go vs. JVM footprints.
+
+## Phase 16 — Repeatable eval history ✅
+
+**Done (2026-08-08).** See [ADR 0053](adr/0053-repeatable-eval-history.md)
+for the full account. Added after the user asked for an evaluation of
+an "AI Factory Stack" framing (LLM / RAG / Vector DB / Agent / MCP /
+Guardrails / Evals as the layers of a production AI system) pasted from an
+outside conversation, and whether it belonged in this project's plan.
+Gap-check against what this project already has, box by box, so this phase
+only covers the one real gap rather than restating existing decisions:
+
+- **LLM** ✅ already done — multi-provider (Ollama + OpenAI/Gemini/Anthropic
+  fallback), Phases 0-2e above.
+- **RAG** ✅ already done — hybrid search (RRF), reranking, groundedness
+  check; `pgvector` for the **Vector DB** layer.
+- **Agent** 🟡 native tool-calling exists (Phase 9, ADR 0035); the
+  "decide which specialist handles a request" framing is already Phase 3
+  (`PlannerAgent`) above, not new scope.
+- **MCP** — already Phase 6 above, deliberately deferred until Phases 3/4
+  give it a concrete resource to expose. Not new scope.
+- **Guardrails** — already substantially built, just never labeled as one
+  concept: ABAC (ADR 0046/0047), tenant isolation (ADR 0007), rate limiting
+  (ADR 0028). Worth naming explicitly in `docs/architecture.md` when Phase
+  14 next touches that file, but not a new implementation phase — there is
+  no missing enforcement here, only missing terminology.
+- **Evals** 🟡 — this is the one genuine, still-open gap. Phase 8 above
+  (ADR 0034) already built a real benchmark
+  (`rag-service/src/test/.../benchmark/RagQualityBenchmark.java`,
+  `-Dbenchmark=true`, opt-in, never run in CI since it needs real Ollama)
+  measuring answer similarity, faithfulness (reused groundedness check),
+  and context relevance per question. Its own ADR explicitly flagged the
+  gap this phase closes: *"Recommended follow-up, not done here: re-run
+  this same benchmark..."* — the benchmark exists but has never been rerun
+  or compared against a prior result; every run so far has printed to
+  stdout and left no trace.
+
+**Deliberately not doing** (scope kept to the one gap, not a new framework):
+no new eval service, no dashboard, no scheduled CI job requiring a
+GPU/Ollama-capable runner (a real infra/cost decision this phase doesn't
+make), no recall/precision (still blocked on labeled `relevantChunkIds`
+test-set data, exactly as ADR 0034 already noted), no latency/cost
+tracking beyond what's trivial to add to the existing loop. Extends the
+existing benchmark class in place rather than building parallel
+infrastructure next to it.
+
+**Done when**: running `RagQualityBenchmark` appends one row (date, git
+commit SHA, average similarity, faithful count/total, average
+context-relevance, average per-question latency) to a git-committed
+history file, so a second real run at a later date/commit can be diffed
+against the first to see whether a change (a new chunking strategy, a
+different model) actually moved the numbers — not just "the bar passed
+again," which the existing assertion already covers. Confirmed with two
+real runs against local Ollama, `rag-service/src/test/resources/benchmark/
+history.csv` now has two comparable rows.
+
+**Found along the way, not this phase's job to fix**: getting a real run to
+work at all uncovered that both `RagQualityBenchmark` and
+`ChunkingStrategyBenchmark` had silently bit-rotted since ADR 0042 (their
+own DDL setup never got the `unaccent_simple` text-search config
+`HybridSearchService`'s SQL has required ever since — fixed here, since a
+benchmark that can't run at all can't produce history either). With that
+fixed, both real runs came in under the benchmark's own 0.60
+minimum-similarity bar (0.5838, then 0.5876) — a genuine quality-drift
+finding, not investigated or fixed in this phase (see ADR 0053's
+Consequences section). The two history rows this phase produced are exactly
+what makes chasing that down next a measurable exercise instead of a guess.

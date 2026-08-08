@@ -128,12 +128,30 @@ class ChunkingStrategyBenchmark {
 
     @Test
     void compareChunkingStrategies() throws Exception {
+        // Multi-LLM Phase 16 found this had drifted from ChatQueryIT's setup: this
+        // still used plain 'simple' from before ADR 0042 introduced 'unaccent_simple',
+        // while HybridSearchService's full-text SQL (hit via ragQueryService.answer
+        // below) has queried with 'unaccent_simple' ever since - see
+        // RagQualityBenchmark's identical fix/comment for the full story.
         jdbcTemplate.execute("""
                 ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS tenant_id text
-                        GENERATED ALWAYS AS (metadata->>'tenantId') STORED,
+                        GENERATED ALWAYS AS (metadata->>'tenantId') STORED
+                """);
+        jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS unaccent");
+        try {
+            jdbcTemplate.execute("CREATE TEXT SEARCH CONFIGURATION unaccent_simple (COPY = simple)");
+            jdbcTemplate.execute("""
+                    ALTER TEXT SEARCH CONFIGURATION unaccent_simple
+                        ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple
+                    """);
+        } catch (org.springframework.dao.DataAccessException alreadyExists) {
+            // Harmless on a re-run against a container that already has it.
+        }
+        jdbcTemplate.execute("""
+                ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS content_tsv tsvector
-                        GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED
+                        GENERATED ALWAYS AS (to_tsvector('unaccent_simple', coalesce(content, ''))) STORED
                 """);
 
         String architectureDoc = Files.readString(Path.of("../docs/architecture.md"));

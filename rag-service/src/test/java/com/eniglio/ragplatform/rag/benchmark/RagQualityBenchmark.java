@@ -8,6 +8,7 @@ import com.eniglio.ragplatform.rag.dto.Groundedness;
 import com.eniglio.ragplatform.rag.service.RagQueryService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,6 +57,16 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Both add real LLM calls per question (one more for the chunk-relevance judge, per
  * retrieved chunk) — acceptable here since this is an opt-in benchmark, never run in
  * CI.
+ * <p>
+ * Multi-LLM Phase 16 added one more thing this benchmark was missing: every run used
+ * to print its numbers to stdout and vanish, so there was never anything to compare
+ * a later run against (ADR 0034 flagged exactly this as its own unclosed follow-up).
+ * Each run now also appends one row — date, git commit, average similarity, faithful
+ * count, average context-relevance, average per-question latency — to the real,
+ * git-tracked {@code src/test/resources/benchmark/history.csv} ({@link
+ * BenchmarkSupport#appendHistoryRow}). A plain {@code git diff
+ * rag-service/src/test/resources/benchmark/history.csv} after a run is the whole
+ * "did this actually move the numbers" story — no dashboard, no new service.
  * <p>
  * <b>If this fails with "model ... not found, try pulling it first" against a model
  * that's demonstrably already pulled</b>: check for a second Ollama process
@@ -133,14 +144,36 @@ class RagQualityBenchmark {
     @Test
     void averageAnswerSimilarityMeetsMinimumBar() throws Exception {
         // rag-service never runs Flyway (ADR 0011) — this standalone Testcontainers
-        // Postgres needs the same columns Flyway's V2 migration adds for
+        // Postgres needs the same columns Flyway's V2/V3 migrations add for
         // HybridSearchService's full-text leg, exactly like ChatQueryIT already does.
+        // Multi-LLM Phase 16 found this had drifted from ChatQueryIT's own setup:
+        // this benchmark's content_tsv column still used plain 'simple' from before
+        // ADR 0042 introduced 'unaccent_simple' - HybridSearchService's SQL has
+        // queried with 'unaccent_simple' ever since, so every run of this benchmark
+        // since that ADR shipped would have failed with "text search configuration
+        // unaccent_simple does not exist" the moment it hit the full-text leg. Nobody
+        // noticed because nobody had re-run this benchmark since - exactly the gap
+        // Phase 16's history tracking exists to catch going forward.
         jdbcTemplate.execute("""
                 ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS tenant_id text
-                        GENERATED ALWAYS AS (metadata->>'tenantId') STORED,
+                        GENERATED ALWAYS AS (metadata->>'tenantId') STORED
+                """);
+        jdbcTemplate.execute("CREATE EXTENSION IF NOT EXISTS unaccent");
+        try {
+            jdbcTemplate.execute("CREATE TEXT SEARCH CONFIGURATION unaccent_simple (COPY = simple)");
+            jdbcTemplate.execute("""
+                    ALTER TEXT SEARCH CONFIGURATION unaccent_simple
+                        ALTER MAPPING FOR hword, hword_part, word WITH unaccent, simple
+                    """);
+        } catch (org.springframework.dao.DataAccessException alreadyExists) {
+            // Harmless on a re-run against a container that already has it - CREATE
+            // TEXT SEARCH CONFIGURATION has no IF NOT EXISTS form.
+        }
+        jdbcTemplate.execute("""
+                ALTER TABLE vector_store
                     ADD COLUMN IF NOT EXISTS content_tsv tsvector
-                        GENERATED ALWAYS AS (to_tsvector('simple', coalesce(content, ''))) STORED
+                        GENERATED ALWAYS AS (to_tsvector('unaccent_simple', coalesce(content, ''))) STORED
                 """);
 
         List<QaPair> qaPairs = new ObjectMapper().readValue(
@@ -162,12 +195,15 @@ class RagQualityBenchmark {
         double totalSimilarity = 0;
         int faithfulCount = 0;
         double totalContextRelevanceRate = 0;
+        long totalLatencyMs = 0;
 
         for (QaPair pair : qaPairs) {
             // grounded=true (was false): gets the real faithfulness verdict for free,
             // computed by the same call against the exact context actually used —
             // no need for a second, separately-reconstructed context string.
+            Instant startedAt = Instant.now();
             ChatResponse response = ragQueryService.answer(pair.question(), "benchmark", true, false, null);
+            totalLatencyMs += java.time.Duration.between(startedAt, Instant.now()).toMillis();
 
             float[] expectedEmbedding = embeddingModel.embed(pair.expectedAnswer());
             float[] actualEmbedding = embeddingModel.embed(response.answer());
@@ -194,6 +230,7 @@ class RagQualityBenchmark {
 
         double averageSimilarity = totalSimilarity / qaPairs.size();
         double averageContextRelevance = totalContextRelevanceRate / qaPairs.size();
+        double averageLatencyMs = (double) totalLatencyMs / qaPairs.size();
 
         System.out.println();
         System.out.println("=== RAG Quality Benchmark (" + qaPairs.size() + " questions) ===");
@@ -201,7 +238,13 @@ class RagQualityBenchmark {
         System.out.printf("Average similarity: %.3f (minimum bar: %.2f)%n",
                 averageSimilarity, MINIMUM_ACCEPTABLE_AVERAGE_SIMILARITY);
         System.out.printf("Faithful answers: %d/%d%n", faithfulCount, qaPairs.size());
-        System.out.printf("Average context-relevance rate: %.2f%n%n", averageContextRelevance);
+        System.out.printf("Average context-relevance rate: %.2f%n", averageContextRelevance);
+        System.out.printf("Average answer latency: %.0f ms%n%n", averageLatencyMs);
+
+        // Multi-LLM Phase 16: leaves a git-tracked trace of this run so a later run
+        // can be diffed against it - see BenchmarkSupport.appendHistoryRow's javadoc.
+        BenchmarkSupport.appendHistoryRow(
+                qaPairs.size(), averageSimilarity, faithfulCount, averageContextRelevance, averageLatencyMs);
 
         assertThat(averageSimilarity).isGreaterThanOrEqualTo(MINIMUM_ACCEPTABLE_AVERAGE_SIMILARITY);
     }
