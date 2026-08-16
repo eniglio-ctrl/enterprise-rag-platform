@@ -1,0 +1,10 @@
+// Generated at container startup (docker-entrypoint.sh) from this template via
+// envsubst — the built values are only known at deploy time (Render assigns
+// rag-service's public URL), unlike every other value in app.js which is a
+// build-time constant. Defaults (DEMO_MODE=false, RAG_BASE_URL=localhost:8082)
+// reproduce this project's existing local docker-compose behavior exactly, so
+// nothing changes there — only the free public demo (ADR 0020) sets these.
+window.RAG_PLATFORM_CONFIG = {
+  demoMode: ${DEMO_MODE},
+  ragBaseUrl: "${RAG_BASE_URL}"
+};

@@ -1,0 +1,44 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Catches new CodeQL query-pack findings even on weeks with no code change.
+    - cron: '30 1 * * 0'
+
+jobs:
+  analyze:
+    name: Analyze (java-kotlin)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+
+      # Manual build mode: autobuild can't be trusted to set up the JDK/reactor
+      # the same way actions/setup-java + ./mvnw already do above.
+      - name: Build (compile only, no tests — CodeQL just needs bytecode)
+        run: ./mvnw -B clean install -DskipTests
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:java-kotlin"

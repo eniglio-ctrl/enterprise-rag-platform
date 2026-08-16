@@ -1,0 +1,138 @@
+package com.eniglio.ragplatform.auth.service;
+
+import com.eniglio.ragplatform.auth.dto.AuthResponse;
+import com.eniglio.ragplatform.auth.dto.LoginRequest;
+import com.eniglio.ragplatform.auth.dto.RegisterRequest;
+import com.eniglio.ragplatform.auth.exception.DepartmentNotFoundException;
+import com.eniglio.ragplatform.auth.exception.EmailAlreadyExistsException;
+import com.eniglio.ragplatform.auth.exception.InvalidCredentialsException;
+import com.eniglio.ragplatform.auth.repository.Department;
+import com.eniglio.ragplatform.auth.repository.DepartmentRepository;
+import com.eniglio.ragplatform.auth.repository.Invitation;
+import com.eniglio.ragplatform.auth.repository.TenantRepository;
+import com.eniglio.ragplatform.auth.repository.User;
+import com.eniglio.ragplatform.auth.repository.UserDepartmentRepository;
+import com.eniglio.ragplatform.auth.repository.UserRepository;
+import com.eniglio.ragplatform.common.security.Role;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Tenant/invitation model (Security Phase 4, ADR 0031, superseding ADR 0016's
+ * caller-supplied free-text {@code tenantId}): registering with no {@code
+ * invitationToken} always creates a brand-new tenant with a non-guessable UUID id -
+ * there is no way to join an existing tenant by typing its name anymore. Registering
+ * with a token redeems it via {@link InvitationService}, which enforces single-use,
+ * expiry, and an exact email match before handing back the tenant to join, and now
+ * also the {@link Role} the invitation was created with (docs/adr/0060-multi
+ * -department-membership-and-approval.md, superseding the old hardcoded
+ * {@code Role.MEMBER}).
+ * <p>
+ * Success audit events (Security Phase 5) are logged here, at the one place both
+ * paths converge - never the password, only email/tenantId/userId. Failures are
+ * logged where they're thrown/handled ({@link
+ * com.eniglio.ragplatform.auth.exception.GlobalExceptionHandler}) since that's where
+ * the exception (and the metric it drives) already exists.
+ */
+@Service
+public class AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthService.class);
+
+    private final UserRepository userRepository;
+    private final TenantRepository tenantRepository;
+    private final InvitationService invitationService;
+    private final DepartmentRepository departmentRepository;
+    private final UserDepartmentRepository userDepartmentRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final TokenService tokenService;
+
+    public AuthService(UserRepository userRepository, TenantRepository tenantRepository,
+            InvitationService invitationService, DepartmentRepository departmentRepository,
+            UserDepartmentRepository userDepartmentRepository, PasswordEncoder passwordEncoder,
+            TokenService tokenService) {
+        this.userRepository = userRepository;
+        this.tenantRepository = tenantRepository;
+        this.invitationService = invitationService;
+        this.departmentRepository = departmentRepository;
+        this.userDepartmentRepository = userDepartmentRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.tokenService = tokenService;
+    }
+
+    /**
+     * {@code @Transactional}: without it, a failure in {@code userRepository.create}
+     * after {@code invitationService.redeem} already committed (or after
+     * {@code tenantRepository.create} already committed, on the no-invitation path)
+     * leaves an invitation permanently consumed - or a tenant permanently orphaned -
+     * with no user ever created. Both repositories share the same {@code JdbcTemplate}
+     * /{@code DataSource}, so wrapping the whole method rolls both operations back
+     * together on any unchecked exception. The same guarantee now also covers an
+     * invalid requested department name (docs/adr/0060) - a typo there rolls back the
+     * whole registration rather than creating an account with silently-dropped
+     * requests.
+     */
+    @Transactional
+    public AuthResponse register(RegisterRequest request) {
+        if (userRepository.existsByEmail(request.email())) {
+            throw new EmailAlreadyExistsException(request.email());
+        }
+
+        String tenantId;
+        Role role;
+        List<String> requestedDepartments = List.of();
+        if (request.invitationToken() == null || request.invitationToken().isBlank()) {
+            tenantId = UUID.randomUUID().toString();
+            tenantRepository.create(tenantId);
+            // ADR 0047: whoever creates a tenant becomes its first ADMIN, automatically -
+            // registering with no invitation is the only way a tenant comes into
+            // existence, so this is also the only bootstrap point a tenant's first ADMIN
+            // can come from. No department registry exists yet either, so
+            // requestedDepartments stays empty regardless of what the caller sent.
+            role = Role.ADMIN;
+        } else {
+            Invitation invitation = invitationService.redeem(request.invitationToken(), request.email());
+            tenantId = invitation.tenantId();
+            role = invitation.role();
+            requestedDepartments = request.requestedDepartments() == null
+                    ? List.of() : request.requestedDepartments();
+        }
+
+        User user = userRepository.create(tenantId, request.email(), passwordEncoder.encode(request.password()), role);
+
+        // docs/adr/0060-multi-department-membership-and-approval.md: pending, not
+        // immediate - an admin still has to approve before it grants document access.
+        for (String departmentName : requestedDepartments) {
+            Department department = departmentRepository.findByTenantIdAndName(tenantId, departmentName)
+                    .orElseThrow(() -> new DepartmentNotFoundException(departmentName));
+            userDepartmentRepository.insertPending(user.id(), department.id());
+        }
+
+        log.info("Registered user email={} tenantId={} userId={}", request.email(), tenantId, user.id());
+        // A brand-new user never has an approved department yet - either path above
+        // only ever creates PENDING rows (or none at all).
+        return toAuthResponse(user, List.of());
+    }
+
+    public AuthResponse login(LoginRequest request) {
+        User user = userRepository.findByEmail(request.email())
+                .orElseThrow(() -> new InvalidCredentialsException(request.email()));
+        if (!passwordEncoder.matches(request.password(), user.passwordHash())) {
+            throw new InvalidCredentialsException(request.email());
+        }
+        log.info("Logged in user email={} tenantId={} userId={}", request.email(), user.tenantId(), user.id());
+        return toAuthResponse(user, userDepartmentRepository.findApprovedNamesByUserId(user.id()));
+    }
+
+    private AuthResponse toAuthResponse(User user, List<String> approvedDepartments) {
+        String token = tokenService.issueToken(user, approvedDepartments);
+        return new AuthResponse(token, "Bearer", tokenService.tokenTtlSeconds(), user.tenantId(), user.id(),
+                user.role().name());
+    }
+}

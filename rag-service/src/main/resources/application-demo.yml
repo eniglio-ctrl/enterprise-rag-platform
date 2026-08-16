@@ -1,0 +1,165 @@
+# ADR 0020: the free public demo deployment. Activated with
+# SPRING_PROFILES_ACTIVE=demo. No Ollama, no auth-service, no login — a single
+# fixed "demo" tenant sees whatever documents were seeded into the demo database
+# ahead of time (platform-common's DemoSecurityConfig supplies that tenant).
+spring:
+  # Flips which EmbeddingModel auto-configuration wins (base application.yml
+  # excludes Mistral's and keeps Ollama's; this profile does the opposite) —
+  # there's no Ollama to reach here, so Mistral AI's free-tier embedding API
+  # (mistral-embed, 1024 dimensions) takes over. A local ONNX model
+  # (spring-ai-starter-model-transformers) was tried first instead of a fourth
+  # external account — reverted after two real Render deploys confirmed the free
+  # tier's 512MB container can't fit the JVM plus that model's runtime and download
+  # (OS-level OOM kill both times, not a tunable JVM heap setting). See ADR 0020's
+  # update section for the full account.
+  # A profile-specific spring.autoconfigure.exclude list REPLACES the base
+  # application.yml's list entirely rather than merging with it — confirmed the hard
+  # way in ingestion-service's own application-demo.yml (an earlier version only
+  # listed OllamaEmbeddingAutoConfiguration here, which silently un-excluded
+  # MistralAiChatAutoConfiguration and let it create a second, competing ChatModel
+  # bean alongside the openai-provider one Groq uses). Every exclude needs to be
+  # spelled out again here, not just the one this profile actually changes.
+  #
+  # MistralAiChatAutoConfiguration is deliberately NOT excluded here (unlike the base
+  # application.yml, which still excludes it) — this profile needs a real Mistral
+  # ChatModel bean for image-attachment vision (ChatClientConfig's "mistralVision"
+  # ChatClient, MistralVisionDescriptionService): Groq has no vision model wired into
+  # this app, and there's no Ollama reachable from the demo deployment at all. Safe to
+  # add as a third ChatModel bean here (alongside "ollamaChatModel"/"openAiChatModel")
+  # because nothing in this app injects ChatModel unqualified — every consumer picks
+  # a bean by @Qualifier (ADR 0017), so Spring AI's own single-candidate
+  # ChatClient.Builder auto-configuration (which would otherwise back off with >1
+  # ChatModel bean) was never relied on to begin with.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.ollama.autoconfigure.OllamaEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
+      # Multi-LLM Phase 2e (ADR 0045) - same reason as the base application.yml:
+      # the fallback's own api-key/model live under rag.fallback-providers.anthropic.*,
+      # never spring.ai.anthropic.*. Every profile-specific exclude list must repeat
+      # every entry the base file has (see this file's own comment above), so this
+      # needs restating here too, not just in the base file.
+      - org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration
+
+  ai:
+    # Groq's API is OpenAI-compatible, so this reuses the exact same "openai"
+    # provider wiring ADR 0017 built for LM Studio — just pointed at a different
+    # base-url/key/model. GROQ_API_KEY has no default: the app fails fast on boot
+    # if it's missing, rather than booting into a demo that can never answer.
+    # base-url is "https://api.groq.com/openai", NOT "…/openai/v1": Spring AI's
+    # OpenAiApi always appends "/v1/chat/completions" itself — including "/v1" here
+    # too produced a real, confirmed bug ("/openai/v1/v1/chat/completions" — 404,
+    # "Unknown request URL") the first time this was tested against Groq's real API,
+    # not assumed correct from documentation alone.
+    openai:
+      base-url: https://api.groq.com/openai
+      api-key: ${GROQ_API_KEY:?GROQ_API_KEY is required when the "demo" profile is active}
+      chat:
+        options:
+          model: ${GROQ_MODEL:llama-3.3-70b-versatile}
+          temperature: 0.2
+    mistralai:
+      api-key: ${MISTRAL_API_KEY:?MISTRAL_API_KEY is required when the "demo" profile is active}
+      embedding:
+        options:
+          model: mistral-embed
+      # Only used for image-attachment vision (MistralVisionDescriptionService) — text
+      # chat still goes through Groq (the "openai" provider block above), unaffected.
+      chat:
+        options:
+          model: pixtral-12b-2409
+    ollama:
+      # A real, confirmed bug, not a hypothetical one: Spring AI's OllamaChatModel
+      # eagerly calls GET /api/tags against Ollama *at bean-construction time*
+      # (OllamaModelManager.pullModel -> isModelAvailable), to decide whether to pull
+      # the configured model — it is not lazy the way this was originally assumed to
+      # be. With no Ollama reachable in this deployment, that network call threw
+      # Connection refused and crashed the entire application at boot, even though
+      # the "demo" profile's available-models list never selects Ollama at all.
+      # "never" skips that eager check/pull entirely, letting the (unused) bean
+      # construct successfully. Caught by a real failed Render deploy, not by local
+      # testing — every local run of this profile happened to have a real Ollama
+      # reachable at localhost:11434 the whole time, which masked this exact bug.
+      init:
+        pull-model-strategy: never
+    vectorstore:
+      pgvector:
+        # mistral-embed's output size, not nomic-embed-text's 768 (base
+        # application.yml) — the demo database is a separate, freshly-seeded
+        # instance, so there's no existing-data mismatch to reconcile.
+        dimensions: 1024
+
+# A profile-specific list REPLACES the base application.yml's list entirely, same
+# gotcha as the spring.autoconfigure.exclude comment above — every demo query rule
+# needs restating here, not just the one value this profile actually changes
+# (key-by-ip). Every demo request authenticates as the same synthetic "demo" tenant
+# (DemoSecurityConfig) - a tenant-keyed rule here would let one visitor's traffic
+# exhaust the bucket for every other concurrent visitor, so this profile keys by IP
+# instead. Capacity tightened from the base file's 30/min to 10/min for Security
+# Phase 6 (public demo hardening) - the public demo pays real (if free-tier) Groq/
+# Mistral API cost per question, unlike the base file's local Ollama, so a lower
+# ceiling meaningfully caps worst-case abuse cost, not just request volume.
+#
+# trusted-proxy-hops deliberately STAYS 0 here, not "confirmed and set" as this
+# comment previously said Phase 6 would do. Researched during this phase: Render's
+# own community has an open, unresolved feature request ("Send the correct
+# X_FORWARDED_FOR") reporting inconsistent X-Forwarded-For behavior on their
+# platform - trusting a specific hop count on a documented, disputed foundation
+# would be a worse foundation for a security control than the status quo. With
+# hops=0, the worst case is coarser-than-ideal IP granularity (multiple real
+# visitors sharing one bucket if Render's edge IP is what this app actually sees as
+# request.getRemoteAddr()) - an availability/UX tradeoff, not a security bypass,
+# since nothing client-controlled is ever trusted. Revisit only if Render's own
+# support confirms the exact hop count directly (a community thread guessing isn't
+# a safe enough basis to change a trust boundary).
+security:
+  rate-limit:
+    rules:
+      - name: rag-query
+        path-pattern: /api/v1/ask
+        key-by-ip: true
+        capacity: 10
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/chat
+        key-by-ip: true
+        capacity: 10
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/diagrams
+        key-by-ip: true
+        capacity: 10
+        refill-period: 1m
+
+# Security Phase 6: the base application.yml exposes health/info/prometheus/metrics
+# and a real Swagger UI + OpenAPI doc - all fine for a local/docker-compose
+# deployment nobody else can reach, not for a public, unauthenticated URL. This list
+# REPLACES the base file's (same gotcha as above) - only health stays, since Render's
+# own health check needs it.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+# springdoc has no profile-specific "replace the list" gotcha (these are plain
+# booleans, not lists) - disables both the machine-readable OpenAPI JSON and the
+# interactive UI built on top of it. Neither is needed by a demo visitor; both are
+# a full map of the API surface handed to anyone who asks.
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+rag:
+  # See application.yml's comment on the "auto" sentinel entry (ADR 0025) — same
+  # mechanism here, just with only one real concrete entry to fall back to today.
+  available-models:
+    - id: auto
+      label: "Automático (recomendado)"
+      provider: auto
+    - id: ${GROQ_MODEL:llama-3.3-70b-versatile}
+      label: "Groq — Llama 3.3 70B (demo público)"
+      provider: lmstudio

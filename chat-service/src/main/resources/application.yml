@@ -1,0 +1,165 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: chat-service
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_SERVICE_BASE_URL:http://localhost:8084}/.well-known/jwks.json
+
+  datasource:
+    # currentSchema=chat: every unqualified table reference on this connection
+    # (Flyway's own migrations, JdbcChatMemoryRepository's queries, our own
+    # ConversationRepository) resolves against the `chat` schema, not `public` —
+    # keeps this service's tables out of ingestion-service's schema/history.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}?currentSchema=chat
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  flyway:
+    schemas: chat
+    default-schema: chat
+    create-schemas: true
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${CHAT_MODEL:llama3.1}
+          temperature: 0.2
+      init:
+        pull-model-strategy: when_missing
+        chat:
+          include: true
+        embedding:
+          include: false
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # Flyway (db/migration) owns this table, not Spring AI's own
+            # auto-init — same reasoning as PgVectorStore in ADR 0011. The default
+            # (EMBEDDED) already skips a real Postgres, but set explicitly for clarity.
+            initialize-schema: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+      # docs/ROADMAP.md item #17 — see rag-service's application.yml for the full
+      # rationale; identical setup here since this service has the same Postgres
+      # dependency and the same readiness-vs-liveness split need.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        chat.message.duration: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: Chat Service API
+    description: Multi-turn conversations with memory, delegating retrieval to rag-service
+
+chat:
+  max-messages: 10
+  ollama:
+    connect-timeout: 5s
+    read-timeout: 180s
+  rag-service:
+    base-url: ${RAG_SERVICE_BASE_URL:http://localhost:8082}
+    connect-timeout: 5s
+    read-timeout: 15s
+
+resilience4j:
+  retry:
+    instances:
+      rag-service:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+      # docs/ROADMAP.md item #17: this service's own direct Ollama chat call
+      # (ConversationService -> LlmGateway) had no retry/circuit-breaker/bulkhead
+      # instance at all before this - a real, unflagged gap, unlike rag-service and
+      # ingestion-service's equivalent local-model calls.
+      ollama:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+  circuitbreaker:
+    instances:
+      rag-service:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  # max-wait-duration: 0 (fail fast, not queue) - same reasoning as rag-service's
+  # identical block.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    # Two entries, not one: AntPathMatcher's "/**" is not guaranteed to also match
+    # the bare prefix with no trailing segment (POST /api/v1/conversations itself,
+    # not just its children) - listed explicitly rather than assumed. Same name on
+    # both, so creating a conversation and posting messages to it share one budget.
+    rules:
+      - name: chat-conversations
+        path-pattern: /api/v1/conversations
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: chat-conversations
+        path-pattern: /api/v1/conversations/**
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m

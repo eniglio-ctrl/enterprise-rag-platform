@@ -1,0 +1,13 @@
+{
+  "name": "web-ui-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cypress E2E suite for web-ui, run against the real local docker-compose stack (no build tooling for the app itself - see Dockerfile/nginx.conf).",
+  "scripts": {
+    "cy:open": "cypress open",
+    "cy:run": "cypress run"
+  },
+  "devDependencies": {
+    "cypress": "^13.15.0"
+  }
+}

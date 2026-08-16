@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.eniglio.ragplatform</groupId>
+        <artifactId>enterprise-rag-platform</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>platform-common</artifactId>
+    <name>platform-common</name>
+    <description>Shared web/exception-handling building blocks used by every service (CORS, OpenAPI metadata, error responses)</description>
+    <packaging>jar</packaging>
+
+    <build>
+        <plugins>
+            <!-- Root pom.xml's pluginManagement supplies version/executions; this
+                 module needs the bare reference too, same as the 4 service modules
+                 - JaCoCo isn't a default-lifecycle-bound plugin. Added along with
+                 this module's first-ever tests (RateLimitFilterTest); without it,
+                 SonarCloud reports 0% coverage here regardless of real test content,
+                 since no jacoco.xml is ever produced to read. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+            <!-- Resolves the Mockito-as-a-javaagent property Surefire's argLine
+                 needs (root pom.xml) - also not default-lifecycle-bound. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-circuitbreaker</artifactId>
+        </dependency>
+        <!-- docs/ROADMAP.md item #17: GlobalExceptionHandlerSupport now also handles
+             BulkheadFullException, the same way it already handles
+             CallNotPermittedException above. -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-bulkhead</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <!-- Security Phase 2: per-key (IP/tenant) inbound rate limiting. -->
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j_jdk17-core</artifactId>
+        </dependency>
+        <dependency>
+            <!-- RateLimitFilter emits the security.rate_limit.blocked counter;
+                 each service already brings spring-boot-starter-actuator at
+                 runtime, this is just the compile-time API. -->
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+        <dependency>
+            <!-- Multi-LLM Phase 8: RecursiveCharacterTextSplitter/MarkdownAwareTextSplitter
+                 extend org.springframework.ai.transformer.splitter.TextSplitter. Lightweight
+                 core module (not a model-provider starter) - version comes from the root
+                 pom's spring-ai-bom, same as every other Spring AI dependency in this
+                 project. -->
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-commons</artifactId>
+        </dependency>
+        <dependency>
+            <!-- First tests this module has ever had (RateLimitFilterTest,
+                 Security Phase 2) - platform-common had zero test dependencies
+                 before this. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

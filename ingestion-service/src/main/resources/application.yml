@@ -1,0 +1,260 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: ingestion-service
+
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+
+  # MistralAiEmbeddingAutoConfiguration is only on the classpath for the "demo"
+  # profile's sake (ADR 0020, seeding the free public demo's database with
+  # matching-dimension vectors) — excluded by default so Ollama's EmbeddingModel
+  # stays the sole candidate everywhere else, same reasoning as rag-service's
+  # OpenAiEmbeddingAutoConfiguration exclude (ADR 0017). MistralAiChatAutoConfiguration
+  # and MistralAiModerationAutoConfiguration are excluded always — this service never
+  # uses Mistral for chat or moderation, only embedding, and both of those
+  # auto-configurations otherwise fail fast at boot (even without an api-key set)
+  # rather than quietly backing off, confirmed by a real failing build before this
+  # exclude existed.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_SERVICE_BASE_URL:http://localhost:8084}/.well-known/jwks.json
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  flyway:
+    # Lets Flyway adopt a database that already has the vector_store table (created
+    # previously by PgVectorStore's own auto-init, before ADR 0011) without erroring
+    # out. Safe for a genuinely empty database too — baselining only happens when the
+    # target schema is non-empty. baseline-version 0 means "nothing is considered
+    # applied yet", so V1/V2 still run for real against a pre-existing schema (both
+    # are idempotent, so re-running V1 against an already-matching table is a no-op).
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:nomic-embed-text}
+      # Vision-capable chat model for image ingestion (ADR 0018) — an uploaded image
+      # is described in detail by this model, and the description is what actually
+      # gets chunked/embedded/stored, not the image bytes. llava is on the smaller
+      # side of Ollama's vision models, a reasonable local-first default.
+      chat:
+        options:
+          model: ${VISION_MODEL:llava}
+          temperature: 0.2
+      init:
+        pull-model-strategy: when_missing
+        embedding:
+          include: true
+        chat:
+          include: true
+
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+        # Flyway (db/migration) owns schema creation now — see ADR 0011. Letting
+        # PgVectorStore also try would race Flyway's own DataSource-init-time
+        # migrations in the wrong order (Flyway runs first, before this bean exists).
+        initialize-schema: false
+        schema-name: public
+        table-name: vector_store
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+      # docs/ROADMAP.md item #17 — see rag-service's application.yml for the full
+      # rationale; identical setup here since this service has the same Postgres
+      # dependency and the same readiness-vs-liveness split need.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        rag.ingestion.duration: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: Ingestion Service API
+    description: Uploads, parses, chunks and embeds documents into the shared pgvector store
+
+resilience4j:
+  retry:
+    instances:
+      ollama:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+      # Separate instance from "ollama" (ADR 0019) — Whisper is a different
+      # dependency in a different failure domain; an outage there says nothing
+      # about Ollama's health, and vice versa.
+      whisper:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+  circuitbreaker:
+    instances:
+      ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      whisper:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  # docs/ROADMAP.md item #17 — bounds concurrent calls to each local model server.
+  # max-wait-duration: 0 (fail fast with a clean 503, not queue) - same reasoning as
+  # rag-service's identical block. Whisper's limit is lower than Ollama's: CPU
+  # transcription is heavier per-call than a chat/embedding request, confirmed by
+  # this service's own read-timeout being 120s vs. Ollama's shorter calls here.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
+      whisper:
+        max-concurrent-calls: 2
+        max-wait-duration: 0
+
+ingestion:
+  chunk-size-tokens: 800
+  # Enforced for real by UploadValidationService (ADR 0021) — every extension
+  # DocumentReaderFactory/ImageDescriptionService/AudioTranscriptionService support
+  # (ADR 0018/0019) needs its declared MIME type listed here or upload rejects with
+  # 415 before the magic-byte check ever runs.
+  allowed-content-types:
+    - application/pdf
+    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+    - text/markdown
+    - text/plain
+    - image/png
+    - image/jpeg
+    - image/gif
+    - image/webp
+    - audio/mpeg
+    - audio/wav
+    - audio/x-wav
+    - audio/mp4
+    - audio/x-m4a
+    - audio/ogg
+    - audio/flac
+    - audio/webm
+  # ADR 0022's "known gap", closed: a real .docx has a small, bounded number of
+  # archive entries and total uncompressed size - a real Word document with
+  # embedded images still comes in well under these. Both limits are enforced
+  # by UploadValidationService actually reading/counting bytes during
+  # validation, not by trusting the ZIP's own size headers - that's what makes
+  # this a real zip-bomb defense, not a check an attacker could just lie past.
+  docx:
+    max-entry-count: 100
+    max-uncompressed-bytes: 104857600 # 100MB
+  # docs/EXTERNAL-DATA-INTEGRATION-ROADMAP.md Phase 1. max-bytes matches the
+  # existing multipart cap above (spring.servlet.multipart.max-file-size) - one
+  # size limit for "a document", regardless of which door it came in. Enforced
+  # by UrlDocumentFetcher while actually reading the response body, same
+  # "don't trust an attacker-controlled size claim" principle as docx above.
+  url-import:
+    max-bytes: 26214400 # 25MB
+    timeout: 10s
+  # docs/adr/0055-ocr-fallback-for-scanned-pdfs.md. min-text-length-per-page
+  # decides whether a PDF page's already-extracted text is "real content" or
+  # just junk worth re-deriving via the vision model instead. max-ocr-pages
+  # bounds how many pages of one upload get the (slow, synchronous)
+  # vision-fallback treatment in a single request. Reuses
+  # spring.ai.ollama.chat.options.model (VISION_MODEL) and ingestion.ollama.*
+  # (timeouts) that ImageDescriptionService already uses - no new config key
+  # for the model itself, just for this feature's own limit.
+  pdf-ocr:
+    min-text-length-per-page: 20
+    max-ocr-pages: 20
+  whisper:
+    base-url: ${WHISPER_BASE_URL:http://localhost:9000}
+    connect-timeout: 5s
+    # Transcribing a longer audio file on CPU can take a while — same reasoning as
+    # rag-service's Ollama read-timeout (ADR 0009's original finding).
+    read-timeout: 120s
+  # docs/ROADMAP.md item #17's timeout audit found this had no explicit timeout
+  # configured at all before this - unlike every other outbound client in this
+  # codebase, ChatClientConfig.restClientBuilder() was built with no
+  # ClientHttpRequestFactorySettings, meaning the embedding/vision-description calls
+  # to Ollama could hang indefinitely on a stuck request. Same values as
+  # rag-service's rag.ollama.* (ADR 0009): 180s because CPU-bound local vision
+  # inference can legitimately take over a minute.
+  ollama:
+    connect-timeout: 5s
+    read-timeout: 180s
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    rules:
+      - name: ingestion-upload
+        path-pattern: /api/v1/documents
+        key-by-ip: false
+        capacity: 20
+        refill-period: 1m
+      # Separate rule, not covered by the exact-path rule above: a URL fetch does
+      # real outbound network I/O this project doesn't otherwise do, worth its own
+      # (tighter) budget independent of ordinary multipart upload volume.
+      - name: ingestion-upload-from-url
+        path-pattern: /api/v1/documents/from-url
+        key-by-ip: false
+        capacity: 10
+        refill-period: 1m

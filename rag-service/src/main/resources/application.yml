@@ -1,0 +1,401 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: rag-service
+
+  # First multipart endpoint in this service (the image-attachment form of
+  # /api/v1/ask) — a single ephemeral image, not a document, so a much smaller cap
+  # than ingestion-service's 25MB document limit.
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+  # OpenAiEmbeddingAutoConfiguration is excluded (ADR 0017): with both the Ollama and
+  # OpenAI-compatible (LM Studio) starters on the classpath, Spring AI would otherwise
+  # also auto-configure an OpenAiEmbeddingModel bean, competing with Ollama's for
+  # anything that autowires EmbeddingModel by type (PgVectorStore's own similarity
+  # search does this internally). Embeddings stay Ollama-only — LM Studio is only ever
+  # selected for chat generation, never embedding.
+  # MistralAiEmbeddingAutoConfiguration is excluded here for the same reason (ADR
+  # 0020): its starter is only on the classpath for the "demo" profile's sake, which
+  # flips this exclude list around instead (see application-demo.yml) — every other
+  # profile keeps Ollama as the sole EmbeddingModel. MistralAiChatAutoConfiguration and
+  # MistralAiModerationAutoConfiguration are excluded in every profile, including
+  # "demo" — Groq already covers "cloud OpenAI-compatible chat" via the existing
+  # "openai" provider (ADR 0017), so Mistral is only ever used here for its embedding
+  # model. Both of those auto-configurations fail fast at boot without an api-key set
+  # rather than quietly backing off (confirmed by a real failing build before this
+  # exclude existed), so they can't just be left inactive-by-absence-of-key.
+  # Multi-LLM Phase 2e (ADR 0045): AnthropicChatAutoConfiguration excluded for the
+  # same reason as Mistral's above - the fallback's api-key/model live under
+  # rag.fallback-providers.anthropic.*, never spring.ai.anthropic.*, so this
+  # autoconfiguration would otherwise try to build its own competing, unconfigured
+  # ChatModel bean from a property prefix nothing here ever sets.
+  autoconfigure:
+    exclude:
+      - org.springframework.ai.model.openai.autoconfigure.OpenAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiEmbeddingAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiChatAutoConfiguration
+      - org.springframework.ai.model.mistralai.autoconfigure.MistralAiModerationAutoConfiguration
+      - org.springframework.ai.model.anthropic.autoconfigure.AnthropicChatAutoConfiguration
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${AUTH_SERVICE_BASE_URL:http://localhost:8084}/.well-known/jwks.json
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${CHAT_MODEL:llama3.1}
+          temperature: 0.2
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:nomic-embed-text}
+      init:
+        pull-model-strategy: when_missing
+        chat:
+          include: true
+        embedding:
+          include: true
+
+    # LM Studio's local server (https://lmstudio.ai) speaks the OpenAI-compatible chat
+    # API on whatever port its "Local Server" tab is running (default 1234) — this
+    # isn't OpenAI itself, just the same wire protocol. api-key is a placeholder: the
+    # OpenAI client requires a non-blank Authorization value, but LM Studio's local
+    # server doesn't actually check it. Defaults let the app boot fine even when LM
+    # Studio isn't running; only a request that selects it would fail (connection
+    # refused), same as any other unreachable dependency.
+    openai:
+      base-url: ${LMSTUDIO_BASE_URL:http://localhost:1234}
+      api-key: ${LMSTUDIO_API_KEY:lm-studio}
+      chat:
+        options:
+          model: ${LMSTUDIO_MODEL:local-model}
+          temperature: 0.2
+
+    vectorstore:
+      pgvector:
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+        # ingestion-service owns schema creation; rag-service only reads from it.
+        initialize-schema: false
+        schema-name: public
+        table-name: vector_store
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+      # web-ui's system-health badge (app.js checkSystemHealth) polls this
+      # cross-origin from the browser. addCorsMappings() in CorsConfig only
+      # covers "/api/**"'s RequestMappingHandlerMapping, not actuator's own
+      # handler mapping, so it needs this separate, actuator-specific config.
+      cors:
+        allowed-origins: ${WEB_UI_ORIGIN:http://localhost:3000}
+        allowed-methods: GET
+  endpoint:
+    health:
+      show-details: always
+      # docs/ROADMAP.md item #17: readiness and liveness used to hit the exact same
+      # /actuator/health endpoint from Kubernetes, defeating the actual point of the
+      # distinction — a slow-but-recovering Postgres should fail readiness (stop
+      # receiving new traffic) without also failing liveness (which restarts the
+      # pod, the wrong response to a transient slowdown, not an actual crash).
+      # readinessState/livenessState are Spring's own ApplicationAvailability
+      # signals (has the app finished starting / is it still running); "db" is
+      # added to readiness only — Postgres being slow should hold this pod out of
+      # the load balancer, not kill and restart it.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        rag.answer.generation.duration: true
+        rag.diagram.generation.duration: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: RAG Service API
+    description: Retrieves relevant document chunks from pgvector and generates cited answers
+
+rag:
+  top-k: 5
+  similarity-threshold: 0.5
+  # Candidate pool fetched from each hybrid-search leg (vector + full-text) before RRF
+  # fusion narrows down to top-k; also the pool size handed to the reranker when
+  # "rerank": true is requested.
+  rerank-candidate-pool-size: 15
+  # Selectable in the web-ui's model dropdown (ADR 0017), sent as "model" in
+  # /api/v1/ask. The FIRST entry is the default. Ollama entries beyond the default
+  # must already be pulled (`ollama pull <id>`); the LM Studio entry needs its local
+  # server running with a model loaded. This list doesn't pull/start anything itself,
+  # it only says what's allowed to be requested.
+  #
+  # The "auto" entry (ADR 0025) is a sentinel, not a real callable model —
+  # RagQueryService.resolveModel substitutes it for the first non-"auto" entry
+  # below before any ChatClient/LlmGateway call, so it's first in this list purely
+  # to become the default via the existing "first entry wins" convention, not
+  # because anything actually dispatches on provider: auto.
+  available-models:
+    - id: auto
+      label: "Automático (recomendado)"
+      provider: auto
+    - id: ${CHAT_MODEL:llama3.1}
+      label: "Llama 3.1 (Ollama, padrão)"
+      provider: ollama
+    - id: llama3.2
+      label: "Llama 3.2 (Ollama — requer 'ollama pull llama3.2')"
+      provider: ollama
+    - id: ${LMSTUDIO_MODEL:local-model}
+      label: "LM Studio (requer o servidor local rodando)"
+      provider: lmstudio
+  ollama:
+    connect-timeout: 5s
+    # Diagram/chat generation is CPU-bound local inference and can legitimately take
+    # over a minute — 180s gives real responses headroom without hanging forever on a
+    # genuinely stuck model.
+    read-timeout: 180s
+  vision:
+    # Same VISION_MODEL env var ingestion-service already uses for image documents
+    # (ADR 0018) — one setting governs "what vision model to use" locally, whether the
+    # image is a permanently-ingested document or an ephemeral question attachment.
+    ollama-model: ${VISION_MODEL:llava}
+  # docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8 — a whole document can have far
+  # more chunks than top-k ever retrieves for one question; this bounds how much of
+  # it gets sent to the model for a summarize/FAQ call rather than sending everything
+  # unbounded. A document over the limit is truncated to its first max-chunks chunks.
+  document-insights:
+    max-chunks: 40
+  # docs/adr/0057-document-comparison.md — bounds how many documents a single
+  # comparison request processes at once (breadth), separate from max-chunks above
+  # which already bounds each document's own content (depth).
+  document-comparison:
+    max-documents: 5
+  # Multi-LLM Phase 2a (ADR 0036) — deliberately not part of available-models above,
+  # see FallbackProviderProperties' own javadoc for why. Blank defaults keep the
+  # "test" profile (no real keys) booting exactly as before this phase; a blank key
+  # simply fails at the real provider's own auth check if ever actually invoked,
+  # which only happens once Phase 2c's confirmation flow exists to trigger it.
+  fallback-providers:
+    # docs/ROADMAP.md item #17: neither cloud fallback client had any timeout
+    # configured before this — a hung request to either provider would block the
+    # calling thread indefinitely, unlike every local-model client in this codebase.
+    connect-timeout: 5s
+    read-timeout: 30s
+    # docs/adr/0056-llm-cost-metering-for-fallback-calls.md: *-price-per-million-tokens
+    # below are illustrative public list prices for each provider's default model
+    # (gpt-4o-mini / gemini-flash-latest / claude-haiku-4-5), not a maintained
+    # official price table - override via the env vars if running a different model
+    # or a negotiated rate. Gemini defaults to 0.0/0.0 because this project's real
+    # key (ADR 0036) is on Gemini's genuinely free tier - $0.00 is correct, not a
+    # placeholder waiting to be filled in.
+    openai:
+      api-key: ${OPENAI_FALLBACK_API_KEY:}
+      model: ${OPENAI_FALLBACK_MODEL:gpt-4o-mini}
+      input-price-per-million-tokens: ${OPENAI_INPUT_PRICE_PER_M:0.15}
+      output-price-per-million-tokens: ${OPENAI_OUTPUT_PRICE_PER_M:0.60}
+    gemini:
+      api-key: ${GEMINI_FALLBACK_API_KEY:}
+      # gemini-flash-latest, not a dated alias - confirmed for real (ADR 0036) that
+      # dated aliases like gemini-2.5-flash/gemini-1.5-flash can 404 for this
+      # account while the -latest alias resolves correctly.
+      model: ${GEMINI_FALLBACK_MODEL:gemini-flash-latest}
+      input-price-per-million-tokens: ${GEMINI_INPUT_PRICE_PER_M:0.0}
+      output-price-per-million-tokens: ${GEMINI_OUTPUT_PRICE_PER_M:0.0}
+    # Multi-LLM Phase 2e (ADR 0045). Deliberately no ANTHROPIC_API_KEY has been
+    # generated for this yet (unlike OpenAI/Gemini's keys, obtained ahead of
+    # time) - a blank key here is an expected, permanent-until-decided-otherwise
+    # state, not a placeholder waiting to be filled in before this ships. The
+    # graceful-unavailable handling in RagQueryService.answerViaPublicLlmFallback
+    # is what makes that safe to leave blank.
+    anthropic:
+      api-key: ${ANTHROPIC_FALLBACK_API_KEY:}
+      model: ${ANTHROPIC_FALLBACK_MODEL:claude-haiku-4-5-20251001}
+      input-price-per-million-tokens: ${ANTHROPIC_INPUT_PRICE_PER_M:1.0}
+      output-price-per-million-tokens: ${ANTHROPIC_OUTPUT_PRICE_PER_M:5.0}
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    trusted-proxy-hops: 0
+    # All three share the "rag-query" name on purpose: the bucket key only uses the
+    # rule name, not the pattern, so a tenant asking questions across /ask, /chat and
+    # /diagrams draws from one combined budget instead of getting 3x the effective
+    # rate by spreading requests across the equivalent endpoints. /api/v1/retrieve is
+    # deliberately not listed - it's only ever called server-to-server by
+    # chat-service (ADR 0013), already bounded by chat-service's own conversations
+    # limit; rate-limiting it here too would double-count the same user action.
+    rules:
+      - name: rag-query
+        path-pattern: /api/v1/ask
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/chat
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      - name: rag-query
+        path-pattern: /api/v1/diagrams
+        key-by-ip: false
+        capacity: 30
+        refill-period: 1m
+      # Separate, tighter bucket (docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8):
+      # summarizing/generating FAQ for a whole document is heavier than a single
+      # top-k question, so it gets its own budget instead of sharing rag-query's.
+      # Shared bucket name between the two paths, same reasoning as rag-query above.
+      - name: rag-document-insights
+        path-pattern: /api/v1/documents/*/summarize
+        key-by-ip: false
+        capacity: 10
+        refill-period: 1m
+      - name: rag-document-insights
+        path-pattern: /api/v1/documents/*/faq
+        key-by-ip: false
+        capacity: 10
+        refill-period: 1m
+      # docs/adr/0057-document-comparison.md: its own, tighter bucket than
+      # rag-document-insights above - comparing processes 2+ whole documents in one
+      # call, heavier than summarizing/FAQ-ing a single one.
+      - name: rag-document-comparison
+        path-pattern: /api/v1/documents/compare
+        key-by-ip: false
+        capacity: 5
+        refill-period: 1m
+
+resilience4j:
+  retry:
+    instances:
+      ollama:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+      # Separate instance from "ollama" (ADR 0017) — LM Studio being down/slow is a
+      # different failure than Ollama's, and shouldn't trip Ollama's breaker too.
+      lmstudio:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+      # Multi-LLM Phase 2a (ADR 0036) — deliberately NOT retrying
+      # HttpClientErrorException here, unlike a first instinct to mirror
+      # ollama/lmstudio exactly. A real cloud API's 4xx (401 invalid key, 429 quota
+      # exhausted — both confirmed for real against this project's own keys) won't
+      # resolve itself in a 500ms retry window; retrying it just burns another call
+      # against the same rate limit. Only retry-worthy failure modes: no
+      # response at all (ResourceAccessException) or the provider's own transient
+      # 5xx (HttpServerErrorException).
+      openai-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+      gemini-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+      # Multi-LLM Phase 2e (ADR 0045) - same reasoning as openai-fallback/
+      # gemini-fallback above: only retry "no response at all" or the provider's
+      # own transient 5xx, never a 4xx (invalid key, no credits) that a 500ms
+      # retry can't possibly resolve.
+      anthropic-fallback:
+        max-attempts: 3
+        wait-duration: 500ms
+        retry-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+  circuitbreaker:
+    instances:
+      ollama:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      lmstudio:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      # Multi-LLM Phase 2a (ADR 0036) — independent instance from ollama/lmstudio
+      # AND from each other (see LlmGateway's javadoc): OpenAI's zero-credits state
+      # (confirmed for real against this project's own key) must not affect
+      # Gemini's breaker, or either local provider's.
+      openai-fallback:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      gemini-fallback:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+      anthropic-fallback:
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+  # docs/ROADMAP.md item #17 — bounds how many requests may call the local model
+  # server concurrently. max-wait-duration: 0 is deliberate, not an oversight: this
+  # must fail fast (a clean 503) the instant the limit is hit, not queue callers
+  # behind it — queueing would just move the pile-up from the model server into this
+  # service's own request threads instead of actually protecting anything. 4 is a
+  # starting point for a single local Ollama process, not a measured ceiling; tune
+  # via this property alone, no redeploy needed.
+  bulkhead:
+    instances:
+      ollama:
+        max-concurrent-calls: 4
+        max-wait-duration: 0
+      lmstudio:
+        max-concurrent-calls: 4
+        max-wait-duration: 0

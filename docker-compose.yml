@@ -1,0 +1,302 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      POSTGRES_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)} -d ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    environment:
+      ASR_MODEL: base
+      ASR_ENGINE: openai_whisper
+    ports:
+      - "9000:9000"
+    volumes:
+      - whisper-data:/root/.cache/whisper
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/docs || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # Production Readiness Phase 2, ADR 0048: dev-mode Vault - free, local, no cloud
+  # account, same "just another docker-compose service" shape as Postgres/Ollama.
+  # NOT how you'd run Vault in a real production deployment (no unseal, in-memory
+  # storage lost on every restart, root token over plain HTTP) - that tradeoff is
+  # deliberate and documented in the ADR, not an oversight.
+  vault:
+    image: hashicorp/vault:1.17
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      # Without this, the `vault` CLI (used by the healthcheck below, and by
+      # vault-init's `vault kv put`) defaults to https://127.0.0.1:8200 and fails
+      # against this plain-HTTP dev listener.
+      VAULT_ADDR: http://127.0.0.1:8200
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot: seeds the same JWT_SIGNING_KEY value .env already provides (Security
+  # Phase 4, ADR 0031) into Vault, under the exact property name AuthProperties
+  # already binds (auth.signing-key.value) - auth-service reads it from Vault from
+  # here on, not from its own env var. Idempotent; re-runs harmlessly every
+  # `docker compose up`.
+  vault-init:
+    image: hashicorp/vault:1.17
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Copy .env.example to .env first - no default JWT signing key (Security Phase 4, ADR 0031)}
+    entrypoint: ["sh", "-c", "vault kv put secret/auth-service auth.signing-key.value=\"$JWT_SIGNING_KEY\""]
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: auth-service/Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      WEB_UI_ORIGIN: http://localhost:3000
+      # No more JWT_SIGNING_KEY here (Production Readiness Phase 2, ADR 0048) - the
+      # signing key now comes exclusively from Vault, seeded by vault-init above.
+      VAULT_HOST: vault
+      VAULT_PORT: "8200"
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN_ID:?Copy .env.example to .env first - no default Vault root token (Production Readiness Phase 2, ADR 0048)}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  ingestion-service:
+    build:
+      context: .
+      dockerfile: ingestion-service/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: nomic-embed-text
+      VISION_MODEL: llava
+      WHISPER_BASE_URL: http://whisper:9000
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
+      WEB_UI_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      whisper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  rag-service:
+    build:
+      context: .
+      dockerfile: rag-service/Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: nomic-embed-text
+      CHAT_MODEL: llama3.1
+      VISION_MODEL: llava
+      # host.docker.internal, not localhost: rag-service runs inside this container's
+      # own network namespace, so "localhost" would mean the container itself, not the
+      # Mac running LM Studio. host.docker.internal is Docker Desktop's route back to
+      # the host. LMSTUDIO_MODEL must match a model actually loaded in LM Studio's
+      # "Local Server" tab (check its id there — it's arbitrary, not "local-model").
+      LMSTUDIO_BASE_URL: http://host.docker.internal:1234
+      LMSTUDIO_MODEL: ${LMSTUDIO_MODEL:-qwen2.5-14b-instruct}
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
+      WEB_UI_ORIGIN: http://localhost:3000
+      # Multi-LLM Phase 2a/2c (ADR 0036/0038): optional, blank-safe defaults (see
+      # .env.example) - the public-LLM fallback simply can't be reached until a
+      # real key is set, same as any other unreachable dependency.
+      OPENAI_FALLBACK_API_KEY: ${OPENAI_FALLBACK_API_KEY:-}
+      GEMINI_FALLBACK_API_KEY: ${GEMINI_FALLBACK_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      # rag-service runs with initialize-schema=false, so ingestion-service
+      # must be the one to create the pgvector table first.
+      ingestion-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  chat-service:
+    build:
+      context: .
+      dockerfile: chat-service/Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_USER: ${DB_USER:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      DB_PASSWORD: ${DB_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+      OLLAMA_BASE_URL: http://ollama:11434
+      CHAT_MODEL: llama3.1
+      RAG_SERVICE_BASE_URL: http://rag-service:8082
+      AUTH_SERVICE_BASE_URL: http://auth-service:8084
+      WEB_UI_ORIGIN: http://localhost:3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8083/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 60s
+
+  web-ui:
+    build:
+      context: ./web-ui
+    ports:
+      - "3000:80"
+    depends_on:
+      - auth-service
+      - ingestion-service
+      - rag-service
+      - chat-service
+    healthcheck:
+      # 127.0.0.1, not localhost: see web-ui/Dockerfile's own HEALTHCHECK comment -
+      # busybox wget tries the IPv6 loopback first and nginx here is IPv4-only.
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      - auth-service
+      - ingestion-service
+      - rag-service
+      - chat-service
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      # Anonymous Viewer access stays on for local/dev convenience (ADR 0015) -
+      # only the admin password (which anonymous access can't touch anyway)
+      # needed to stop being a real-looking hardcoded default.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Copy .env.example to .env first - no default credentials (Security Phase 3, ADR 0021)}
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  ollama-data:
+  whisper-data:
+  prometheus-data:
+  grafana-data:

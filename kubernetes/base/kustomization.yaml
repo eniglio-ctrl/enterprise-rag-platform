@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rag-platform
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - postgres.yaml
+  - ollama.yaml
+  - auth-service.yaml
+  - ingestion-service.yaml
+  - rag-service.yaml
+  - chat-service.yaml
+  - web-ui.yaml
+  - ingress.yaml
+
+secretGenerator:
+  - name: rag-platform-db-credentials
+    envs:
+      - .env.secret
+  # Security Phase 4 (ADR 0031): mounted as a file, not an env var - the
+  # standard way Kubernetes handles key/cert material (like a TLS secret).
+  # Generate your own before `kubectl apply -k kubernetes/base`:
+  #   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out kubernetes/base/jwt-signing-key.pem
+  - name: rag-platform-jwt-key
+    files:
+      - jwt-signing-key.pem

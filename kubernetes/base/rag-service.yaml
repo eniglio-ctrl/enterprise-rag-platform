@@ -1,0 +1,110 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-service
+  namespace: rag-platform
+spec:
+  selector:
+    app: rag-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-service
+  namespace: rag-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rag-service
+  template:
+    metadata:
+      labels:
+        app: rag-service
+    spec:
+      initContainers:
+        - name: wait-for-postgres-and-ollama
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done
+              until nc -z ollama 11434; do echo waiting for ollama; sleep 2; done
+        - name: wait-for-auth-service
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- http://auth-service:8084/actuator/health | grep -q '"status":"UP"'; do
+                echo waiting for auth-service
+                sleep 3
+              done
+        - name: wait-for-ingestion-service
+          image: busybox:1.36
+          # rag-service runs with initialize-schema=false, so ingestion-service
+          # must be the one to create the pgvector table first (same ordering
+          # as docker-compose's depends_on: condition: service_healthy).
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- http://ingestion-service:8081/actuator/health | grep -q '"status":"UP"'; do
+                echo waiting for ingestion-service
+                sleep 3
+              done
+      containers:
+        - name: rag-service
+          image: rag-platform/rag-service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: rag-platform-config
+          env:
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: rag-platform-db-credentials
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: rag-platform-db-credentials
+                  key: DB_PASSWORD
+          # See ingestion-service.yaml — startupProbe absorbs the first-boot Ollama
+          # model pull so liveness doesn't kill the container mid-pull (confirmed bug:
+          # this exact container restarted once on a fresh cluster before this was added).
+          startupProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            failureThreshold: 30
+            periodSeconds: 10
+          # docs/ROADMAP.md item #17: readiness and liveness used to hit the exact
+          # same /actuator/health, defeating the point of the distinction - a slow
+          # Postgres should fail readiness (stop receiving traffic) without also
+          # failing liveness (which restarts the pod, the wrong response to a
+          # transient dependency slowdown). management.endpoint.health.group.*
+          # (application.yml) puts "db" only in the readiness group.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "200m"
+            limits:
+              memory: "768Mi"

@@ -1,0 +1,17 @@
+spring:
+  ai:
+    ollama:
+      init:
+        pull-model-strategy: never
+    vectorstore:
+      pgvector:
+        # standalone in tests: no ingestion-service around to create the schema first
+        initialize-schema: true
+
+security:
+  rate-limit:
+    # ChatQueryIT fires many /ask requests in a row against the same MockMvc
+    # "client" - disabled here so test volume never trips it. Real rate
+    # limiting is exercised by RateLimitFilterTest in platform-common and by
+    # the manual curl-loop verification in ADR 0028.
+    enabled: false

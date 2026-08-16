@@ -1,0 +1,255 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.eniglio.ragplatform</groupId>
+    <artifactId>enterprise-rag-platform</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>enterprise-rag-platform</name>
+    <description>Enterprise-grade Retrieval-Augmented Generation platform built with Spring Boot, Spring AI and pgvector</description>
+
+    <modules>
+        <module>platform-common</module>
+        <module>auth-service</module>
+        <module>ingestion-service</module>
+        <module>rag-service</module>
+        <module>chat-service</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>3.5.3</spring-boot.version>
+        <!-- Production Readiness Phase 2, ADR 0048: Spring Cloud 2025.0.0 ("Northfields")
+             is the release train confirmed compatible with Spring Boot 3.5.x - only
+             auth-service actually depends on anything from it (spring-cloud-starter-vault-config). -->
+        <spring-cloud.version>2025.0.0</spring-cloud.version>
+        <spring-ai.version>1.0.0</spring-ai.version>
+        <springdoc.version>2.8.6</springdoc.version>
+        <resilience4j.version>2.4.0</resilience4j.version>
+        <testcontainers.version>2.0.5</testcontainers.version>
+        <!--
+            Not Resilience4j's own RateLimiter: that primitive protects a single
+            outbound call site with one shared limiter, not many independent
+            per-key (per-IP/per-tenant) inbound buckets, which is what Security
+            Phase 2's rate limiting actually needs - Bucket4j is built for exactly
+            that shape. jdk17-core, not the relocated plain "bucket4j-core"
+            (Maven Central redirected it starting with the 8.x line).
+        -->
+        <bucket4j.version>8.19.0</bucket4j.version>
+        <jacoco.version>0.8.12</jacoco.version>
+        <!--
+            SonarCloud org/project key follow its default convention
+            (GitHub org, and <github-org>_<repo-name>) - verify both match
+            exactly what SonarCloud shows once the project is imported there;
+            adjust here if it picked different slugs.
+        -->
+        <sonar.organization>eniglio-ctrl</sonar.organization>
+        <sonar.projectKey>eniglio-ctrl_enterprise-rag-platform</sonar.projectKey>
+        <sonar.host.url>https://sonarcloud.io</sonar.host.url>
+        <!-- Aggregates each module's own target/site/jacoco/jacoco.xml (bound below). -->
+        <sonar.coverage.jacoco.xmlReportPaths>target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!--
+                Declared first, deliberately: spring-boot-dependencies (below) also
+                imports testcontainers-bom internally (pinned to an older 1.x via its
+                own ${testcontainers.version} property), and Maven resolves conflicting
+                managed versions within a single dependencyManagement block by
+                declaration order — first wins. Overriding just the property was tried
+                first and silently lost (some 2.x-only module coordinates ended up with
+                no managed version at all), so the version needs to come from an import
+                that's textually ahead of spring-boot-dependencies, not from a property
+                spring-boot-dependencies itself is the one interpolating.
+            -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-bom</artifactId>
+                <version>${resilience4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.bucket4j</groupId>
+                <artifactId>bucket4j_jdk17-core</artifactId>
+                <version>${bucket4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <version>${spring-boot.version}</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>repackage</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!--
+                        Integration tests (*IT) run through Surefire itself, in a second
+                        execution bound to the `verify` phase, instead of maven-failsafe-plugin.
+                        Failsafe 3.2.5/3.5.3 both fail these same tests with a Spring
+                        "Failed to find merged annotation for @BootstrapWith" error that
+                        Surefire does not reproduce; root cause wasn't worth chasing further
+                        since Surefire runs the exact same tests correctly.
+                    -->
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.6</version>
+                    <configuration>
+                        <excludes>
+                            <exclude>**/*IT.java</exclude>
+                        </excludes>
+                        <!--
+                            Mockito's inline mock maker self-attaches Byte Buddy at
+                            runtime by default - already warned about directly in a real
+                            build log this same session ("Dynamic loading of agents will
+                            be disallowed by default in a future release"), and CI's
+                            Temurin pin has never exercised whatever vendor-specific
+                            self-attach behavior a real Oracle JDK build would hit.
+                            Loading Mockito as a proper -javaagent (its own officially
+                            documented fix, linked directly from that warning) makes the
+                            build's test behavior independent of JDK vendor/version. The
+                            "@{argLine}" (not "${argLine}") delayed-evaluation syntax is
+                            required here specifically because jacoco-maven-plugin's
+                            prepare-agent goal (below) also writes into this same argLine
+                            property - "@{...}" defers resolution to Surefire's own
+                            execution instead of at POM-parse time, so this correctly
+                            picks up whatever JaCoCo already put there instead of racing
+                            it. ${org.mockito:mockito-core:jar} is populated by
+                            maven-dependency-plugin's properties goal, also below.
+                        -->
+                        <argLine>@{argLine} -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>integration-tests</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>test</goal>
+                            </goals>
+                            <configuration>
+                                <excludes>
+                                    <exclude>none</exclude>
+                                </excludes>
+                                <includes>
+                                    <include>**/*IT.java</include>
+                                </includes>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!--
+                        Resolves org.mockito:mockito-core's own jar path into the
+                        ${org.mockito:mockito-core:jar} property Surefire's argLine
+                        (above) references for the -javaagent flag. Bound to initialize,
+                        well before Surefire's own test phase reads argLine. Not a
+                        default-lifecycle-bound plugin, so each service module's own
+                        pom.xml still needs a bare <plugin> entry, same as jacoco below.
+                    -->
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.11.0</version>
+                    <executions>
+                        <execution>
+                            <id>resolve-mockito-agent</id>
+                            <phase>initialize</phase>
+                            <goals>
+                                <goal>properties</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <!--
+                        Not a default-lifecycle-bound plugin like Surefire, so each
+                        service module's own pom.xml still needs a bare <plugin> entry
+                        referencing this one to actually invoke it - this block only
+                        supplies the shared version/executions.
+                    -->
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco.version}</version>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <!--
+                                Bound to verify, not test, so it runs after both Surefire
+                                executions (unit AND the *IT integration-tests execution
+                                above) - coverage should reflect everything that actually
+                                ran, not just unit tests.
+                            -->
+                            <id>report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <repositories>
+        <repository>
+            <id>spring-milestones</id>
+            <name>Spring Milestones</name>
+            <url>https://repo.spring.io/milestone</url>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+</project>

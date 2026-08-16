@@ -1,0 +1,125 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: auth-service
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ragplatform}?currentSchema=auth
+    username: ${DB_USER:ragplatform}
+    password: ${DB_PASSWORD:ragplatform}
+
+  flyway:
+    schemas: auth
+    default-schema: auth
+    create-schemas: true
+
+  # Production Readiness Phase 2, ADR 0048: populates auth.signing-key.value below
+  # from Vault instead of only JWT_SIGNING_KEY - same property, new source, so
+  # JwtKeyProvider/AuthProperties need no logic change at all. "optional:" plus
+  # fail-fast: false below mean a Vault-less run (e.g. `mvn spring-boot:run`
+  # without docker-compose) keeps working exactly as before, falling through to
+  # JWT_SIGNING_KEY/the ephemeral-key fallback - additive, not a hard requirement.
+  config:
+    import: "optional:vault://"
+  cloud:
+    vault:
+      host: ${VAULT_HOST:localhost}
+      port: ${VAULT_PORT:8200}
+      scheme: http
+      authentication: TOKEN
+      # A non-blank placeholder, not "" - Spring Cloud Vault builds its TOKEN
+      # ClientAuthentication eagerly during config-data processing and throws
+      # IllegalStateException on a genuinely blank token, before "optional:" above
+      # or fail-fast below get a chance to turn a failure into a graceful skip. A
+      # placeholder just becomes an HTTP 403 against a real Vault (or a connection
+      # failure with none running, e.g. tests) - exactly the kind of failure
+      # "optional"/fail-fast are meant to swallow.
+      token: ${VAULT_TOKEN:not-configured}
+      kv:
+        enabled: true
+      fail-fast: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # "refresh" (Production Readiness Phase 2, ADR 0048): POST /actuator/refresh
+        # re-binds auth.signing-key.value from Vault and, via JwtKeyProvider's new
+        # @RefreshScope, forces it to re-parse the RSA key - the only way this
+        # service picks up a rotated secret without a restart.
+        include: health, info, prometheus, metrics, refresh
+  endpoint:
+    health:
+      show-details: always
+      # docs/ROADMAP.md item #17 — see rag-service's application.yml for the full
+      # rationale; identical setup here since this service has the same Postgres
+      # dependency and the same readiness-vs-liveness split need.
+      group:
+        readiness:
+          include: readinessState, db
+        liveness:
+          include: livenessState
+  health:
+    probes:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+
+logging:
+  structured:
+    format:
+      console: ecs
+  level:
+    com.eniglio.ragplatform: INFO
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+platform:
+  openapi:
+    title: Auth Service API
+    description: Issues RS256-signed JWTs and exposes a JWKS endpoint for the other services
+
+auth:
+  # 1h: long enough to not be annoying in a demo, short enough that a leaked/stale
+  # token doesn't stay valid indefinitely. The signing key is now persisted
+  # (Security Phase 4, ADR 0031) via signing-key below, so this value is a real
+  # session-length tradeoff, not compensating for a key that regenerates on restart.
+  token-ttl: 1h
+  # How long an invitation (POST /api/v1/auth/invitations) stays redeemable.
+  invitation-ttl: 7d
+  signing-key:
+    # Kubernetes: a Secret mounted as a file (see kubernetes/base/auth-service.yaml).
+    path: ${JWT_SIGNING_KEY_PATH:}
+    # docker-compose/local: a Base64-encoded PKCS8 PEM RSA private key (see
+    # .env.example). Leaving both blank falls back to an ephemeral in-memory key
+    # (JwtKeyProvider) — fine for tests, never for a real deployment.
+    value: ${JWT_SIGNING_KEY:}
+
+web-ui:
+  allowed-origin: ${WEB_UI_ORIGIN:http://localhost:3000}
+
+security:
+  rate-limit:
+    enabled: true
+    # 0 = never trust X-Forwarded-For, always use the socket's real peer address.
+    # Safe default for local/docker-compose, where nothing legitimate proxies this
+    # service. See ADR 0028 for why the public demo (Security Phase 6, not yet
+    # done) can't safely set a real value here without first confirming exactly
+    # how many hops Render's edge actually adds.
+    trusted-proxy-hops: 0
+    rules:
+      - name: auth
+        path-pattern: /api/v1/auth/*
+        key-by-ip: true
+        capacity: 10
+        refill-period: 1m

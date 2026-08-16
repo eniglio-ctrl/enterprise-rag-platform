@@ -1,0 +1,1232 @@
+package com.eniglio.ragplatform.rag.service;
+
+import com.eniglio.ragplatform.common.web.Citation;
+import com.eniglio.ragplatform.common.web.RetrievedChunk;
+import com.eniglio.ragplatform.rag.config.FallbackProviderProperties;
+import com.eniglio.ragplatform.rag.config.RagProperties;
+import com.eniglio.ragplatform.rag.config.RagProperties.AvailableModel;
+import com.eniglio.ragplatform.rag.dto.AskResponse;
+import com.eniglio.ragplatform.rag.dto.ChatResponse;
+import com.eniglio.ragplatform.rag.dto.ComparisonResponse;
+import com.eniglio.ragplatform.rag.dto.DiagramResponse;
+import com.eniglio.ragplatform.rag.dto.ContextRelevance;
+import com.eniglio.ragplatform.rag.dto.FaqResponse;
+import com.eniglio.ragplatform.rag.dto.Groundedness;
+import com.eniglio.ragplatform.rag.dto.SummaryResponse;
+import com.eniglio.ragplatform.rag.exception.DocumentNotFoundException;
+import com.eniglio.ragplatform.rag.exception.FaqGenerationException;
+import com.eniglio.ragplatform.rag.exception.TooManyDocumentsToCompareException;
+import com.eniglio.ragplatform.rag.gateway.GeminiClient;
+import com.eniglio.ragplatform.rag.gateway.LlmGateway;
+import com.eniglio.ragplatform.rag.tool.DocumentLookupTool;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import org.springframework.util.MimeType;
+import org.springframework.web.client.ResourceAccessException;
+
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+@Service
+public class RagQueryService {
+
+    private static final Logger log = LoggerFactory.getLogger(RagQueryService.class);
+
+    private static final String SYSTEM_TEMPLATE = """
+            Você é um assistente técnico que responde exclusivamente com base no CONTEXTO abaixo.
+            Regras:
+            - Se a resposta não estiver no contexto, diga claramente que não encontrou informação suficiente.
+            - Sempre cite as fontes usando os números entre colchetes que aparecem no contexto, ex: [1], [2].
+            - Seja direto, técnico e responda no mesmo idioma da pergunta.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    private static final String DIAGRAM_SYSTEM_TEMPLATE = """
+            Você gera diagramas de arquitetura em Mermaid.js a partir do CONTEXTO abaixo.
+            Regras:
+            - Responda apenas com a definição Mermaid, começando com "flowchart LR" ou "flowchart TD".
+            - Não inclua blocos de código (sem ```), comentários ou qualquer texto fora da definição.
+            - Use IDs curtos para os nós (A, B, C...) e rótulos descritivos entre colchetes, sempre
+              com o texto entre aspas duplas, ex: A["Amazon S3"] ou B["Multi-AZ (alta disponibilidade)"].
+              Isso é obrigatório sempre que o rótulo tiver parênteses, vírgulas ou outra pontuação.
+            - Rótulo em seta (edge label) usa a sintaxe A -->|texto| B — nunca coloque um ">" extra
+              depois do segundo pipe (A -->|texto|> B está errado).
+            - Represente apenas os serviços/componentes e o fluxo entre eles que estão explicitamente
+              descritos no contexto; não invente serviços ou conexões que não aparecem no texto.
+            - A pergunta pode ser mais genérica do que o contexto (ex.: "funcionamento da AWS"
+              quando o contexto fala de um caso específico de recuperação de desastres). Nesse caso,
+              monte o melhor diagrama possível com os componentes técnicos que o contexto realmente
+              descreve, em vez de recusar.
+            - Só responda com o nó de dados insuficientes se o contexto não tiver NENHUM componente,
+              serviço ou passo técnico para representar:
+              flowchart LR
+                  A[Dados insuficientes para gerar um diagrama]
+
+            CONTEXTO:
+            {context}
+            """;
+
+    private static final String GROUNDEDNESS_SYSTEM_TEMPLATE = """
+            Dado o CONTEXTO e a RESPOSTA abaixo, responda apenas "SUPORTADA" ou "NAO_SUPORTADA".
+            Considere SUPORTADA se todas as afirmações da resposta podem ser verificadas no contexto.
+            Considere NAO_SUPORTADA se a resposta contém qualquer afirmação que não aparece no contexto.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    // Multi-LLM Phase 8 (RAG quality deep-dive): faithfulness (above) asks "is the
+    // *answer* backed by the context"; this asks the narrower, independent question
+    // "is *this one retrieved chunk* actually useful for this question" - a bad
+    // retrieval can still produce a faithful-looking answer if the model happens to
+    // already know the fact, so the two checks catch different failure modes.
+    private static final String CONTEXT_RELEVANCE_SYSTEM_TEMPLATE = """
+            Dada a PERGUNTA abaixo e um TRECHO de documento, responda apenas "RELEVANTE" ou "IRRELEVANTE".
+            Considere RELEVANTE se o trecho contém informação que ajudaria a responder a pergunta,
+            mesmo que só parcialmente.
+            Considere IRRELEVANTE se o trecho não tem relação nenhuma com o que a pergunta pede.
+
+            PERGUNTA:
+            {question}
+            """;
+
+    // Prepended to SYSTEM_TEMPLATE/DIAGRAM_SYSTEM_TEMPLATE only when a question has an
+    // attached image (never included otherwise, to avoid cluttering the common path).
+    // The "[IMAGEM]" block is deliberately NOT one of the numbered "[1]", "[2]"...
+    // context entries buildContext() produces from retrieved chunks — those numbers
+    // must line up 1:1 with the citations array returned to the caller, and an image
+    // description has no corresponding Citation. Telling the model explicitly not to
+    // cite it with a bracket number avoids it inventing a citation index that doesn't
+    // exist in the response.
+    private static final String IMAGE_CONTEXT_INSTRUCTIONS = """
+            Uma imagem foi anexada à pergunta e descrita automaticamente por um modelo de visão — \
+            essa descrição aparece no CONTEXTO como "[IMAGEM]", não é uma fonte numerada como as \
+            demais e não deve ser citada com colchetes numéricos.
+
+            """;
+
+    private static final String EMPTY_DIAGRAM = "flowchart LR\n    A[Dados insuficientes para gerar um diagrama]";
+
+    private static final Pattern BRACKET_LABEL = Pattern.compile("\\[([^\\[\\]]*)]");
+
+    private static final Pattern MALFORMED_EDGE_LABEL = Pattern.compile("\\|([^|\\n]*)\\|>");
+
+    /**
+     * Replaced a fixed keyword list (found broken by a real user report — "O que tem
+     * nessa imagem?" contains "imagem", which used to be a diagram-trigger keyword, so
+     * every such question about an attached photo silently misrouted to diagram
+     * generation instead of actually describing the image). A word appearing in a
+     * question says nothing reliable about intent — "imagem" can mean "describe this
+     * photo" or "draw me a picture of X" depending entirely on context a fixed list
+     * can't capture. This costs one extra, cheap, temperature-0 LLM call per question
+     * (previously routing was free), traded deliberately for actually understanding
+     * what's being asked instead of pattern-matching words.
+     */
+    private static final String ROUTING_SYSTEM_TEMPLATE = """
+            Classifique a intenção por trás da pergunta do usuário abaixo em exatamente uma palavra:
+            "DIAGRAMA" ou "RESPOSTA". Não escreva mais nada além dessa palavra.
+
+            Responda "DIAGRAMA" apenas quando o usuário pedir explicitamente para desenhar, gerar,
+            montar ou visualizar um diagrama, fluxograma, mapa mental, ou a arquitetura/fluxo de um
+            processo em formato de diagrama.
+
+            Responda "RESPOSTA" em todos os outros casos — incluindo perguntas sobre o conteúdo de
+            uma imagem ou anexo (ex.: "o que tem nessa imagem?", "descreva essa captura de tela",
+            "o que esse anexo mostra?"), mesmo que a pergunta contenha palavras como "imagem",
+            "diagrama" ou "arquitetura" de forma incidental. O que importa é a intenção real por
+            trás da pergunta, nunca a simples presença de uma palavra específica.
+            """;
+
+    // docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. No "[n]" citation numbering
+    // here unlike SYSTEM_TEMPLATE/DIAGRAM_SYSTEM_TEMPLATE - the CONTEXTO is the
+    // entire document, not a set of retrieved chunks that need per-claim citation.
+    private static final String SUMMARY_SYSTEM_TEMPLATE = """
+            Você resume documentos técnicos com base no CONTEXTO abaixo, que é o
+            conteúdo completo (ou a parte inicial, se o documento for muito longo) de
+            um único documento.
+            Regras:
+            - Escreva um resumo em texto corrido, no mesmo idioma do CONTEXTO, com
+              3 a 6 frases.
+            - Baseie-se exclusivamente no que está no CONTEXTO — não invente informação
+              que não aparece nele.
+            - Não use marcadores de citação como [1], [2] — este resumo não referencia
+              trechos individuais, o CONTEXTO inteiro já é o próprio documento.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    /**
+     * Asks for a plain, delimited text format (not JSON) on purpose — the same
+     * reasoning as {@link #DIAGRAM_SYSTEM_TEMPLATE} asking for plain Mermaid text
+     * instead of a structured shape: local models (e.g. Ollama's llama3.1) don't
+     * reliably follow a JSON schema, so {@link #parseFaqItems} does the same kind of
+     * defensive, regex-based parsing of a simple format that {@code doDiagram}'s
+     * {@code stripCodeFences}/{@code quoteBracketLabels} already do for Mermaid.
+     */
+    private static final String FAQ_SYSTEM_TEMPLATE = """
+            Você gera uma lista de perguntas e respostas frequentes (FAQ) a partir do
+            CONTEXTO abaixo, que é o conteúdo completo (ou a parte inicial, se o
+            documento for muito longo) de um único documento.
+            Regras:
+            - Gere entre 3 e 8 pares de pergunta/resposta cobrindo os pontos mais
+              importantes do documento, no mesmo idioma do CONTEXTO.
+            - Responda SOMENTE no formato abaixo, exatamente, um par por vez, com uma
+              linha em branco entre pares — sem numeração, sem markdown, sem texto
+              antes ou depois dos pares. Exemplo do formato exato (sobre um assunto
+              diferente, só para mostrar a sintaxe — não repita este exemplo):
+              P: O que é o padrão SAGA?
+              R: Um padrão para coordenar transações distribuídas.
+
+              P: Quais os dois modos do SAGA?
+              R: Choreography e orchestration.
+            - Baseie-se exclusivamente no que está no CONTEXTO — não invente informação
+              que não aparece nele.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    /**
+     * Appended to {@link #FAQ_SYSTEM_TEMPLATE} for the one retry {@link
+     * #doGenerateFaq} makes when the first attempt's response didn't parse — found
+     * for real (not hypothetical) that a denser, more formal document can make the
+     * model drift into prose instead of the requested format even with the example
+     * above; a blunter, second-person reminder recovers it more often than repeating
+     * the same instructions verbatim would.
+     */
+    private static final String FAQ_RETRY_REMINDER = """
+            IMPORTANTE: sua resposta anterior não seguiu o formato pedido. Responda
+            APENAS com pares "P: .../R: ..." como no exemplo acima — nenhuma frase de
+            introdução, nenhuma numeração, nenhum markdown.
+
+            """;
+
+    /**
+     * Loosened past a literal "P:"/"R:" after a real failure was reported against a
+     * denser document (a local model asked for this exact syntax still drifted to
+     * "Pergunta:"/"Resposta:", or prefixed a line with a number/bullet) — tolerates
+     * both label spellings, an optional leading "1."/"1)"/"-"/"*", and either kind of
+     * label carrying its own number ("Pergunta 1:"). Still a real parse, not a
+     * license to accept arbitrary prose: the block must still open with a
+     * recognizable question label immediately followed by an answer label.
+     */
+    private static final Pattern FAQ_BLOCK = Pattern.compile(
+            "^\\s*(?:[-*\\d.)]+\\s*)?(?:p(?:ergunta)?)\\s*\\d*\\s*:\\s*(.+?)\\s*"
+                    + "\\r?\\n+\\s*(?:[-*\\d.)]+\\s*)?(?:r(?:esposta)?)\\s*\\d*\\s*:\\s*(.+)$",
+            Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+
+    /**
+     * docs/adr/0057-document-comparison.md. Unlike {@link #FAQ_SYSTEM_TEMPLATE}, the
+     * response is deliberately never parsed into a per-document Java structure - a
+     * rigid parser across N documents would scale worse and be more fragile against
+     * a local model than a single-document Q&amp;A parse already is. The "structured,
+     * per-document attribution" requirement is satisfied by the model citing each
+     * point inline by its {@code [DOCUMENTO N: nome]} label instead - same
+     * bracket-citation convention {@link #SYSTEM_TEMPLATE} already uses for chunks,
+     * just at the document level.
+     */
+    private static final String COMPARISON_SYSTEM_TEMPLATE = """
+            Você compara documentos técnicos com base no CONTEXTO abaixo, que contém o
+            conteúdo completo (ou a parte inicial, se algum documento for muito longo)
+            de dois ou mais documentos, cada um precedido por um rótulo no formato
+            "[DOCUMENTO N: nome-do-arquivo]".
+            Regras:
+            - Estruture a resposta em exatamente três seções, nesta ordem, com estes
+              títulos exatos: "CONCORDÂNCIAS", "CONTRADIÇÕES" e "PONTOS ÚNICOS POR
+              DOCUMENTO".
+            - Em CONCORDÂNCIAS, liste pontos em que os documentos concordam, citando
+              quais documentos pelo rótulo [DOCUMENTO N: nome] a cada ponto.
+            - Em CONTRADIÇÕES, liste pontos em que os documentos discordam ou se
+              contradizem, citando explicitamente qual documento diz o quê.
+            - Em PONTOS ÚNICOS POR DOCUMENTO, liste, para cada documento separadamente
+              (um sub-título por documento com seu rótulo), pontos que aparecem apenas
+              naquele documento.
+            - Se uma seção não tiver nada a listar, escreva "Nenhum(a)." nela — não
+              omita a seção.
+            - Escreva no mesmo idioma predominante do CONTEXTO.
+            - Baseie-se exclusivamente no que está no CONTEXTO — não invente informação
+              que não aparece nele.
+
+            CONTEXTO:
+            {context}
+            """;
+
+    private final HybridSearchService hybridSearchService;
+    private final LlmRerankService llmRerankService;
+    private final ChatClient ollamaChatClient;
+    private final ChatClient lmStudioChatClient;
+    private final ChatClient openAiFallbackChatClient;
+    private final ChatClient anthropicFallbackChatClient;
+    private final GeminiClient geminiClient;
+    private final LlmGateway llmGateway;
+    private final RagProperties ragProperties;
+    private final FallbackProviderProperties fallbackProviderProperties;
+    private final FallbackTriggerEvaluator fallbackTriggerEvaluator;
+    private final VisionDescriptionService visionDescriptionService;
+    private final DocumentLookupTool documentLookupTool;
+    private final CostMeteringService costMeteringService;
+    private final Counter answersGeneratedCounter;
+    private final Counter diagramsGeneratedCounter;
+    private final Counter summariesGeneratedCounter;
+    private final Counter faqsGeneratedCounter;
+    private final Counter comparisonsGeneratedCounter;
+    private final Timer answerTimer;
+    private final Timer diagramTimer;
+    private final Timer summaryTimer;
+    private final Timer faqTimer;
+    private final Timer comparisonTimer;
+
+    public RagQueryService(HybridSearchService hybridSearchService, LlmRerankService llmRerankService,
+                            @Qualifier("ollama") ChatClient ollamaChatClient,
+                            @Qualifier("lmstudio") ChatClient lmStudioChatClient,
+                            @Qualifier("openaiFallback") ChatClient openAiFallbackChatClient,
+                            @Qualifier("anthropicFallback") ChatClient anthropicFallbackChatClient,
+                            GeminiClient geminiClient,
+                            LlmGateway llmGateway, RagProperties ragProperties,
+                            FallbackProviderProperties fallbackProviderProperties,
+                            FallbackTriggerEvaluator fallbackTriggerEvaluator,
+                            VisionDescriptionService visionDescriptionService,
+                            DocumentLookupTool documentLookupTool,
+                            CostMeteringService costMeteringService,
+                            MeterRegistry meterRegistry) {
+        this.hybridSearchService = hybridSearchService;
+        this.llmRerankService = llmRerankService;
+        this.ollamaChatClient = ollamaChatClient;
+        this.lmStudioChatClient = lmStudioChatClient;
+        this.openAiFallbackChatClient = openAiFallbackChatClient;
+        this.anthropicFallbackChatClient = anthropicFallbackChatClient;
+        this.geminiClient = geminiClient;
+        this.llmGateway = llmGateway;
+        this.ragProperties = ragProperties;
+        this.fallbackProviderProperties = fallbackProviderProperties;
+        this.fallbackTriggerEvaluator = fallbackTriggerEvaluator;
+        this.visionDescriptionService = visionDescriptionService;
+        this.documentLookupTool = documentLookupTool;
+        this.costMeteringService = costMeteringService;
+        this.answersGeneratedCounter = Counter.builder("rag.answers.generated")
+                .description("Number of text answers generated")
+                .register(meterRegistry);
+        this.diagramsGeneratedCounter = Counter.builder("rag.diagrams.generated")
+                .description("Number of Mermaid diagrams generated")
+                .register(meterRegistry);
+        this.answerTimer = Timer.builder("rag.answer.generation.duration")
+                .description("Time to answer a question, from retrieval to generated answer")
+                .register(meterRegistry);
+        this.diagramTimer = Timer.builder("rag.diagram.generation.duration")
+                .description("Time to generate a diagram, from retrieval to Mermaid output")
+                .register(meterRegistry);
+        this.summariesGeneratedCounter = Counter.builder("rag.summaries.generated")
+                .description("Number of per-document summaries generated")
+                .register(meterRegistry);
+        this.faqsGeneratedCounter = Counter.builder("rag.faqs.generated")
+                .description("Number of per-document FAQs generated")
+                .register(meterRegistry);
+        this.summaryTimer = Timer.builder("rag.summary.generation.duration")
+                .description("Time to generate a document summary, from lookup to generated text")
+                .register(meterRegistry);
+        this.faqTimer = Timer.builder("rag.faq.generation.duration")
+                .description("Time to generate a document FAQ, from lookup to parsed items")
+                .register(meterRegistry);
+        this.comparisonsGeneratedCounter = Counter.builder("rag.comparisons.generated")
+                .description("Number of multi-document comparisons generated")
+                .register(meterRegistry);
+        this.comparisonTimer = Timer.builder("rag.comparison.generation.duration")
+                .description("Time to generate a multi-document comparison, from lookup to generated text")
+                .register(meterRegistry);
+    }
+
+    /**
+     * Single entry point for the UI: routes to {@link #diagram(String, String, String)}
+     * when the question's actual intent is to get a diagram, otherwise to
+     * {@link #answer(String, String, boolean, boolean, String)}. Routing is a real,
+     * cheap (temperature 0, single-word output) LLM classification call — see
+     * {@link #ROUTING_SYSTEM_TEMPLATE} for why a keyword check isn't reliable enough.
+     */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model) {
+        return ask(question, tenantId, null, List.of(), grounded, rerank, model, null, null, false, null);
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): same as the 5-arg
+     * {@link #ask(String, String, boolean, boolean, String)}, plus the fallback
+     * confirmation flow's two fields — see {@link com.eniglio.ragplatform.rag.dto.ChatRequest}'s
+     * javadoc for the full contract. Never affects diagram routing; only the
+     * text-answer path checks these.
+     * <p>
+     * docs/ROADMAP.md item #24: {@code userId} threads the ABAC check down into
+     * {@link HybridSearchService}/{@link DocumentLookupTool} — {@code null} is a
+     * legitimate value (means "no additional per-document restriction beyond
+     * tenant," the pre-#24 behavior every other overload here still gets), not an
+     * error state. docs/adr/0059-department-based-sharing.md, docs/adr/0060-multi
+     * -department-membership-and-approval.md: {@code departments} follows the same
+     * "absence is legitimate" rule, represented as an empty list rather than null.
+     */
+    public AskResponse ask(String question, String tenantId, String userId, List<String> departments,
+                            boolean grounded, boolean rerank, String model, boolean useFallback,
+                            String fallbackProvider) {
+        return ask(question, tenantId, userId, departments, grounded, rerank, model, null, null, useFallback,
+                fallbackProvider);
+    }
+
+    /** Same as the 9-arg overload above, {@code userId} defaulting to {@code null}/{@code departments} to empty — kept for existing callers that predate item #24/ADR 0059. */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                            boolean useFallback, String fallbackProvider) {
+        return ask(question, tenantId, null, List.of(), grounded, rerank, model, useFallback, fallbackProvider);
+    }
+
+    /**
+     * Same routing as the 5-arg {@link #ask(String, String, boolean, boolean, String)},
+     * plus an optional image attached to this single question (never indexed —
+     * described once via {@link VisionDescriptionService} and folded into whichever
+     * path ({@link #answer}/{@link #diagram}) the question routes to). {@code
+     * imageBytes}/{@code imageMimeType} are both null when no image was attached.
+     */
+    public AskResponse ask(String question, String tenantId, String userId, List<String> departments,
+                            boolean grounded, boolean rerank, String model, byte[] imageBytes,
+                            MimeType imageMimeType) {
+        return ask(question, tenantId, userId, departments, grounded, rerank, model, imageBytes, imageMimeType,
+                false, null);
+    }
+
+    /** Same as the 8-arg overload above, {@code userId} defaulting to {@code null}/{@code departments} to empty — kept for existing callers that predate item #24/ADR 0059. */
+    public AskResponse ask(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                            byte[] imageBytes, MimeType imageMimeType) {
+        return ask(question, tenantId, null, List.of(), grounded, rerank, model, imageBytes, imageMimeType);
+    }
+
+    private AskResponse ask(String question, String tenantId, String userId, List<String> departments,
+                             boolean grounded, boolean rerank, String model, byte[] imageBytes,
+                             MimeType imageMimeType, boolean useFallback, String fallbackProvider) {
+        String imageDescription = describeImage(imageBytes, imageMimeType);
+        AvailableModel resolvedModel = resolveModel(model);
+        if (wantsDiagram(question, imageDescription, resolvedModel)) {
+            DiagramResponse diagram = diagram(question, tenantId, userId, departments, model, imageDescription);
+            return new AskResponse("diagram", null, diagram.mermaid(), diagram.citations(), null, diagram.model(),
+                    null, "local");
+        }
+        ChatResponse chat = answer(question, tenantId, userId, departments, grounded, rerank, model, imageDescription,
+                useFallback, fallbackProvider);
+        return new AskResponse("answer", chat.answer(), null, chat.citations(), chat.groundedness(), chat.model(),
+                chat.fallbackAvailable(), chat.source());
+    }
+
+    private String describeImage(byte[] imageBytes, MimeType imageMimeType) {
+        return imageBytes == null ? null : visionDescriptionService.describe(imageBytes, imageMimeType);
+    }
+
+    /**
+     * A real classification call, not a keyword match (see {@link #ROUTING_SYSTEM_TEMPLATE}).
+     * When an image is attached, the model only learns that one was attached — not its
+     * description — since the routing decision only needs to know an image exists, and
+     * keeping this prompt minimal keeps the call fast.
+     */
+    private boolean wantsDiagram(String question, String imageDescription, AvailableModel resolvedModel) {
+        String userMessage = imageDescription == null
+                ? question
+                : question + "\n\n[Uma imagem foi anexada a esta pergunta.]";
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(ROUTING_SYSTEM_TEMPLATE)
+                .user(userMessage)
+                .options(modelOptions(resolvedModel, 0.0))
+                .call()
+                .content());
+        return stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT)).contains("DIAGRAMA");
+    }
+
+    /**
+     * Keyword matching shouldn't care whether the user typed "gráfico" or "grafico" —
+     * strip accents from the question before matching so a single unaccented keyword
+     * (e.g. "grafico") covers both.
+     */
+    private String stripAccents(String text) {
+        String decomposed = Normalizer.normalize(text, Normalizer.Form.NFD);
+        return decomposed.replaceAll("\\p{M}", "");
+    }
+
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model) {
+        return answer(question, tenantId, null, List.of(), grounded, rerank, model, null, false, null);
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): same as the 5-arg
+     * {@link #answer(String, String, boolean, boolean, String)}, plus the fallback
+     * confirmation flow's two fields. docs/ROADMAP.md item #24: see {@link #ask}'s
+     * equivalent overload's javadoc for what {@code userId} does and why {@code null}
+     * is a legitimate value, not an error state. docs/adr/0059-department-based-sharing.md,
+     * docs/adr/0060-multi-department-membership-and-approval.md: {@code departments}
+     * follows the same rule, represented as an empty list rather than null.
+     */
+    public ChatResponse answer(String question, String tenantId, String userId, List<String> departments,
+                                boolean grounded, boolean rerank, String model, boolean useFallback,
+                                String fallbackProvider) {
+        return answer(question, tenantId, userId, departments, grounded, rerank, model, null, useFallback,
+                fallbackProvider);
+    }
+
+    /** Same as the 9-arg overload above, {@code userId} defaulting to {@code null}/{@code departments} to empty — kept for existing callers that predate item #24/ADR 0059. */
+    public ChatResponse answer(String question, String tenantId, boolean grounded, boolean rerank, String model,
+                                boolean useFallback, String fallbackProvider) {
+        return answer(question, tenantId, null, List.of(), grounded, rerank, model, useFallback, fallbackProvider);
+    }
+
+    private ChatResponse answer(String question, String tenantId, String userId, List<String> departments,
+                                 boolean grounded, boolean rerank, String model, String imageDescription,
+                                 boolean useFallback, String fallbackProvider) {
+        ChatResponse response = answerTimer.record(
+                () -> doAnswer(question, tenantId, userId, departments, grounded, rerank, model, imageDescription,
+                        useFallback, fallbackProvider));
+        answersGeneratedCounter.increment();
+        return response;
+    }
+
+    private ChatResponse doAnswer(String question, String tenantId, String userId, List<String> departments,
+                                   boolean grounded, boolean rerank, String model, String imageDescription,
+                                   boolean useFallback, String fallbackProvider) {
+        int limit = rerank ? ragProperties.rerankCandidatePoolSize() : ragProperties.topK();
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, departments, limit);
+        if (rerank) {
+            retrieved = llmRerankService.rerank(question, retrieved, ragProperties.topK());
+        }
+
+        AvailableModel resolvedModel = resolveModel(model);
+
+        // Multi-LLM Phase 2c: an attached image can fully answer the question on its
+        // own (e.g. "what does this diagram show?") even with zero relevant chunks in
+        // the knowledge base, and its vision-description call already just succeeded
+        // through the local provider moments earlier - the public-LLM fallback is
+        // never offered while an image is attached, same precedent as the pre-Phase-2b
+        // "image alone can answer" short-circuit this replaces.
+        if (imageDescription == null && fallbackTriggerEvaluator.shouldOfferFallback(resolvedModel.provider(), retrieved)) {
+            if (useFallback) {
+                return answerViaPublicLlmFallback(question, fallbackProvider);
+            }
+            log.info("Local retrieval/generation insufficient, offering the public-LLM fallback instead of failing");
+            return new ChatResponse(
+                    "Não encontrei informação suficiente na base de conhecimento local para responder a essa "
+                            + "pergunta.",
+                    List.of(), null, null, true, null);
+        }
+
+        String context = buildContext(retrieved);
+        String systemTemplate = SYSTEM_TEMPLATE;
+        if (imageDescription != null) {
+            context = withImageContext(context, imageDescription);
+            systemTemplate = IMAGE_CONTEXT_INSTRUCTIONS + SYSTEM_TEMPLATE;
+        }
+        String finalContext = context;
+        String finalSystemTemplate = systemTemplate;
+
+        // Multi-LLM Phase 9: tenantId comes from ToolContext, a server-side channel
+        // the model never sees or controls - see DocumentLookupTool's own javadoc for
+        // why that boundary matters here specifically. docs/ROADMAP.md item #24 added
+        // userId alongside it, same channel, same reasoning - the model must not be
+        // able to supply or override either. docs/adr/0059-department-based-sharing.md,
+        // docs/adr/0060-multi-department-membership-and-approval.md added departments
+        // the same way, for the same reason.
+        Map<String, Object> toolContext = new HashMap<>();
+        toolContext.put("tenantId", tenantId);
+        if (userId != null) {
+            toolContext.put("userId", userId);
+        }
+        if (departments != null && !departments.isEmpty()) {
+            toolContext.put("departments", departments);
+        }
+        String answer = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
+                .user(question)
+                .options(modelOptions(resolvedModel, null))
+                .tools(documentLookupTool)
+                .toolContext(toolContext)
+                .call()
+                .content());
+
+        List<Citation> citations = buildCitations(retrieved);
+
+        // Second-stage fallback trigger, deliberately separate from
+        // FallbackTriggerEvaluator above: that one runs *before* generation, off
+        // retrieval/circuit-breaker state alone, and can't see cases like hybrid
+        // search's full-text leg keyword-matching a common word ("código") into
+        // documents with nothing to do with the actual question - retrieved comes
+        // back non-empty, so the pre-generation gate never fires, and the model
+        // then has to answer from irrelevant context. checkGroundedness already
+        // exists for exactly this (a second LLM call verifying the answer is
+        // actually supported by its context, ADR 0008) - now always run, not just
+        // when a caller opts in via `grounded`, specifically to catch this case
+        // instead of returning an unhelpful "I don't have enough information"
+        // answer as if it were a normal, successful one. The extra Ollama round
+        // trip on every question is a real, accepted cost, not an oversight.
+        Groundedness groundednessVerdict = checkGroundedness(context, answer, resolvedModel);
+        if (imageDescription == null && groundednessVerdict == Groundedness.NOT_SUPPORTED) {
+            if (useFallback) {
+                return answerViaPublicLlmFallback(question, fallbackProvider);
+            }
+            log.info("Local answer wasn't grounded in the retrieved context, offering the public-LLM fallback "
+                    + "instead of returning it");
+            return new ChatResponse(
+                    "Não encontrei informação suficiente na base de conhecimento local para responder a essa "
+                            + "pergunta.",
+                    List.of(), null, null, true, null);
+        }
+
+        log.info("Answered question using {} retrieved chunks{}", retrieved.size(),
+                imageDescription != null ? " and an attached image" : "");
+
+        Groundedness exposedGroundedness = grounded ? groundednessVerdict : null;
+        return new ChatResponse(answer, citations, exposedGroundedness, resolvedModel.id(), null, "local");
+    }
+
+    /**
+     * Multi-LLM Phase 2c (ADR 0038): the actual public-LLM call, made only once the
+     * caller has explicitly confirmed via {@code useFallback: true}. Deliberately
+     * sends only the raw {@code question} — never {@code context}, retrieved chunks,
+     * or the {@link DocumentLookupTool} — this is the one boundary that keeps this
+     * tenant's document content from ever reaching a public API through this path.
+     * {@code citations} is always empty and {@code groundedness} always {@code null}:
+     * neither concept applies to an answer that was never grounded in this tenant's
+     * documents in the first place.
+     * <p>
+     * Multi-LLM Phase 2e (ADR 0045): a three-way dispatch now, not a boolean —
+     * {@code "openai"}/{@code "anthropic"}/anything else (including {@code null},
+     * the default) resolves to one of the three fallback providers. Every provider
+     * is checked for a configured API key <em>before</em> ever attempting a call
+     * (never wasting a network round trip on a provider that was never going to
+     * work), and a real, external rejection from the provider itself (invalid key,
+     * no credits/quota — OpenAI's own real zero-credits account, ADR 0036, is
+     * exactly this case) is caught and turned into a clear, graceful answer instead
+     * of propagating as a raw exception into a generic 500. Genuine infrastructure
+     * signals — the circuit breaker already open, the (non-existent, by design)
+     * bulkhead full, or no response at all after retries — are deliberately
+     * re-thrown unchanged: those already have their own correct, tested handling
+     * (ADR 0017/0043) and must not be silently swallowed into an always-200
+     * response.
+     */
+    private ChatResponse answerViaPublicLlmFallback(String question, String fallbackProvider) {
+        String provider = normalizeFallbackProvider(fallbackProvider);
+        String apiKey = apiKeyFor(provider);
+        if (apiKey == null || apiKey.isBlank()) {
+            log.warn("Public-LLM fallback provider '{}' has no API key configured, skipping the call", provider);
+            return unavailableFallbackResponse(provider);
+        }
+        try {
+            FallbackCallResult result = callFallbackProvider(provider, question);
+            costMeteringService.recordFallbackCall(provider, modelIdFor(provider), result.promptTokens(),
+                    result.completionTokens());
+            log.info("Answered question using the public-LLM fallback ({}), never grounded in tenant documents",
+                    provider);
+            return new ChatResponse(result.answer(), List.of(), null, modelIdFor(provider), null, "public-llm");
+        } catch (CallNotPermittedException | BulkheadFullException | ResourceAccessException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            log.warn("Public-LLM fallback provider '{}' rejected the request (invalid key or no credits): {}",
+                    provider, e.getMessage());
+            return unavailableFallbackResponse(provider);
+        }
+    }
+
+    /** {@code null}/anything not explicitly recognized defaults to Gemini (ADR 0036: the only one of the three verified working end-to-end so far). */
+    private String normalizeFallbackProvider(String fallbackProvider) {
+        if ("openai".equalsIgnoreCase(fallbackProvider) || "anthropic".equalsIgnoreCase(fallbackProvider)) {
+            return fallbackProvider.toLowerCase(Locale.ROOT);
+        }
+        return "gemini";
+    }
+
+    private String apiKeyFor(String provider) {
+        return switch (provider) {
+            case "openai" -> fallbackProviderProperties.openai().apiKey();
+            case "anthropic" -> fallbackProviderProperties.anthropic().apiKey();
+            default -> fallbackProviderProperties.gemini().apiKey();
+        };
+    }
+
+    private String modelIdFor(String provider) {
+        return switch (provider) {
+            case "openai" -> fallbackProviderProperties.openai().model();
+            case "anthropic" -> fallbackProviderProperties.anthropic().model();
+            default -> fallbackProviderProperties.gemini().model();
+        };
+    }
+
+    /** docs/adr/0056-llm-cost-metering-for-fallback-calls.md: {@code promptTokens}/{@code completionTokens} feed {@link CostMeteringService}. */
+    private record FallbackCallResult(String answer, int promptTokens, int completionTokens) {
+    }
+
+    private FallbackCallResult callFallbackProvider(String provider, String question) {
+        return switch (provider) {
+            case "openai" -> llmGateway.callOpenAiFallback(
+                    () -> toFallbackCallResult(openAiFallbackChatClient.prompt(question).call().chatResponse()));
+            case "anthropic" -> llmGateway.callAnthropicFallback(
+                    () -> toFallbackCallResult(anthropicFallbackChatClient.prompt(question).call().chatResponse()));
+            default -> llmGateway.callGeminiFallback(() -> {
+                GeminiClient.GenerationResult result = geminiClient.generateContent(question);
+                return new FallbackCallResult(result.text(), result.promptTokens(), result.completionTokens());
+            });
+        };
+    }
+
+    /**
+     * Fully-qualified return type deliberately, not imported: {@code
+     * org.springframework.ai.chat.model.ChatResponse} (Spring AI's own) would
+     * collide with this file's own {@code ChatResponse} DTO import
+     * ({@code com.eniglio.ragplatform.rag.dto.ChatResponse}).
+     */
+    private static FallbackCallResult toFallbackCallResult(org.springframework.ai.chat.model.ChatResponse springResponse) {
+        String text = springResponse.getResult().getOutput().getText();
+        var usage = springResponse.getMetadata().getUsage();
+        return new FallbackCallResult(text, usage.getPromptTokens(), usage.getCompletionTokens());
+    }
+
+    private ChatResponse unavailableFallbackResponse(String provider) {
+        String label = switch (provider) {
+            case "openai" -> "OpenAI";
+            case "anthropic" -> "Anthropic";
+            default -> "Gemini";
+        };
+        String message = "O provedor de IA pública (" + label + ") não está disponível no momento "
+                + "(chave de API não configurada ou sem créditos). Tente novamente mais tarde ou, se possível, "
+                + "escolha outro provedor.";
+        return new ChatResponse(message, List.of(), null, null, null, "public-llm-unavailable");
+    }
+
+    /**
+     * Prepends the image's description as a distinct, non-numbered "[IMAGEM]" block
+     * ahead of the numbered retrieved-chunk context — see
+     * {@link #IMAGE_CONTEXT_INSTRUCTIONS} for why it must never share numbering with
+     * the citations array.
+     */
+    private String withImageContext(String context, String imageDescription) {
+        String imageBlock = "[IMAGEM] " + imageDescription;
+        return context.isBlank() ? imageBlock : imageBlock + "\n\n" + context;
+    }
+
+    /**
+     * Falls back to the first (default) entry in {@code rag.available-models}
+     * (ADR 0017) when nothing was requested, or when the requested id isn't in that
+     * list — a stale/mistyped id from a client shouldn't break the whole question.
+     * Always returns a genuinely callable model: the "auto" sentinel entry (ADR 0025)
+     * is resolved to {@link #firstConcreteModel} right here, once, so every caller —
+     * {@link #clientFor}, {@link #callLlm}, {@link #modelOptions}, and the {@code
+     * model} field returned to the client — automatically sees a real provider and
+     * id, never the literal string "auto".
+     */
+    private AvailableModel resolveModel(String requestedModel) {
+        List<AvailableModel> available = ragProperties.availableModels();
+        AvailableModel selected;
+        if (requestedModel == null || requestedModel.isBlank()) {
+            selected = available.get(0);
+        } else {
+            selected = available.stream()
+                    .filter(m -> m.id().equals(requestedModel))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        // Strip CR/LF before logging: requestedModel comes straight from the
+                        // request body (ADR 0017), so a value crafted with newlines could
+                        // otherwise forge fake-looking extra log lines (log injection, CWE-117).
+                        String sanitized = requestedModel.replaceAll("[\r\n]", "_");
+                        log.warn("Requested model '{}' is not in rag.available-models, using the default",
+                                sanitized);
+                        return available.get(0);
+                    });
+        }
+        return "auto".equals(selected.provider()) ? firstConcreteModel(available) : selected;
+    }
+
+    /**
+     * The model "auto" actually means today (ADR 0025): the first entry in
+     * {@code rag.available-models} that isn't itself the "auto" sentinel. No
+     * question-dependent logic yet — deliberately, since there's currently only
+     * one or two locally/self-hosted models configured per environment, not a real
+     * pool of providers worth choosing between intelligently. See
+     * {@code docs/MULTI-LLM-ORCHESTRATOR-ROADMAP.md} for where that would evolve.
+     */
+    private AvailableModel firstConcreteModel(List<AvailableModel> available) {
+        return available.stream()
+                .filter(m -> !"auto".equals(m.provider()))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "rag.available-models has no concrete (non-auto) entry configured"));
+    }
+
+    /** Picks the {@code ChatClient} backing {@code model}'s provider (ADR 0017). */
+    private ChatClient clientFor(AvailableModel model) {
+        return "lmstudio".equals(model.provider()) ? lmStudioChatClient : ollamaChatClient;
+    }
+
+    /**
+     * Dispatches through the gateway method matching {@code model}'s provider, so
+     * each provider's circuit breaker/retry is tracked separately (ADR 0017) — must be
+     * an external call through the {@code LlmGateway} bean, never {@code this.*},
+     * or Resilience4j's proxy-based interception silently does nothing (ADR 0009's
+     * self-invocation gotcha).
+     */
+    private <T> T callLlm(AvailableModel model, Supplier<T> chatCall) {
+        return "lmstudio".equals(model.provider()) ? llmGateway.callLmStudio(chatCall) : llmGateway.callOllama(chatCall);
+    }
+
+    /**
+     * Only non-null fields here override the {@code ChatClient}'s configured default
+     * options bean — Spring AI merges per-call options with it field by field, so
+     * leaving {@code temperature} null when not overriding keeps whatever the default
+     * bean already has. {@code model} is always set explicitly (ADR 0017): unlike
+     * temperature, which has one shared default per provider, the model id is the
+     * whole point of this override and {@link #resolveModel} always returns a concrete
+     * one, never a "use whatever's default" signal.
+     */
+    private ChatOptions modelOptions(AvailableModel model, Double temperature) {
+        if ("lmstudio".equals(model.provider())) {
+            OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder().model(model.id());
+            if (temperature != null) {
+                builder.temperature(temperature);
+            }
+            return builder.build();
+        }
+        OllamaOptions.Builder builder = OllamaOptions.builder().model(model.id());
+        if (temperature != null) {
+            builder.temperature(temperature);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Retrieval only, no generation — used by chat-service (ADR 0013) so it can build
+     * its own conversation-aware answer without paying for (and discarding) a full
+     * generation call here too. Returns full chunk text ({@link RetrievedChunk}), not
+     * the truncated {@link Citation#snippet()} — a caller using this as real
+     * generation context needs the whole chunk, not a display-sized preview.
+     */
+    public List<RetrievedChunk> retrieve(String question, String tenantId) {
+        return retrieve(question, tenantId, null, List.of());
+    }
+
+    /** docs/ROADMAP.md item #24 / docs/adr/0059-department-based-sharing.md / docs/adr/0060-multi-department-membership-and-approval.md: see {@link #ask}'s equivalent overload's javadoc for what {@code userId}/{@code departments} do. */
+    public List<RetrievedChunk> retrieve(String question, String tenantId, String userId, List<String> departments) {
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, departments, ragProperties.topK());
+        return retrieved.stream()
+                .map(doc -> new RetrievedChunk(
+                        String.valueOf(doc.getMetadata().getOrDefault("source", "unknown")),
+                        toInteger(doc.getMetadata().get("chunkIndex")),
+                        doc.getScore(),
+                        doc.getText()))
+                .toList();
+    }
+
+    /**
+     * A second LLM call asking whether the answer is actually backed by the retrieved
+     * context (ADR 0008) — always run from {@link #doAnswer}, not opt-in, since its
+     * verdict now also gates the public-LLM fallback offer, not just the exposed
+     * {@code groundedness} response field. Temperature 0.0 for the same reason as
+     * diagram generation: this is a classification, not prose, so deterministic
+     * output is worth more than variety.
+     */
+    private Groundedness checkGroundedness(String context, String answer, AvailableModel resolvedModel) {
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(GROUNDEDNESS_SYSTEM_TEMPLATE).param("context", context))
+                .user("RESPOSTA:\n" + answer)
+                .options(modelOptions(resolvedModel, 0.0))
+                .call()
+                .content());
+        return parseGroundedness(verdict);
+    }
+
+    /**
+     * Public entry point for {@code RagQualityBenchmark} (Multi-LLM Phase 8) to reuse
+     * this exact faithfulness check outside the live {@code /api/v1/ask} request
+     * cycle — resolves the default model rather than requiring a caller that only has
+     * a (question, answer, context) triple to also know about model selection.
+     */
+    public Groundedness checkGroundedness(String context, String answer) {
+        return checkGroundedness(context, answer, resolveModel(null));
+    }
+
+    private Groundedness parseGroundedness(String verdict) {
+        String normalized = stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT));
+        if (normalized.contains("NAO_SUPORTADA") || normalized.contains("NAO SUPORTADA")) {
+            return Groundedness.NOT_SUPPORTED;
+        }
+        if (normalized.contains("SUPORTADA")) {
+            return Groundedness.SUPPORTED;
+        }
+        log.warn("Unexpected groundedness verdict from model, defaulting to SUPPORTED: {}", verdict);
+        return Groundedness.SUPPORTED;
+    }
+
+    /**
+     * Multi-LLM Phase 8: independent of faithfulness above — this judges one
+     * retrieved chunk against the question alone, with no knowledge of what the
+     * final answer said. A bad retrieval can still yield a faithful-looking answer
+     * (the model already "knew" the fact), so context relevance catches a different
+     * failure than groundedness does.
+     */
+    public ContextRelevance checkContextRelevance(String question, String chunkContent) {
+        AvailableModel resolvedModel = resolveModel(null);
+        String verdict = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(CONTEXT_RELEVANCE_SYSTEM_TEMPLATE).param("question", question))
+                .user("TRECHO:\n" + chunkContent)
+                .options(modelOptions(resolvedModel, 0.0))
+                .call()
+                .content());
+        return parseContextRelevance(verdict);
+    }
+
+    private ContextRelevance parseContextRelevance(String verdict) {
+        String normalized = stripAccents((verdict == null ? "" : verdict).toUpperCase(Locale.ROOT));
+        // "IRRELEVANTE" contains "RELEVANTE" as a substring - same ordering pitfall
+        // already handled in parseGroundedness above, checked first here too.
+        if (normalized.contains("IRRELEVANTE")) {
+            return ContextRelevance.NOT_RELEVANT;
+        }
+        if (normalized.contains("RELEVANTE")) {
+            return ContextRelevance.RELEVANT;
+        }
+        log.warn("Unexpected context-relevance verdict from model, defaulting to RELEVANT: {}", verdict);
+        return ContextRelevance.RELEVANT;
+    }
+
+    public DiagramResponse diagram(String question, String tenantId, String model) {
+        return diagram(question, tenantId, null, List.of(), model, null);
+    }
+
+    /** docs/ROADMAP.md item #24 / docs/adr/0059-department-based-sharing.md / docs/adr/0060-multi-department-membership-and-approval.md: see {@link #ask}'s equivalent overload's javadoc for what {@code userId}/{@code departments} do. */
+    public DiagramResponse diagram(String question, String tenantId, String userId, List<String> departments,
+                                    String model) {
+        return diagram(question, tenantId, userId, departments, model, null);
+    }
+
+    /** docs/ROADMAP.md item #24 / docs/adr/0059-department-based-sharing.md / docs/adr/0060-multi-department-membership-and-approval.md: see {@link #ask}'s equivalent overload's javadoc for what {@code userId}/{@code departments} do. */
+    private DiagramResponse diagram(String question, String tenantId, String userId, List<String> departments,
+                                     String model, String imageDescription) {
+        DiagramResponse response = diagramTimer.record(
+                () -> doDiagram(question, tenantId, userId, departments, model, imageDescription));
+        diagramsGeneratedCounter.increment();
+        return response;
+    }
+
+    private DiagramResponse doDiagram(String question, String tenantId, String userId, List<String> departments,
+                                       String model, String imageDescription) {
+        List<Document> retrieved = hybridSearchService.search(question, tenantId, userId, departments, ragProperties.topK());
+
+        // Same reasoning as doAnswer: an attached image (e.g. a screenshot of an
+        // architecture) can supply everything needed to draw a diagram even with zero
+        // matching chunks in the knowledge base.
+        if (retrieved.isEmpty() && imageDescription == null) {
+            log.info("No relevant chunks found for diagram question");
+            return new DiagramResponse(EMPTY_DIAGRAM, List.of(), null);
+        }
+
+        String context = buildContext(retrieved);
+        String systemTemplate = DIAGRAM_SYSTEM_TEMPLATE;
+        if (imageDescription != null) {
+            context = withImageContext(context, imageDescription);
+            systemTemplate = IMAGE_CONTEXT_INSTRUCTIONS + DIAGRAM_SYSTEM_TEMPLATE;
+        }
+        String finalContext = context;
+        String finalSystemTemplate = systemTemplate;
+        AvailableModel resolvedModel = resolveModel(model);
+
+        String mermaid;
+        String usedModel = resolvedModel.id();
+        try {
+            String raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                    .system(spec -> spec.text(finalSystemTemplate).param("context", finalContext))
+                    .user(question)
+                    .options(modelOptions(resolvedModel, 0.0))
+                    .call()
+                    .content());
+            mermaid = fixMalformedEdgeLabels(quoteBracketLabels(stripCodeFences(raw)));
+        } catch (Exception e) {
+            log.warn("Failed to generate a diagram from the model response", e);
+            mermaid = EMPTY_DIAGRAM;
+            usedModel = null;
+        }
+
+        List<Citation> citations = buildCitations(retrieved);
+
+        log.info("Generated diagram using {} retrieved chunks{}", retrieved.size(),
+                imageDescription != null ? " and an attached image" : "");
+
+        return new DiagramResponse(mermaid, citations, usedModel);
+    }
+
+    /**
+     * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. Whole-document retrieval (via
+     * {@link HybridSearchService#findByDocumentId}), not a similarity search — every
+     * chunk of the document, in order, is the context, so there's no groundedness
+     * check here the way {@link #doAnswer} needs one: the context can't fail to
+     * contain the answer the way a top-K similarity result might. No public-LLM
+     * fallback either, same scope as {@link #diagram}.
+     */
+    public SummaryResponse summarizeDocument(String documentId, String tenantId, String userId,
+                                              List<String> departments, String model) {
+        return summaryTimer.record(() -> doSummarize(documentId, tenantId, userId, departments, model));
+    }
+
+    private SummaryResponse doSummarize(String documentId, String tenantId, String userId, List<String> departments,
+                                         String model) {
+        List<Document> chunks = hybridSearchService.findByDocumentId(documentId, tenantId, userId, departments);
+        if (chunks.isEmpty()) {
+            throw new DocumentNotFoundException("No document found with id: " + documentId);
+        }
+        String source = sourceOf(chunks);
+        String context = buildWholeDocumentContext(chunks);
+        AvailableModel resolvedModel = resolveModel(model);
+
+        String summary = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(SUMMARY_SYSTEM_TEMPLATE).param("context", context))
+                .user("Resuma o documento.")
+                .options(modelOptions(resolvedModel, 0.3))
+                .call()
+                .content());
+
+        summariesGeneratedCounter.increment();
+        log.info("Generated summary for documentId={} source={} usedChunks={}", documentId, source, chunks.size());
+        return new SummaryResponse(summary == null ? "" : summary.trim(), source, documentId, resolvedModel.id());
+    }
+
+    /**
+     * docs/PRODUCT-DIFFERENTIATION-ROADMAP.md Phase 8. Same whole-document retrieval
+     * as {@link #summarizeDocument}. Asks the model for a plain delimited text format
+     * rather than JSON — see {@link #FAQ_SYSTEM_TEMPLATE}'s javadoc for why — then
+     * parses it defensively via {@link #parseFaqItems}. Unlike {@code doDiagram}'s
+     * silent fallback to an empty diagram on failure, an unparseable response here
+     * throws {@link FaqGenerationException}: an empty FAQ list would be
+     * indistinguishable from "this document genuinely has nothing to ask," which
+     * isn't a useful default to fail into silently.
+     * <p>
+     * Found for real against a denser document (a formal PDF, not this project's
+     * usual Markdown fixtures): the first attempt can drift out of the requested
+     * format even with the few-shot example in {@link #FAQ_SYSTEM_TEMPLATE}. One
+     * retry with {@link #FAQ_RETRY_REMINDER} appended recovers a real, non-trivial
+     * fraction of those cases cheaply enough to be worth it (one extra local-model
+     * call, only on the failure path). If both attempts fail, the raw second
+     * response is logged at WARN — the exact thing that was missing before this fix,
+     * which made the very first real failure report undiagnosable from logs alone.
+     */
+    public FaqResponse generateFaq(String documentId, String tenantId, String userId, List<String> departments,
+                                    String model) {
+        return faqTimer.record(() -> doGenerateFaq(documentId, tenantId, userId, departments, model));
+    }
+
+    private FaqResponse doGenerateFaq(String documentId, String tenantId, String userId, List<String> departments,
+                                       String model) {
+        List<Document> chunks = hybridSearchService.findByDocumentId(documentId, tenantId, userId, departments);
+        if (chunks.isEmpty()) {
+            throw new DocumentNotFoundException("No document found with id: " + documentId);
+        }
+        String source = sourceOf(chunks);
+        String context = buildWholeDocumentContext(chunks);
+        AvailableModel resolvedModel = resolveModel(model);
+
+        String raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(FAQ_SYSTEM_TEMPLATE).param("context", context))
+                .user("Gere o FAQ.")
+                .options(modelOptions(resolvedModel, 0.3))
+                .call()
+                .content());
+        List<FaqResponse.FaqItem> items = parseFaqItems(raw);
+
+        if (items.isEmpty()) {
+            log.warn("FAQ response didn't parse on the first attempt for documentId={}, retrying once", documentId);
+            String retryTemplate = FAQ_RETRY_REMINDER + FAQ_SYSTEM_TEMPLATE;
+            raw = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                    .system(spec -> spec.text(retryTemplate).param("context", context))
+                    .user("Gere o FAQ.")
+                    .options(modelOptions(resolvedModel, 0.3))
+                    .call()
+                    .content());
+            items = parseFaqItems(raw);
+        }
+
+        if (items.isEmpty()) {
+            log.warn("Could not parse a FAQ for documentId={} after retrying - raw model response: {}",
+                    documentId, raw);
+            throw new FaqGenerationException("Could not parse a valid FAQ from the model's response");
+        }
+
+        faqsGeneratedCounter.increment();
+        log.info("Generated FAQ for documentId={} source={} usedChunks={} items={}",
+                documentId, source, chunks.size(), items.size());
+        return new FaqResponse(items, source, documentId, resolvedModel.id());
+    }
+
+    /**
+     * docs/adr/0057-document-comparison.md. Same whole-document retrieval and
+     * no-fallback scope as {@link #summarizeDocument}/{@link #generateFaq} above, run
+     * once per {@code documentId}. Fail-closed on the first inaccessible id
+     * ({@link DocumentNotFoundException}, same as a single-document lookup) rather
+     * than silently comparing a subset - otherwise a caller could infer a restricted
+     * document's existence by noticing it quietly dropped out of the comparison.
+     */
+    public ComparisonResponse compareDocuments(List<String> documentIds, String tenantId, String userId,
+                                                List<String> departments, String model) {
+        return comparisonTimer.record(() -> doCompareDocuments(documentIds, tenantId, userId, departments, model));
+    }
+
+    private ComparisonResponse doCompareDocuments(List<String> documentIds, String tenantId, String userId,
+                                                   List<String> departments, String model) {
+        int maxDocuments = ragProperties.documentComparison().maxDocuments();
+        if (documentIds.size() > maxDocuments) {
+            throw new TooManyDocumentsToCompareException(
+                    "Cannot compare more than " + maxDocuments + " documents at once (requested "
+                            + documentIds.size() + ")");
+        }
+
+        List<String> sources = new ArrayList<>();
+        StringBuilder combinedContext = new StringBuilder();
+        for (int i = 0; i < documentIds.size(); i++) {
+            String documentId = documentIds.get(i);
+            List<Document> chunks = hybridSearchService.findByDocumentId(documentId, tenantId, userId, departments);
+            if (chunks.isEmpty()) {
+                throw new DocumentNotFoundException("No document found with id: " + documentId);
+            }
+            String source = sourceOf(chunks);
+            sources.add(source);
+            combinedContext.append("[DOCUMENTO ").append(i + 1).append(": ").append(source).append("]\n")
+                    .append(buildWholeDocumentContext(chunks)).append("\n\n");
+        }
+
+        AvailableModel resolvedModel = resolveModel(model);
+        String comparison = callLlm(resolvedModel, () -> clientFor(resolvedModel).prompt()
+                .system(spec -> spec.text(COMPARISON_SYSTEM_TEMPLATE).param("context", combinedContext.toString()))
+                .user("Compare os documentos.")
+                .options(modelOptions(resolvedModel, 0.3))
+                .call()
+                .content());
+
+        comparisonsGeneratedCounter.increment();
+        log.info("Compared {} documents: {}", documentIds.size(), sources);
+        return new ComparisonResponse(comparison == null ? "" : comparison.trim(), sources, documentIds,
+                resolvedModel.id());
+    }
+
+    private String sourceOf(List<Document> chunks) {
+        return String.valueOf(chunks.get(0).getMetadata().getOrDefault("source", "unknown"));
+    }
+
+    /**
+     * Truncates to the first {@code rag.document-insights.max-chunks} chunks (document
+     * order, so "the first part of the document") rather than sending an unbounded
+     * amount of text to the model — same "explicit, documented cap" philosophy as
+     * ingestion-service's upload/URL-fetch size limits.
+     */
+    private String buildWholeDocumentContext(List<Document> chunks) {
+        int maxChunks = ragProperties.documentInsights().maxChunks();
+        List<Document> bounded = chunks.size() > maxChunks ? chunks.subList(0, maxChunks) : chunks;
+        String joined = bounded.stream().map(Document::getText).collect(Collectors.joining("\n\n"));
+        return bounded.size() < chunks.size()
+                ? joined + "\n\n[Documento truncado - mostrando apenas o início]"
+                : joined;
+    }
+
+    private List<FaqResponse.FaqItem> parseFaqItems(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        String[] blocks = raw.strip().split("\\r?\\n\\s*\\r?\\n+");
+        List<FaqResponse.FaqItem> items = new ArrayList<>();
+        for (String block : blocks) {
+            Matcher matcher = FAQ_BLOCK.matcher(block.strip());
+            if (matcher.matches()) {
+                items.add(new FaqResponse.FaqItem(matcher.group(1).strip(), matcher.group(2).strip()));
+            }
+        }
+        return items;
+    }
+
+    private String stripCodeFences(String text) {
+        if (text == null || text.isBlank()) {
+            return EMPTY_DIAGRAM;
+        }
+        String trimmed = text.trim();
+        if (trimmed.startsWith("```")) {
+            trimmed = trimmed.replaceFirst("^```[a-zA-Z]*\\r?\\n?", "");
+            int lastFence = trimmed.lastIndexOf("```");
+            if (lastFence >= 0) {
+                trimmed = trimmed.substring(0, lastFence);
+            }
+        }
+        return trimmed.trim();
+    }
+
+    /**
+     * The model doesn't always quote node labels as instructed, and an unquoted label
+     * containing punctuation like parentheses breaks Mermaid's parser (e.g. "A[Multi-AZ
+     * (HA)]"). Force every rectangle-node label into a quoted string, which Mermaid
+     * accepts regardless of what punctuation it contains.
+     */
+    private String quoteBracketLabels(String mermaid) {
+        Matcher matcher = BRACKET_LABEL.matcher(mermaid);
+        StringBuilder result = new StringBuilder();
+        while (matcher.find()) {
+            String label = matcher.group(1).trim();
+            String quoted = label.startsWith("\"") && label.endsWith("\"")
+                    ? label
+                    : "\"" + label.replace("\"", "'") + "\"";
+            matcher.appendReplacement(result, Matcher.quoteReplacement("[" + quoted + "]"));
+        }
+        matcher.appendTail(result);
+        return result.toString();
+    }
+
+    /**
+     * The model sometimes writes edge labels as {@code -->|texto|>} (a stray ">" after
+     * the closing pipe) instead of the valid {@code -->|texto|}, which Mermaid's parser
+     * rejects. Strip the extra ">" wherever it directly follows a pipe-delimited label.
+     */
+    private String fixMalformedEdgeLabels(String mermaid) {
+        return MALFORMED_EDGE_LABEL.matcher(mermaid).replaceAll("|$1|");
+    }
+
+    private String buildContext(List<Document> documents) {
+        return IntStream.range(0, documents.size())
+                .mapToObj(i -> "[%d] %s".formatted(i + 1, documents.get(i).getText()))
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    private List<Citation> buildCitations(List<Document> documents) {
+        return documents.stream()
+                .map(doc -> new Citation(
+                        String.valueOf(doc.getMetadata().getOrDefault("source", "unknown")),
+                        toInteger(doc.getMetadata().get("chunkIndex")),
+                        doc.getScore(),
+                        snippet(doc.getText())))
+                .toList();
+    }
+
+    private Integer toInteger(Object value) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        return null;
+    }
+
+    private String snippet(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= 200 ? text : text.substring(0, 200) + "...";
+    }
+}

@@ -1,0 +1,31 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.log
+*.iml
+.idea/
+*.ipr
+*.iws
+out/
+.vscode/
+.settings/
+.classpath
+.project
+.DS_Store
+*.env
+.env
+.env.secret
+kubernetes/base/.env.secret
+kubernetes/base/jwt-signing-key.pem
+credenciais/
+ollama-data/
+postgres-data/
+# docs/ROADMAP.md item #18: a real pg_dumpall backup contains every tenant's
+# data, including bcrypt password hashes - never committed.
+backups/
+
+# web-ui Cypress E2E suite (Multi-LLM roadmap: E2E testing phase)
+node_modules/
+web-ui/cypress/videos/
+web-ui/cypress/screenshots/
+web-ui/cypress/downloads/
