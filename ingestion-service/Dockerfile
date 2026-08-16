@@ -1,4 +1,4 @@
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 
 COPY .mvn/ .mvn/
@@ -14,7 +14,7 @@ COPY platform-common/src platform-common/src
 COPY ingestion-service/src ingestion-service/src
 RUN ./mvnw -q -pl ingestion-service -am package -DskipTests
 
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:25-jre
 WORKDIR /app
 COPY --from=build /workspace/ingestion-service/target/ingestion-service.jar app.jar
 EXPOSE 8081
